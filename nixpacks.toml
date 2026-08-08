@@ -1,0 +1,17 @@
+# Railway build plan.
+#
+# The app is a static SPA; `vite preview` serves the built `dist/` on the port
+# Railway injects via $PORT. There is no backend, no database and no runtime
+# secret — the workbook never leaves the browser.
+
+[phases.setup]
+nixPkgs = ['nodejs_20']
+
+[phases.install]
+cmds = ['npm ci']
+
+[phases.build]
+cmds = ['npm run typecheck', 'npm test', 'npm run build']
+
+[start]
+cmd = 'npm start'

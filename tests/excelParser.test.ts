@@ -1,0 +1,274 @@
+/**
+ * Parser tests run against the REAL reference workbook in `Ejemplo/`.
+ *
+ * Synthetic fixtures would only prove the parser agrees with itself. The whole
+ * risk here is that the actual file disagrees with our reading of it.
+ */
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import * as XLSX from 'xlsx';
+import { beforeAll, describe, expect, it } from 'vitest';
+
+import { MAX_FILE_BYTES, TemplateError, parseWorkbook, sanitizeUrl } from '../src/parser/excelParser';
+import { normalize, toNumber } from '../src/parser/cells';
+import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
+import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
+
+/** The jsdom test environment has no file-scheme `import.meta.url`. */
+const REFERENCE_FILE = resolve(process.cwd(), 'Ejemplo/ejemplo.xlsx');
+
+function readReference(): Uint8Array {
+  return new Uint8Array(readFileSync(REFERENCE_FILE));
+}
+
+describe('parseWorkbook against the real template', () => {
+  let program: Program;
+
+  beforeAll(() => {
+    program = parseWorkbook(readReference(), 'ejemplo.xlsx');
+  });
+
+  it('records the source file and schema version', () => {
+    expect(program.sourceFileName).toBe('ejemplo.xlsx');
+    expect(program.schemaVersion).toBe(1);
+    expect(Number.isNaN(Date.parse(program.importedAt))).toBe(false);
+  });
+
+  it('finds exactly the "Semana 1" sheet and ignores the rest', () => {
+    expect(program.weeks).toHaveLength(1);
+    expect(program.weeks[0]?.number).toBe(1);
+    expect(program.weeks[0]?.sheetName).toBe('Semana 1');
+  });
+
+  it('parses the five days that actually have exercises', () => {
+    // The template pre-numbers seven day blocks; days 6 and 7 are empty
+    // placeholders in this file and are dropped rather than shown as blanks.
+    const days = program.weeks[0]?.days ?? [];
+    expect(days.map((day) => day.number)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('reads each day type from the sheet, tolerating the missing ones', () => {
+    const types = program.weeks[0]?.days.map((day) => day.type);
+    expect(types).toEqual([
+      'PUSH',
+      'PULL',
+      'LEG (CADENA ANTERIOR)',
+      'UPPER',
+      'LEG 2 (CADENA POSTERIOR)',
+    ]);
+  });
+
+  it('keeps only the exercise rows that were filled in', () => {
+    const counts = program.weeks[0]?.days.map((day) => day.exercises.length);
+    expect(counts).toEqual([7, 7, 7, 7, 7]);
+  });
+
+  it('reads exercise names and numbers verbatim, without any hardcoded list', () => {
+    const first = program.weeks[0]?.days[0];
+    expect(first?.exercises[0]).toMatchObject({
+      number: 1,
+      name: 'PRESS DE BANCA PLANO CON BARRA LIBRE',
+      id: 'w1:d1:e1',
+    });
+    expect(first?.exercises[6]).toMatchObject({
+      number: 7,
+      name: 'EXTENSIÓN DE TRÍCEPS UNILATERAL EN POLEA',
+    });
+  });
+
+  it('reads protocols', () => {
+    const first = program.weeks[0]?.days[0]?.exercises[0];
+    expect(first?.protocol).toBe('3 SETS X 4-6 / 6-8 / 8-10 REPS (RIR 0)');
+  });
+
+  it('reads the data actually seeded in the workbook', () => {
+    // Semana 1 / Día 1 / exercise 1 / set 1 = 82.5 kg x 4 reps.
+    const set = program.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0];
+    expect(set).toEqual({ weight: 82.5, reps: 4, rir: null });
+  });
+
+  it('gives every exercise the template\'s four set slots', () => {
+    for (const week of program.weeks) {
+      for (const day of week.days) {
+        for (const exercise of day.exercises) {
+          expect(exercise.currentWeek).toHaveLength(TEMPLATE_SET_COUNT);
+          expect(exercise.previousWeek).toHaveLength(TEMPLATE_SET_COUNT);
+        }
+      }
+    }
+  });
+
+  it('leaves the previous week empty — week 1 has no history', () => {
+    const sets = program.weeks[0]?.days.flatMap((day) =>
+      day.exercises.flatMap((exercise) => exercise.previousWeek),
+    );
+    expect(sets?.every((set) => set.weight === null && set.reps === null)).toBe(true);
+  });
+
+  it('starts every session uncompleted and without notes', () => {
+    // The hint text sitting to the right of the answer cell must NOT be read
+    // as a completed session.
+    for (const day of program.weeks[0]?.days ?? []) {
+      expect(day.completed).toBe(false);
+      expect(day.notes).toBe('');
+    }
+  });
+
+  it('has no video links in this file, and invents none', () => {
+    const videos = program.weeks[0]?.days.flatMap((day) =>
+      day.exercises.map((exercise) => exercise.video),
+    );
+    expect(videos?.every((video) => video === null)).toBe(true);
+  });
+
+  it('produces ids that are unique and stable', () => {
+    const ids = program.weeks.flatMap((week) =>
+      week.days.flatMap((day) => day.exercises.map((exercise) => exercise.id)),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const again = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const againIds = again.weeks.flatMap((week) =>
+      week.days.flatMap((day) => day.exercises.map((exercise) => exercise.id)),
+    );
+    expect(againIds).toEqual(ids);
+  });
+
+  it('feeds the calculation layer correctly end to end', () => {
+    const exercise = program.weeks[0]?.days[0]?.exercises[0];
+    expect(exercise).toBeDefined();
+    expect(exerciseVolume(exercise!.currentWeek)).toBe(82.5 * 4);
+    expect(exercise1RM(exercise!)).toBe(93.5);
+  });
+
+  it('recomputes volume instead of importing the workbook\'s broken formulas', () => {
+    // Rows 78-82 of the source sheet contain #REF! and off-by-one references.
+    // Day 5 must still produce clean, finite numbers.
+    const day5 = program.weeks[0]?.days[4];
+    for (const exercise of day5?.exercises ?? []) {
+      expect(Number.isFinite(exerciseVolume(exercise.currentWeek))).toBe(true);
+    }
+  });
+});
+
+describe('re-importing the same template', () => {
+  it('produces an equivalent program, so imports are idempotent', () => {
+    const first = parseWorkbook(readReference(), 'a.xlsx');
+    const second = parseWorkbook(readReference(), 'b.xlsx');
+    expect(second.weeks).toEqual(first.weeks);
+  });
+});
+
+describe('multi-week workbooks', () => {
+  /** Builds a copy of the reference file with `Semana 1` duplicated as `Semana 2`. */
+  function withSecondWeek(): Uint8Array {
+    const workbook = XLSX.read(readReference(), { type: 'array' });
+    const source = workbook.Sheets['Semana 1'];
+    expect(source).toBeDefined();
+    XLSX.utils.book_append_sheet(workbook, source!, 'Semana 2');
+    return new Uint8Array(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+  }
+
+  it('parses every "Semana N" sheet, in order', () => {
+    const program = parseWorkbook(withSecondWeek(), 'dos-semanas.xlsx');
+    expect(program.weeks.map((week) => week.number)).toEqual([1, 2]);
+  });
+
+  it('derives week 2 previous-week data from week 1 when the columns are blank', () => {
+    const program = parseWorkbook(withSecondWeek(), 'dos-semanas.xlsx');
+    const carried = program.weeks[1]?.days[0]?.exercises[0]?.previousWeek[0];
+    expect(carried).toEqual({ weight: 82.5, reps: 4, rir: null });
+  });
+
+  it('keeps ids distinct between weeks', () => {
+    const program = parseWorkbook(withSecondWeek(), 'dos-semanas.xlsx');
+    expect(program.weeks[0]?.days[0]?.exercises[0]?.id).toBe('w1:d1:e1');
+    expect(program.weeks[1]?.days[0]?.exercises[0]?.id).toBe('w2:d1:e1');
+  });
+});
+
+describe('resilience to hand-edited copies', () => {
+  /** Inserts a blank column before column A, shifting the whole sheet right. */
+  function shiftedSheet(): Uint8Array {
+    const workbook = XLSX.read(readReference(), { type: 'array' });
+    const sheet = workbook.Sheets['Semana 1'];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1, blankrows: true });
+    const shifted = rows.map((row) => ['', ...row]);
+    workbook.Sheets['Semana 1'] = XLSX.utils.aoa_to_sheet(shifted);
+    return new Uint8Array(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+  }
+
+  it('still parses when every column is shifted right', () => {
+    const program = parseWorkbook(shiftedSheet(), 'desplazado.xlsx');
+    expect(program.weeks[0]?.days).toHaveLength(5);
+    expect(program.weeks[0]?.days[0]?.exercises[0]?.name).toBe(
+      'PRESS DE BANCA PLANO CON BARRA LIBRE',
+    );
+    expect(program.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0]).toEqual({
+      weight: 82.5,
+      reps: 4,
+      rir: null,
+    });
+  });
+});
+
+describe('rejecting bad input', () => {
+  it('rejects an empty file', () => {
+    expect(() => parseWorkbook(new Uint8Array(0), 'vacio.xlsx')).toThrow(TemplateError);
+  });
+
+  it('rejects a file above the size limit', () => {
+    const oversized = new Uint8Array(MAX_FILE_BYTES + 1);
+    expect(() => parseWorkbook(oversized, 'enorme.xlsx')).toThrow(/10 MB/);
+  });
+
+  it('rejects bytes that are not a workbook', () => {
+    const garbage = new TextEncoder().encode('esto no es un excel'.repeat(20));
+    expect(() => parseWorkbook(garbage, 'texto.xlsx')).toThrow(TemplateError);
+  });
+
+  it('rejects a valid workbook with no "Semana N" sheet', () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['hola']]), 'Otra hoja');
+    const bytes = new Uint8Array(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+    expect(() => parseWorkbook(bytes, 'otra.xlsx')).toThrow(/Semana N/);
+  });
+});
+
+describe('sanitizeUrl', () => {
+  it('accepts http and https', () => {
+    expect(sanitizeUrl('https://youtu.be/abc')).toBe('https://youtu.be/abc');
+    expect(sanitizeUrl('http://example.com/v')).toBe('http://example.com/v');
+  });
+
+  it('rejects dangerous and relative schemes', () => {
+    expect(sanitizeUrl('javascript:alert(1)')).toBeNull();
+    expect(sanitizeUrl('data:text/html,<script>alert(1)</script>')).toBeNull();
+    expect(sanitizeUrl('file:///etc/passwd')).toBeNull();
+    expect(sanitizeUrl('mira este video')).toBeNull();
+    expect(sanitizeUrl('')).toBeNull();
+    expect(sanitizeUrl(null)).toBeNull();
+  });
+});
+
+describe('cell helpers', () => {
+  it('normalizes accents, emoji and case for label matching', () => {
+    expect(normalize('📹 Vídeo')).toBe('video');
+    expect(normalize('  DÍA   1 ')).toBe('dia 1');
+    expect(normalize('← Semana anterior')).toBe('semana anterior');
+    expect(normalize('✅ Sesión completada:')).toBe('sesion completada');
+  });
+
+  it('reads numbers stored as text, including comma decimals', () => {
+    expect(toNumber(82.5)).toBe(82.5);
+    expect(toNumber('82.5')).toBe(82.5);
+    expect(toNumber('82,5')).toBe(82.5);
+    expect(toNumber('')).toBeNull();
+    expect(toNumber('  ')).toBeNull();
+    expect(toNumber('n/a')).toBeNull();
+    expect(toNumber(null)).toBeNull();
+    expect(toNumber(true)).toBeNull();
+  });
+});
