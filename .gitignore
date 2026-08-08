@@ -41,3 +41,4 @@ desktop.ini
 # Tooling scratch
 .gstack/
 .claude/settings.local.json
+skills-lock.json
