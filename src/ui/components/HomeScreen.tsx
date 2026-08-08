@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from '../../domain/calculations';
 import type { Day, Week } from '../../domain/types';
+import { Icon } from './Icon';
 
 interface HomeScreenProps {
   week: Week;
@@ -122,9 +123,7 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
                 {nextDay.exercises.length} ejercicios
               </span>
             </span>
-            <span aria-hidden="true" className="text-2xl">
-              →
-            </span>
+            <Icon name="chevronRight" size={24} className="shrink-0" />
           </button>
         </section>
       ) : (
@@ -188,12 +187,7 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
   const progress = dayProgress(day);
   const volume = dayVolume(day);
 
-  // Status is never colour alone: each state carries a word and a mark.
-  const marks: Record<SessionStatus, string> = {
-    completed: '✓',
-    'in-progress': '▪',
-    pending: '·',
-  };
+  // Status is never colour alone: the word carries it on its own.
   const chip =
     status === 'completed'
       ? 'bg-success-500/15 text-success-300'
@@ -223,8 +217,10 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
             <span className="sr-only">Día {day.number}: </span>
             {day.type ?? `Día ${day.number}`}
           </span>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${chip}`}>
-            <span aria-hidden="true">{marks[status]} </span>
+          <span
+            className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${chip}`}
+          >
+            {status === 'completed' ? <Icon name="check" size={12} /> : null}
             {STATUS_LABEL[status]}
           </span>
         </span>
@@ -235,9 +231,7 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
         </span>
       </span>
 
-      <span aria-hidden="true" className="shrink-0 text-ink-600">
-        →
-      </span>
+      <Icon name="chevronRight" size={20} className="shrink-0 text-ink-600" />
     </button>
   );
 }

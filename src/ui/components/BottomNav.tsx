@@ -1,3 +1,5 @@
+import { Icon, type IconName } from './Icon';
+
 export type Tab = 'home' | 'day' | 'progress' | 'settings';
 
 interface BottomNavProps {
@@ -7,11 +9,11 @@ interface BottomNavProps {
   dayLabel: string;
 }
 
-const ICONS: Record<Tab, string> = {
-  home: '🏠',
-  day: '🏋️',
-  progress: '📈',
-  settings: '⚙️',
+const ICONS: Record<Tab, IconName> = {
+  home: 'home',
+  day: 'dumbbell',
+  progress: 'chart',
+  settings: 'sliders',
 };
 
 /**
@@ -43,13 +45,11 @@ export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
                 type="button"
                 onClick={() => onChange(tab.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`flex min-h-14 w-full flex-col items-center justify-center gap-0.5 px-1 transition-colors ${
-                  active ? 'text-accent-300' : 'text-ink-600 hover:text-ink-400'
+                className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 px-1 transition-colors ${
+                  active ? 'text-accent-300' : 'text-ink-400 hover:text-ink-200'
                 }`}
               >
-                <span aria-hidden="true" className="text-lg leading-none">
-                  {ICONS[tab.id]}
-                </span>
+                <Icon name={ICONS[tab.id]} size={22} />
                 <span className="max-w-full truncate text-[11px] font-semibold">{tab.label}</span>
               </button>
             </li>

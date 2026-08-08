@@ -1,5 +1,7 @@
 import { useCallback, useId, useRef, useState, type DragEvent } from 'react';
 
+import { Icon } from './Icon';
+
 interface DropzoneProps {
   onFile: (file: File) => void;
   disabled?: boolean;
@@ -64,9 +66,7 @@ export function Dropzone({ onFile, disabled = false, label, hint }: DropzoneProp
         disabled ? 'cursor-progress opacity-60' : '',
       ].join(' ')}
     >
-      <span aria-hidden="true" className="text-3xl">
-        📄
-      </span>
+      <Icon name="upload" size={28} className="text-ink-400" />
       <span className="text-base font-semibold text-ink-50">{label}</span>
       {hint ? <span className="max-w-xs text-sm text-ink-400">{hint}</span> : null}
       <input

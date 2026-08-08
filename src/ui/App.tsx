@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
+import { Icon } from './components/Icon';
 import { ImportScreen } from './components/ImportScreen';
 import { ProgressScreen } from './components/ProgressScreen';
 import { RestTimer } from './components/RestTimer';
@@ -119,7 +120,12 @@ export default function App() {
                     }`}
                   >
                     <span>Día {candidate.number}</span>
-                    {candidate.completed ? <span aria-label="completada">✓</span> : null}
+                    {candidate.completed ? (
+                      <>
+                        <Icon name="check" size={14} />
+                        <span className="sr-only">completada</span>
+                      </>
+                    ) : null}
                   </button>
                 </li>
               ))}

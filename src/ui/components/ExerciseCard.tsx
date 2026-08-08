@@ -11,6 +11,7 @@ import {
 } from '../../domain/calculations';
 import { MAX_SETS, type SetPatch } from '../../domain/mutations';
 import { TEMPLATE_SET_COUNT, isSetEmpty, type Exercise } from '../../domain/types';
+import { Icon } from './Icon';
 import { NumberField } from './NumberField';
 
 interface ExerciseCardProps {
@@ -71,7 +72,7 @@ export function ExerciseCard({
             className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-ink-800 text-lg hover:bg-ink-700"
             title="Ver vídeo del ejercicio"
           >
-            <span aria-hidden="true">▶</span>
+            <Icon name="play" size={18} />
             <span className="sr-only">Ver vídeo de {exercise.name}</span>
           </a>
         ) : null}
@@ -135,7 +136,7 @@ export function ExerciseCard({
                   className="mt-1 flex size-11 shrink-0 items-center justify-center rounded-xl text-ink-600 hover:bg-ink-800 hover:text-ink-200 disabled:pointer-events-none disabled:opacity-30"
                   title={index < TEMPLATE_SET_COUNT ? 'Vaciar serie' : 'Eliminar serie'}
                 >
-                  <span aria-hidden="true">✕</span>
+                  <Icon name="close" size={18} />
                   <span className="sr-only">
                     {index < TEMPLATE_SET_COUNT ? 'Vaciar' : 'Eliminar'} serie {index + 1}
                   </span>

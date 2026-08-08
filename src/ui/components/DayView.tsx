@@ -8,6 +8,7 @@ import {
 import type { SetPatch } from '../../domain/mutations';
 import type { Day } from '../../domain/types';
 import { ExerciseCard } from './ExerciseCard';
+import { Icon } from './Icon';
 
 interface DayViewProps {
   day: Day;
@@ -136,7 +137,14 @@ export function DayView({
               : 'bg-success-500 text-white hover:bg-success-500/90'
           }`}
         >
-          {day.completed ? '✓ Sesión completada — marcar como pendiente' : 'Completar sesión'}
+          {day.completed ? (
+            <span className="flex items-center justify-center gap-2">
+              <Icon name="check" size={18} />
+              Sesión completada — marcar como pendiente
+            </span>
+          ) : (
+            'Completar sesión'
+          )}
         </button>
 
         <div className="flex gap-2">
@@ -144,17 +152,19 @@ export function DayView({
             type="button"
             onClick={() => onNavigate(-1)}
             disabled={!hasPreviousDay}
-            className="min-h-12 flex-1 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
+            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
           >
-            ← Día anterior
+            <Icon name="chevronRight" size={18} className="rotate-180" />
+            Día anterior
           </button>
           <button
             type="button"
             onClick={() => onNavigate(1)}
             disabled={!hasNextDay}
-            className="min-h-12 flex-1 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
+            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
           >
-            Día siguiente →
+            Día siguiente
+            <Icon name="chevronRight" size={18} />
           </button>
         </div>
 

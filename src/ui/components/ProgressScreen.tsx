@@ -6,6 +6,7 @@ import {
   weekSummary,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { Icon } from './Icon';
 
 interface ProgressScreenProps {
   week: Week;
@@ -22,9 +23,7 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
   if (summary.startedExercises === 0) {
     return (
       <div role="status" className="rounded-2xl border border-ink-800 bg-ink-900 px-4 py-12 text-center">
-        <p aria-hidden="true" className="text-3xl">
-          📈
-        </p>
+        <Icon name="chart" size={32} className="mx-auto text-ink-600" />
         <h2 className="mt-2 font-semibold text-ink-50">Todavía no hay progreso</h2>
         <p className="mx-auto mt-1 max-w-xs text-sm text-ink-400">
           En cuanto anotes tu primera serie verás aquí el volumen por sesión y tus mejores

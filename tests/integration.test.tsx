@@ -192,10 +192,10 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     await importFile(user, referenceFile());
     await openDay(user, 1);
 
-    await user.click(screen.getByRole('button', { name: 'Día siguiente →' }));
+    await user.click(screen.getByRole('button', { name: /Día siguiente/ }));
     expect(await screen.findByRole('heading', { name: /Día 2\s*PULL/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '← Día anterior' }));
+    await user.click(screen.getByRole('button', { name: /Día anterior/ }));
     expect(await screen.findByRole('heading', { name: /Día 1\s*PUSH/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^Día 4$/ }));
