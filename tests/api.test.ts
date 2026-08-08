@@ -49,9 +49,11 @@ async function importReference(filename = 'ejemplo.xlsx') {
 
 describe('migrations', () => {
   it('creates every table the model needs', async () => {
+    // `current_schema()` rather than 'public': against a shared PostgreSQL
+    // server each test database lives in its own schema (see testDatabase.ts).
     const { rows } = await db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' ORDER BY table_name`,
+        WHERE table_schema = current_schema() ORDER BY table_name`,
     );
     expect(rows.map((row) => row.table_name)).toEqual([
       'exercises',

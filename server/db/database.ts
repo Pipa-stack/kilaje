@@ -43,10 +43,25 @@ export async function ping(db: Database): Promise<void> {
   await db.query('SELECT 1');
 }
 
+export interface PostgresOptions {
+  /**
+   * Confines every connection to one schema via `search_path`.
+   *
+   * Only used by tests: it lets parallel test files share one PostgreSQL
+   * server without truncating each other's tables. Production leaves it unset
+   * and uses `public`.
+   */
+  schema?: string;
+}
+
 /** Connects to PostgreSQL using `DATABASE_URL`. */
-export function createPostgresDatabase(connectionString: string): Database {
+export function createPostgresDatabase(
+  connectionString: string,
+  { schema }: PostgresOptions = {},
+): Database {
   const pool = new Pool({
     connectionString,
+    ...(schema ? { options: `-c search_path=${schema}` } : {}),
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,

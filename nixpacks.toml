@@ -1,17 +1,22 @@
 # Railway build plan.
 #
-# The app is a static SPA; `vite preview` serves the built `dist/` on the port
-# Railway injects via $PORT. There is no backend, no database and no runtime
-# secret — the workbook never leaves the browser.
+# One service: Express serves the API and the built React app on $PORT, and
+# talks to the PostgreSQL service through DATABASE_URL. No other services.
+#
+# Tests are not run here on purpose — that is CI's job. A deploy should fail
+# for deployment reasons, not because a test runner needed 40 seconds.
 
 [phases.setup]
 nixPkgs = ['nodejs_20']
 
 [phases.install]
-cmds = ['npm ci']
+# devDependencies are needed to build the frontend, so the production flag is
+# forced off (Railway sets NODE_ENV=production, which would skip them).
+cmds = ['npm ci --include=dev']
 
 [phases.build]
-cmds = ['npm run typecheck', 'npm test', 'npm run build']
+cmds = ['npm run build']
 
 [start]
+# Migrations run on boot, so the schema is always current before traffic.
 cmd = 'npm start'
