@@ -11,8 +11,9 @@ import { existsSync } from 'node:fs';
 import express, { type Express } from 'express';
 
 import { MAX_FILE_BYTES } from '../src/domain/upload';
-import type { Database } from './db/database';
+import { ping, type Database } from './db/database';
 import { apiErrorHandler, createApiRouter } from './api/router';
+import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
 
 export interface AppOptions {
   db: Database;
@@ -37,7 +38,19 @@ export function createApp({ db, staticDir }: AppOptions): Express {
   );
   app.use(express.json({ limit: '64kb' }));
 
-  app.use('/api', createApiRouter(db));
+  // Identify the caller for every API request, then gate everything that is
+  // not a login or a health probe.
+  // Railway probes this; it must not require a session.
+  app.get('/api/health', (_req, res) => {
+    ping(db)
+      .then(() => res.json({ status: 'ok' }))
+      .catch(() => res.status(503).json({ status: 'sin base de datos' }));
+  });
+
+  app.use('/api', attachUser(db));
+  app.use('/api/auth', createAuthRouter(db));
+  app.use('/api', requireUser, createApiRouter(db));
+
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Endpoint no encontrado.' });
   });

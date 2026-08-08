@@ -1,15 +1,16 @@
 /**
  * Execution-side persistence: what the user actually lifted.
  *
- * Nothing here writes to the template tables. Every function verifies that the
- * exercise really belongs to the day being written to, so a forged id in a
- * request body cannot attach a set to somebody else's program.
+ * Nothing here writes to the template tables, and **every** function starts
+ * by proving that the day belongs to the caller. The client sends ids; ids
+ * are guessable; so ownership is re-derived from the database on each write
+ * rather than trusted from the request.
  */
 
 import type { Database } from '../db/database';
 import { requireSessionId } from './programs';
 
-/** Raised when a request refers to rows that do not exist or do not match. */
+/** Raised when a request refers to rows that do not exist or are not yours. */
 export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
@@ -24,26 +25,52 @@ export interface SetValues {
 }
 
 /**
- * Confirms the exercise belongs to the day.
+ * Confirms the day exists and belongs to `userId`.
  *
- * The client sends both ids; trusting the pairing would let a caller write a
- * set into an unrelated program by guessing an id.
+ * Walks day → week → program → owner. A day id belonging to somebody else
+ * fails here with the same message as a day that does not exist, so the API
+ * cannot be used to discover which ids are real.
  */
-async function assertExerciseInDay(db: Database, dayId: number, exerciseId: number): Promise<void> {
+export async function assertDayExists(
+  db: Database,
+  dayId: number,
+  userId: number,
+): Promise<void> {
   const { rows } = await db.query<{ id: number }>(
-    'SELECT id FROM exercises WHERE id = $1 AND day_id = $2',
-    [exerciseId, dayId],
+    `SELECT d.id
+       FROM workout_days d
+       JOIN weeks w    ON w.id = d.week_id
+       JOIN programs p ON p.id = w.program_id
+      WHERE d.id = $1 AND p.user_id = $2`,
+    [dayId, userId],
+  );
+  if (rows.length === 0) throw new NotFoundError('El día no existe.');
+}
+
+/**
+ * Confirms the exercise belongs to the day, and the day to the caller.
+ *
+ * Both halves matter: without the first, a forged exercise id could attach a
+ * set to an unrelated program; without the second, another account's data.
+ */
+async function assertExerciseInDay(
+  db: Database,
+  dayId: number,
+  exerciseId: number,
+  userId: number,
+): Promise<void> {
+  const { rows } = await db.query<{ id: number }>(
+    `SELECT e.id
+       FROM exercises e
+       JOIN workout_days d ON d.id = e.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE e.id = $1 AND e.day_id = $2 AND p.user_id = $3`,
+    [exerciseId, dayId, userId],
   );
   if (rows.length === 0) {
     throw new NotFoundError('El ejercicio no pertenece a ese día.');
   }
-}
-
-export async function assertDayExists(db: Database, dayId: number): Promise<void> {
-  const { rows } = await db.query<{ id: number }>('SELECT id FROM workout_days WHERE id = $1', [
-    dayId,
-  ]);
-  if (rows.length === 0) throw new NotFoundError('El día no existe.');
 }
 
 /**
@@ -58,8 +85,9 @@ export async function saveSet(
   exerciseId: number,
   setIndex: number,
   values: SetValues,
+  userId: number,
 ): Promise<void> {
-  await assertExerciseInDay(db, dayId, exerciseId);
+  await assertExerciseInDay(db, dayId, exerciseId, userId);
   const sessionId = await requireSessionId(db, dayId);
 
   const isEmpty = values.weight === null && values.reps === null && values.rir === null;
@@ -90,8 +118,9 @@ export async function deleteSet(
   dayId: number,
   exerciseId: number,
   setIndex: number,
+  userId: number,
 ): Promise<void> {
-  await assertExerciseInDay(db, dayId, exerciseId);
+  await assertExerciseInDay(db, dayId, exerciseId, userId);
   const sessionId = await requireSessionId(db, dayId);
   await db.query(
     'DELETE FROM session_sets WHERE session_id = $1 AND exercise_id = $2 AND set_index = $3',
@@ -110,8 +139,9 @@ export async function updateSession(
   db: Database,
   dayId: number,
   patch: SessionPatch,
+  userId: number,
 ): Promise<void> {
-  await assertDayExists(db, dayId);
+  await assertDayExists(db, dayId, userId);
   const sessionId = await requireSessionId(db, dayId);
 
   if (patch.notes !== undefined) {
@@ -134,8 +164,12 @@ export async function updateSession(
 }
 
 /** Clears everything the user logged for a day. The template is untouched. */
-export async function resetSession(db: Database, dayId: number): Promise<void> {
-  await assertDayExists(db, dayId);
+export async function resetSession(
+  db: Database,
+  dayId: number,
+  userId: number,
+): Promise<void> {
+  await assertDayExists(db, dayId, userId);
   const sessionId = await requireSessionId(db, dayId);
 
   await db.transaction(async (tx) => {

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 
 import { parseWorkbook } from '../parser/excelParser';
 import type { Database } from './database';
-import { hashSource, importProgram, listPrograms } from '../repositories/programs';
+import { hashSource, importProgram } from '../repositories/programs';
 
 export type SeedOutcome =
   | 'importado'
@@ -29,8 +29,10 @@ export async function seedReferenceProgram(
   onlyWhenEmpty = true,
 ): Promise<SeedOutcome> {
   if (onlyWhenEmpty) {
-    const existing = await listPrograms(db);
-    if (existing.length > 0) return 'omitido: ya hay programas';
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM programs',
+    );
+    if ((rows[0]?.count ?? 0) > 0) return 'omitido: ya hay programas';
   }
 
   let bytes: Uint8Array;
@@ -41,6 +43,7 @@ export async function seedReferenceProgram(
   }
 
   const parsed = parseWorkbook(bytes, 'ejemplo.xlsx');
-  const { created } = await importProgram(db, parsed, hashSource(bytes));
+  // No owner yet: the first account to register adopts it.
+  const { created } = await importProgram(db, parsed, hashSource(bytes), null);
   return created ? 'importado' : 'ya existía';
 }

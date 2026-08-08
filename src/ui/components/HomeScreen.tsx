@@ -68,6 +68,7 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
 
         <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Metric
+            lead
             label="Volumen"
             value={`${Math.round(summary.volume).toLocaleString('es-ES')} kg`}
             note={
@@ -156,11 +157,14 @@ function Metric({
   value,
   note,
   tone = 'neutral',
+  lead = false,
 }: {
   label: string;
   value: string;
   note?: string;
   tone?: 'neutral' | 'positive' | 'warning';
+  /** The one figure that carries the week. The rest is context. */
+  lead?: boolean;
 }) {
   const noteColor =
     tone === 'positive' ? 'text-done-300' : tone === 'warning' ? 'text-amber-300' : 'text-iron-600';
@@ -169,7 +173,13 @@ function Metric({
     <div className="min-w-0">
       <dt className="eyebrow block">{label}</dt>
       <dd className="mt-0.5">
-        <span className="figure block truncate text-2xl font-bold text-chalk">{value}</span>
+        <span
+          className={`figure block truncate font-bold ${
+            lead ? 'text-3xl text-chalk' : 'text-xl text-iron-100'
+          }`}
+        >
+          {value}
+        </span>
         {note ? <span className={`block truncate text-xs ${noteColor}`}>{note}</span> : null}
       </dd>
     </div>
@@ -211,8 +221,8 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="truncate font-semibold text-chalk">
+        <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="line-clamp-2 font-semibold text-chalk">
             {/* The number badge is decorative, so the day number is spoken here. */}
             <span className="sr-only">Día {day.number}: </span>
             {day.type ?? `Día ${day.number}`}

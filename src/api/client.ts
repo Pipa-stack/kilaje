@@ -154,3 +154,42 @@ export async function updateSession(
 export async function resetSession(dayId: string): Promise<void> {
   await callApi<void>(`/days/${dayId}/session`, { method: 'DELETE' });
 }
+
+/* ------------------------------------------------------------------ */
+/* Accounts                                                            */
+/* ------------------------------------------------------------------ */
+
+export interface Account {
+  id: number;
+  email: string;
+}
+
+/**
+ * The signed-in account, or `null` when there is no session.
+ *
+ * The session lives in an httpOnly cookie, so the browser cannot read it and
+ * the only way to know is to ask.
+ */
+export async function fetchAccount(): Promise<Account | null> {
+  try {
+    const { user } = await callApi<{ user: Account }>('/auth/me');
+    return user;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return null;
+    throw error;
+  }
+}
+
+export async function register(email: string, password: string): Promise<Account> {
+  const { user } = await callApi<{ user: Account }>('/auth/register', json({ email, password }));
+  return user;
+}
+
+export async function login(email: string, password: string): Promise<Account> {
+  const { user } = await callApi<{ user: Account }>('/auth/login', json({ email, password }));
+  return user;
+}
+
+export async function logout(): Promise<void> {
+  await callApi<void>('/auth/logout', { method: 'POST' });
+}

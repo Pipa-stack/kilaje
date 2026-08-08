@@ -18,6 +18,10 @@ import { createPostgresDatabase, type Database } from '../../server/db/database'
 import { migrate } from '../../server/db/migrate';
 
 const TABLES = [
+  // Users first: everything else cascades from it, and leaving accounts
+  // behind would make a second test fail on a duplicate email.
+  'users',
+  'sessions',
   'programs',
   'weeks',
   'workout_days',

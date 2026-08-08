@@ -24,6 +24,7 @@ export function RestTimer() {
       if (left === 0) {
         setDeadline(null);
         setFinished(true);
+        alertDone();
       }
     };
 
@@ -107,6 +108,50 @@ export function RestTimer() {
       )}
     </section>
   );
+}
+
+/**
+ * Announces the end of the rest.
+ *
+ * The phone is usually in a pocket or face down on a bench, so a number
+ * reaching zero on screen is not an alert. Vibration is the reliable channel;
+ * the tone is a fallback for devices without a motor, generated with the
+ * Web Audio API so there is no audio file to ship or to fail to load.
+ *
+ * Both are best-effort: browsers block them until the user has interacted
+ * with the page, which by this point they have (they started the timer).
+ */
+function alertDone(): void {
+  try {
+    navigator.vibrate?.([220, 120, 220]);
+  } catch {
+    /* not supported, or blocked */
+  }
+
+  try {
+    const AudioCtor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtor) return;
+
+    const context = new AudioCtor();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.frequency.value = 880;
+    oscillator.type = 'sine';
+    // A short envelope instead of a hard stop, which clicks.
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.5);
+    oscillator.onended = () => void context.close();
+  } catch {
+    /* audio unavailable */
+  }
 }
 
 function formatSeconds(total: number): string {

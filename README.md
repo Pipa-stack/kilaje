@@ -24,7 +24,7 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
 | **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión |
 | **Progreso** | Volumen por sesión, comparación con la semana anterior y tabla de ejercicios entrenados con su volumen, tope y 1RM |
-| **Ajustes** | Importar otro Excel, cambiar entre programas guardados, borrarlos y ver qué hace la app con tus datos |
+| **Ajustes** | Tema (sistema/claro/oscuro), importar otro Excel, cambiar entre programas, borrarlos, y tu cuenta |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
 color: la palabra lo dice.
@@ -55,6 +55,42 @@ discos disponibles lo dice (`+0.5 sin cuadrar`) en vez de redondearlo a escondid
   del texto. Cero emoji: se dibujan distinto en cada sistema y no heredan color ni peso.
 
 ---
+
+## Cuentas y sesiones
+
+Cada persona ve solo sus programas. Concretamente:
+
+- Contraseñas con **scrypt** (viene en Node, así que no hay módulo nativo que compilar
+  al desplegar) y parámetros guardados dentro del propio hash, para poder subir el coste
+  más adelante sin invalidar los existentes.
+- La sesión vive **en la base de datos**, no en un token autofirmado: cerrar sesión la
+  revoca de verdad. De la cookie solo se guarda su SHA-256, así que un volcado de la
+  tabla no le da a nadie un acceso funcionando.
+- Cookie `httpOnly`, `SameSite=Lax` y `Secure` sobre HTTPS.
+- `/api/*` entero exige sesión. La única excepción es `/api/health`, que Railway usa
+  como healthcheck.
+- Correo y contraseña incorrectos dan **el mismo mensaje y tardan lo mismo**, así que el
+  endpoint no sirve para averiguar quién tiene cuenta.
+- **Aislamiento:** cada consulta filtra por dueño, y antes de escribir una serie se
+  comprueba en la base de datos que el día es tuyo. Un id manipulado da 404, el mismo
+  que un id inexistente.
+
+La primera cuenta que se registra adopta el programa de ejemplo sembrado, para que una
+instalación nueva no empiece vacía.
+
+## Sin conexión
+
+PostgreSQL manda, pero el gimnasio suele estar en un sótano:
+
+- Lo que anotas se aplica en pantalla al instante y se envía después.
+- Si el envío falla, la escritura **se guarda en una cola** y se reintenta al volver la
+  conexión (evento `online`, más un sondeo lento por si el problema era el servidor).
+- La cola es por clave, no un registro de todo: teclear «8» y luego «80» en la misma
+  casilla manda una escritura, no dos. Vaciar un día descarta lo que quedara en cola de
+  ese día, para que un reenvío no resucite datos borrados.
+- La cabecera dice cuántos cambios están esperando.
+- Sin conexión la app **no te manda al login**: no se puede saber si hay sesión, así que
+  sigue mostrando el entrenamiento en caché.
 
 ## Arquitectura
 
@@ -100,7 +136,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      205 tests
+tests/                      255 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -241,7 +277,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 205 tests |
+| `npm test` | Los 255 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -329,7 +365,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 205 tests, contra PGlite
+npm test                      # 255 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 

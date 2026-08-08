@@ -27,29 +27,66 @@ const API_ORIGIN = inject('apiOrigin');
 // relative requests are pointed at the test server.
 const realFetch = globalThis.fetch;
 function installFetch(): void {
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' && input.startsWith('/') ? `${API_ORIGIN}${input}` : input;
-    return realFetch(url as RequestInfo, init);
+    const headers = new Headers(init?.headers);
+    if (sessionCookie) headers.set('Cookie', sessionCookie);
+
+    const response = await realFetch(url as RequestInfo, { ...init, headers });
+
+    const setCookie = response.headers.get('set-cookie');
+    const token = setCookie ? /gimnasio_session=([^;]*)/.exec(setCookie)?.[1] : undefined;
+    if (token) sessionCookie = token === '' ? '' : `gimnasio_session=${token}`;
+
+    return response;
   }) as typeof fetch;
 }
 installFetch();
 
+/** Cookies are per-origin in jsdom; the session rides along automatically. */
+let sessionCookie = '';
+
 beforeEach(async () => {
   await realFetch(`${API_ORIGIN}/__test__/reset`, { method: 'POST' });
+  sessionCookie = '';
   installFetch();
   localStorage.clear();
 });
 
+/**
+ * Creates the account the app needs before anything else is reachable.
+ *
+ * jsdom does not manage cookies across fetch, so the session cookie is
+ * captured here and replayed on every later request by `installFetch`.
+ */
+async function signIn(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT);
+  // The screen opens on "Entrar"; switch it to registration.
+  await user.click(screen.getByRole('button', { name: 'Crear una cuenta' }));
+  await user.type(screen.getByLabelText('Correo'), 'test@ejemplo.com');
+  await user.type(screen.getByLabelText('Contraseña'), 'contrasena-de-prueba');
+  await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
+  await waitFor(() => expect(sessionCookie).not.toBe(''), WAIT);
+}
+
+/** Same-origin call carrying the session cookie. */
+function apiFetch(path: string, init?: RequestInit) {
+  return realFetch(`${API_ORIGIN}${path}`, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), ...(sessionCookie ? { Cookie: sessionCookie } : {}) },
+  });
+}
+
 /** Reads the stored program straight from the API. */
 async function latestProgram(): Promise<Program | null> {
-  const response = await realFetch(`${API_ORIGIN}/api/programs/latest`);
+  const response = await apiFetch(`/api/programs/latest`);
   if (!response.ok) return null;
   const { program } = (await response.json()) as { program: Program };
   return program;
 }
 
 async function allPrograms(): Promise<{ id: number; name: string }[]> {
-  const response = await realFetch(`${API_ORIGIN}/api/programs`);
+  const response = await apiFetch(`/api/programs`);
   const { programs } = (await response.json()) as { programs: { id: number; name: string }[] };
   return programs;
 }
@@ -102,8 +139,8 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     const user = userEvent.setup();
     const app = render(<App />);
 
-    // --- Import ---------------------------------------------------------
-    expect(await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT)).toBeInTheDocument();
+    // --- Account, then import -------------------------------------------
+    await signIn(user);
     await importFile(user, referenceFile());
 
     // Lands on the home screen: the week summary and the sessions.
@@ -170,7 +207,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     expect(newest?.name).toContain('mesociclo-2');
 
     // The first program kept everything that was logged against it.
-    const oldResponse = await realFetch(`${API_ORIGIN}/api/programs/${previous!.id}`);
+    const oldResponse = await apiFetch(`/api/programs/${previous!.id}`);
     const { program: old } = (await oldResponse.json()) as { program: Program };
     expect(old.weeks[0]?.days[0]?.notes).toBe('buenas sensaciones');
     expect(old.weeks[0]?.days[0]?.completed).toBe(true);
@@ -189,6 +226,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
   it('navigates between days', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await openDay(user, 1);
 
@@ -205,6 +243,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
   it('adds a set beyond the template and persists it', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await openDay(user, 1);
 
@@ -224,7 +263,9 @@ describe('the full training flow, persisted in PostgreSQL', () => {
   }, 90_000);
 
   it('rejects a dropped file that is not a workbook', async () => {
+    const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT);
 
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
@@ -236,7 +277,9 @@ describe('the full training flow, persisted in PostgreSQL', () => {
   }, 30_000);
 
   it("surfaces the server's rejection of a non-template .xlsx", async () => {
+    const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT);
 
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
@@ -258,6 +301,7 @@ describe('the app shell', () => {
   it('moves between Inicio, Entrenar, Progreso y Ajustes', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
@@ -282,6 +326,7 @@ describe('the app shell', () => {
   it('shows real progress once something is logged', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await openDay(user, 1);
 
@@ -304,6 +349,7 @@ describe('the app shell', () => {
   it('offers a rest timer on the training tab', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await openDay(user, 1);
 
@@ -318,6 +364,7 @@ describe('the app shell', () => {
   it('deletes a program and its history from Ajustes', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
@@ -344,6 +391,7 @@ describe('offline behaviour', () => {
   it('falls back to the cached program when the API is unreachable', async () => {
     const user = userEvent.setup();
     const app = render(<App />);
+    await signIn(user);
     await importFile(user, referenceFile());
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 

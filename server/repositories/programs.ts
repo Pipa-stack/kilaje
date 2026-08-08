@@ -78,26 +78,29 @@ export async function importProgram(
   db: Database,
   parsed: Program,
   sourceHash: string,
+  /** Null while seeding: the program has no owner until an account claims it. */
+  userId: number | null,
 ): Promise<ImportResult> {
-  const existing = await findProgramIdByHash(db, sourceHash);
+  const existing = await findProgramIdByHash(db, sourceHash, userId);
   if (existing !== null) {
-    const program = await getProgram(db, existing);
+    const program = await getProgram(db, existing, userId);
     if (program) return { program, created: false };
   }
 
   const programId = await db.transaction(async (tx) => {
     const { rows: versionRows } = await tx.query<{ next: number }>(
-      'SELECT COALESCE(MAX(version), 0) + 1 AS next FROM programs WHERE source_file_name = $1',
-      [parsed.sourceFileName],
+      `SELECT COALESCE(MAX(version), 0) + 1 AS next
+         FROM programs WHERE source_file_name = $1 AND user_id IS NOT DISTINCT FROM $2`,
+      [parsed.sourceFileName, userId],
     );
     const version = versionRows[0]?.next ?? 1;
     const name = buildName(parsed.sourceFileName, version);
 
     const { rows: programRows } = await tx.query<{ id: number }>(
-      `INSERT INTO programs (name, source_file_name, source_hash, version, imported_at)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO programs (name, source_file_name, source_hash, version, imported_at, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [name, parsed.sourceFileName, sourceHash, version, parsed.importedAt],
+      [name, parsed.sourceFileName, sourceHash, version, parsed.importedAt, userId],
     );
     const insertedId = programRows[0]?.id;
     if (insertedId === undefined) throw new Error('No se ha podido crear el programa');
@@ -118,7 +121,7 @@ export async function importProgram(
     return insertedId;
   });
 
-  const program = await getProgram(db, programId);
+  const program = await getProgram(db, programId, userId);
   if (!program) throw new Error('El programa se ha guardado pero no se ha podido leer');
   return { program, created: true };
 }
@@ -237,20 +240,34 @@ export async function requireSessionId(db: Database, dayId: number): Promise<num
  *
  * @returns false when the program did not exist.
  */
-export async function deleteProgram(db: Database, programId: number): Promise<boolean> {
-  const { rowCount } = await db.query('DELETE FROM programs WHERE id = $1', [programId]);
+export async function deleteProgram(
+  db: Database,
+  programId: number,
+  userId: number,
+): Promise<boolean> {
+  const { rowCount } = await db.query('DELETE FROM programs WHERE id = $1 AND user_id = $2', [
+    programId,
+    userId,
+  ]);
   return rowCount > 0;
 }
 
-export async function findProgramIdByHash(db: Database, hash: string): Promise<number | null> {
-  const { rows } = await db.query<{ id: number }>('SELECT id FROM programs WHERE source_hash = $1', [
-    hash,
-  ]);
+export async function findProgramIdByHash(
+  db: Database,
+  hash: string,
+  userId: number | null,
+): Promise<number | null> {
+  const { rows } = await db.query<{ id: number }>(
+    // IS NOT DISTINCT FROM so an unowned seed row matches itself, which a
+    // plain `= NULL` never would.
+    'SELECT id FROM programs WHERE source_hash = $1 AND user_id IS NOT DISTINCT FROM $2',
+    [hash, userId],
+  );
   return rows[0]?.id ?? null;
 }
 
 /** Programs newest first, for the picker. */
-export async function listPrograms(db: Database): Promise<ProgramSummary[]> {
+export async function listPrograms(db: Database, userId: number): Promise<ProgramSummary[]> {
   const { rows } = await db.query<{
     id: number;
     name: string;
@@ -269,9 +286,10 @@ export async function listPrograms(db: Database): Promise<ProgramSummary[]> {
       LEFT JOIN weeks w            ON w.program_id = p.id
       LEFT JOIN workout_days d     ON d.week_id = w.id
       LEFT JOIN workout_sessions s ON s.day_id = d.id
+     WHERE p.user_id = $1
      GROUP BY p.id
      ORDER BY p.imported_at DESC, p.id DESC
-  `);
+  `, [userId]);
 
   return rows.map((row) => ({
     id: row.id,
@@ -286,9 +304,10 @@ export async function listPrograms(db: Database): Promise<ProgramSummary[]> {
 }
 
 /** The id of the program to open when none was requested. */
-export async function findLatestProgramId(db: Database): Promise<number | null> {
+export async function findLatestProgramId(db: Database, userId: number): Promise<number | null> {
   const { rows } = await db.query<{ id: number }>(
-    'SELECT id FROM programs ORDER BY imported_at DESC, id DESC LIMIT 1',
+    'SELECT id FROM programs WHERE user_id = $1 ORDER BY imported_at DESC, id DESC LIMIT 1',
+    [userId],
   );
   return rows[0]?.id ?? null;
 }
@@ -323,10 +342,15 @@ interface ContentRow {
  * Loads a whole program in three queries rather than one per exercise: the
  * skeleton, then all reference sets, then all logged sets.
  */
-export async function getProgram(db: Database, programId: number): Promise<StoredProgram | null> {
+export async function getProgram(
+  db: Database,
+  programId: number,
+  userId: number | null,
+): Promise<StoredProgram | null> {
   const { rows: programRows } = await db.query<ProgramRow>(
-    'SELECT id, name, source_file_name, version, imported_at FROM programs WHERE id = $1',
-    [programId],
+    `SELECT id, name, source_file_name, version, imported_at
+       FROM programs WHERE id = $1 AND user_id IS NOT DISTINCT FROM $2`,
+    [programId, userId],
   );
   const program = programRows[0];
   if (!program) return null;

@@ -91,10 +91,40 @@
   --font-condensed: 'Barlow Condensed', 'Barlow', ui-sans-serif, sans-serif;
 }
 
+/* ------------------------------------------------------------------ */
+/* Light mode                                                          */
+/*                                                                     */
+/* The same token names, different values, so no component knows which */
+/* theme it is in. The neutral ramp inverts; the yellow does not,       */
+/* because it is a background for dark text in both themes. What does   */
+/* change is yellow-as-text: #f2c200 on white is unreadable, so the     */
+/* light theme swaps those steps for a dark amber.                      */
+/* ------------------------------------------------------------------ */
+
+:root[data-theme='light'] {
+  --color-iron-950: #f4f5f2;
+  --color-iron-900: #ffffff;
+  --color-iron-850: #f7f8f5;
+  --color-iron-800: #eceee9;
+  --color-iron-700: #d8dcd5;
+  --color-iron-600: #6d7670;
+  --color-iron-400: #55605a;
+  --color-iron-300: #3f4844;
+  --color-iron-100: #262c29;
+  --color-chalk: #171b19;
+
+  --color-signal-400: #d9ae00;
+  --color-signal-300: #7a6000;
+
+  --color-done-300: #1d6b38;
+  --color-effort-300: #a32a1c;
+
+  --color-plate-white: #b9bdb6;
+}
+
 @layer base {
   html {
     background-color: var(--color-iron-950);
-    color-scheme: dark;
     -webkit-text-size-adjust: 100%;
   }
 

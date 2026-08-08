@@ -25,6 +25,8 @@ const workbook = () => readFileSync(REFERENCE_FILE);
 
 let db: TestDatabase;
 let app: express.Express;
+/** Every endpoint now needs a session, so each test gets a fresh account. */
+let agent: ReturnType<typeof request.agent>;
 
 beforeAll(async () => {
   db = await createTestDatabase();
@@ -37,11 +39,16 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.truncate();
+  agent = request.agent(app);
+  await agent
+    .post('/api/auth/register')
+    .send({ email: 'test@ejemplo.com', password: 'contrasena-de-prueba' })
+    .expect(201);
 });
 
 /** Imports the reference workbook through the HTTP API. */
 async function importReference(filename = 'ejemplo.xlsx') {
-  return request(app)
+  return agent
     .post(`/api/programs?filename=${encodeURIComponent(filename)}`)
     .set('Content-Type', 'application/octet-stream')
     .send(workbook());
@@ -61,6 +68,8 @@ describe('migrations', () => {
       'reference_sets',
       'schema_migrations',
       'session_sets',
+      'sessions',
+      'users',
       'weeks',
       'workout_days',
       'workout_sessions',
@@ -87,7 +96,7 @@ describe('migrations', () => {
 
 describe('GET /api/health', () => {
   it('reports the database is reachable', async () => {
-    const response = await request(app).get('/api/health');
+    const response = await agent.get('/api/health');
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: 'ok' });
   });
@@ -169,7 +178,7 @@ describe('POST /api/programs — importing a workbook', () => {
   });
 
   it('rejects an empty body', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/programs')
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.alloc(0));
@@ -178,7 +187,7 @@ describe('POST /api/programs — importing a workbook', () => {
   });
 
   it('rejects a file that is not the training template', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/programs?filename=presupuesto.xlsx')
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.from('esto no es un excel'));
@@ -202,18 +211,18 @@ describe('re-importing keeps history intact', () => {
     const exerciseId = first.body.program.weeks[0].days[0].exercises[0].id;
 
     // Train on the first program.
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId: Number(exerciseId), setIndex: 1, weight: 80, reps: 8, rir: 1 })
       .expect(204);
-    await request(app)
+    await agent
       .patch(`/api/days/${dayId}/session`)
       .send({ notes: 'buenas sensaciones', completed: true })
       .expect(204);
 
     // A different file (different bytes) of the same template.
     const modified = Buffer.concat([workbook(), Buffer.from([0])]);
-    const second = await request(app)
+    const second = await agent
       .post('/api/programs?filename=ejemplo.xlsx')
       .set('Content-Type', 'application/octet-stream')
       .send(modified);
@@ -224,7 +233,7 @@ describe('re-importing keeps history intact', () => {
     expect(second.body.program.name).toContain('v2');
 
     // The old program still has its history.
-    const reloaded = await request(app).get(`/api/programs/${firstId}`).expect(200);
+    const reloaded = await agent.get(`/api/programs/${firstId}`).expect(200);
     const oldDay = reloaded.body.program.weeks[0].days[0];
     expect(oldDay.notes).toBe('buenas sensaciones');
     expect(oldDay.completed).toBe(true);
@@ -239,12 +248,12 @@ describe('re-importing keeps history intact', () => {
 
   it('lists both programs, newest first', async () => {
     await importReference();
-    await request(app)
+    await agent
       .post('/api/programs?filename=ejemplo.xlsx')
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.concat([workbook(), Buffer.from([0])]));
 
-    const { body } = await request(app).get('/api/programs').expect(200);
+    const { body } = await agent.get('/api/programs').expect(200);
     expect(body.programs).toHaveLength(2);
     expect(body.programs[0].version).toBe(2);
     expect(body.programs[0].weekCount).toBe(1);
@@ -259,14 +268,14 @@ describe('DELETE /api/programs/:id', () => {
     const dayId = Number(body.program.weeks[0].days[0].id);
     const exerciseId = Number(body.program.weeks[0].days[0].exercises[0].id);
 
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
       .expect(204);
 
-    await request(app).delete(`/api/programs/${programId}`).expect(204);
+    await agent.delete(`/api/programs/${programId}`).expect(204);
 
-    await request(app).get(`/api/programs/${programId}`).expect(404);
+    await agent.get(`/api/programs/${programId}`).expect(404);
 
     // The cascade left nothing orphaned.
     for (const table of ['weeks', 'workout_days', 'exercises', 'workout_sessions', 'session_sets']) {
@@ -279,52 +288,52 @@ describe('DELETE /api/programs/:id', () => {
 
   it('leaves other programs untouched', async () => {
     const first = await importReference();
-    const second = await request(app)
+    const second = await agent
       .post('/api/programs?filename=ejemplo.xlsx')
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.concat([workbook(), Buffer.from([0])]));
 
     const keptId = second.body.program.id;
     const keptDay = Number(second.body.program.weeks[0].days[0].id);
-    await request(app).patch(`/api/days/${keptDay}/session`).send({ notes: 'no me borres' }).expect(204);
+    await agent.patch(`/api/days/${keptDay}/session`).send({ notes: 'no me borres' }).expect(204);
 
-    await request(app).delete(`/api/programs/${first.body.program.id}`).expect(204);
+    await agent.delete(`/api/programs/${first.body.program.id}`).expect(204);
 
-    const { body } = await request(app).get(`/api/programs/${keptId}`).expect(200);
+    const { body } = await agent.get(`/api/programs/${keptId}`).expect(200);
     expect(body.program.weeks[0].days[0].notes).toBe('no me borres');
     expect(body.program.weeks[0].days[0].exercises).toHaveLength(7);
   });
 
   it('404s for a program that does not exist', async () => {
-    await request(app).delete('/api/programs/999999').expect(404);
+    await agent.delete('/api/programs/999999').expect(404);
   });
 
   it('rejects a non-numeric id', async () => {
-    await request(app).delete('/api/programs/abc').expect(400);
+    await agent.delete('/api/programs/abc').expect(400);
   });
 });
 
 describe('GET /api/programs', () => {
   it('returns an empty list on a fresh database', async () => {
-    const { body } = await request(app).get('/api/programs').expect(200);
+    const { body } = await agent.get('/api/programs').expect(200);
     expect(body.programs).toEqual([]);
   });
 
   it('404s for a program that does not exist', async () => {
-    const response = await request(app).get('/api/programs/999999');
+    const response = await agent.get('/api/programs/999999');
     expect(response.status).toBe(404);
   });
 
   it('rejects a non-numeric id instead of querying', async () => {
-    const response = await request(app).get('/api/programs/abc');
+    const response = await agent.get('/api/programs/abc');
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Datos inválidos.');
   });
 
   it('404s on /latest when nothing is imported, and returns it afterwards', async () => {
-    await request(app).get('/api/programs/latest').expect(404);
+    await agent.get('/api/programs/latest').expect(404);
     const imported = await importReference();
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     expect(body.program.id).toBe(imported.body.program.id);
   });
 });
@@ -343,12 +352,12 @@ describe('recording sets', () => {
   });
 
   it('saves and reads back a set', async () => {
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
       .expect(204);
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     expect(body.program.weeks[0].days[0].exercises[0].currentWeek[1]).toEqual({
       weight: 80,
       reps: 8,
@@ -358,8 +367,8 @@ describe('recording sets', () => {
 
   it('overwrites a set rather than duplicating it', async () => {
     const payload = { exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 };
-    await request(app).put(`/api/days/${dayId}/sets`).send(payload).expect(204);
-    await request(app)
+    await agent.put(`/api/days/${dayId}/sets`).send(payload).expect(204);
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ ...payload, weight: 85 })
       .expect(204);
@@ -372,23 +381,23 @@ describe('recording sets', () => {
   });
 
   it('stores sets added beyond the template\'s four slots', async () => {
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 5, weight: 60, reps: 12, rir: 0 })
       .expect(204);
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     const sets = body.program.weeks[0].days[0].exercises[0].currentWeek;
     expect(sets).toHaveLength(6);
     expect(sets[5]).toEqual({ weight: 60, reps: 12, rir: 0 });
   });
 
   it('clears a set when every value is null', async () => {
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
       .expect(204);
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 1, weight: null, reps: null, rir: null })
       .expect(204);
@@ -401,22 +410,22 @@ describe('recording sets', () => {
   });
 
   it('deletes a set', async () => {
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 4, weight: 60, reps: 12, rir: 0 })
       .expect(204);
-    await request(app)
+    await agent
       .delete(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 4 })
       .expect(204);
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     expect(body.program.weeks[0].days[0].exercises[0].currentWeek).toHaveLength(4);
   });
 
   describe('data isolation', () => {
     it('refuses to write a set into a day the exercise does not belong to', async () => {
-      const response = await request(app)
+      const response = await agent
         .put(`/api/days/${otherDayId}/sets`)
         .send({ exerciseId, setIndex: 0, weight: 100, reps: 5, rir: 0 });
 
@@ -441,12 +450,12 @@ describe('recording sets', () => {
     });
 
     it('does not leak sets between programs', async () => {
-      await request(app)
+      await agent
         .put(`/api/days/${dayId}/sets`)
         .send({ exerciseId, setIndex: 0, weight: 100, reps: 5, rir: 0 })
         .expect(204);
 
-      const second = await request(app)
+      const second = await agent
         .post('/api/programs?filename=ejemplo.xlsx')
         .set('Content-Type', 'application/octet-stream')
         .send(Buffer.concat([workbook(), Buffer.from([0])]));
@@ -458,7 +467,7 @@ describe('recording sets', () => {
 
   describe('validation', () => {
     it('rejects an unknown exercise', async () => {
-      const response = await request(app)
+      const response = await agent
         .put(`/api/days/${dayId}/sets`)
         .send({ exerciseId: 999999, setIndex: 0, weight: 80, reps: 8, rir: 1 });
       expect(response.status).toBe(404);
@@ -471,7 +480,7 @@ describe('recording sets', () => {
       ['RIR out of range', { weight: 80, reps: 8, rir: 99 }],
       ['weight as text', { weight: '80', reps: 8, rir: 1 }],
     ])('rejects %s', async (_label, values) => {
-      const response = await request(app)
+      const response = await agent
         .put(`/api/days/${dayId}/sets`)
         .send({ exerciseId, setIndex: 0, ...values });
       expect(response.status).toBe(400);
@@ -479,14 +488,14 @@ describe('recording sets', () => {
     });
 
     it('rejects unknown fields instead of ignoring them', async () => {
-      const response = await request(app)
+      const response = await agent
         .put(`/api/days/${dayId}/sets`)
         .send({ exerciseId, setIndex: 0, weight: 80, reps: 8, rir: 1, isAdmin: true });
       expect(response.status).toBe(400);
     });
 
     it('rejects a negative set index', async () => {
-      const response = await request(app)
+      const response = await agent
         .put(`/api/days/${dayId}/sets`)
         .send({ exerciseId, setIndex: -1, weight: 80, reps: 8, rir: 1 });
       expect(response.status).toBe(400);
@@ -503,17 +512,17 @@ describe('sessions and notes', () => {
   });
 
   it('saves notes', async () => {
-    await request(app)
+    await agent
       .patch(`/api/days/${dayId}/session`)
       .send({ notes: 'hombro derecho molesta' })
       .expect(204);
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     expect(body.program.weeks[0].days[0].notes).toBe('hombro derecho molesta');
   });
 
   it('marks a session completed and records when', async () => {
-    await request(app).patch(`/api/days/${dayId}/session`).send({ completed: true }).expect(204);
+    await agent.patch(`/api/days/${dayId}/session`).send({ completed: true }).expect(204);
 
     const { rows } = await db.query<{ completed: boolean; completed_at: Date | null }>(
       'SELECT completed, completed_at FROM workout_sessions WHERE day_id = $1',
@@ -522,13 +531,13 @@ describe('sessions and notes', () => {
     expect(rows[0]?.completed).toBe(true);
     expect(rows[0]?.completed_at).not.toBeNull();
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     expect(body.program.weeks[0].days[0].completed).toBe(true);
   });
 
   it('un-completes a session and clears the timestamp', async () => {
-    await request(app).patch(`/api/days/${dayId}/session`).send({ completed: true }).expect(204);
-    await request(app).patch(`/api/days/${dayId}/session`).send({ completed: false }).expect(204);
+    await agent.patch(`/api/days/${dayId}/session`).send({ completed: true }).expect(204);
+    await agent.patch(`/api/days/${dayId}/session`).send({ completed: false }).expect(204);
 
     const { rows } = await db.query<{ completed_at: Date | null }>(
       'SELECT completed_at FROM workout_sessions WHERE day_id = $1',
@@ -538,21 +547,21 @@ describe('sessions and notes', () => {
   });
 
   it('resets a day without destroying the template', async () => {
-    const { body: before } = await request(app).get('/api/programs/latest');
+    const { body: before } = await agent.get('/api/programs/latest');
     const exerciseId = Number(before.program.weeks[0].days[0].exercises[0].id);
 
-    await request(app)
+    await agent
       .put(`/api/days/${dayId}/sets`)
       .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
       .expect(204);
-    await request(app)
+    await agent
       .patch(`/api/days/${dayId}/session`)
       .send({ notes: 'x', completed: true })
       .expect(204);
 
-    await request(app).delete(`/api/days/${dayId}/session`).expect(204);
+    await agent.delete(`/api/days/${dayId}/session`).expect(204);
 
-    const { body } = await request(app).get('/api/programs/latest').expect(200);
+    const { body } = await agent.get('/api/programs/latest').expect(200);
     const day = body.program.weeks[0].days[0];
     expect(day.notes).toBe('');
     expect(day.completed).toBe(false);
@@ -563,19 +572,19 @@ describe('sessions and notes', () => {
   });
 
   it('rejects an empty patch', async () => {
-    const response = await request(app).patch(`/api/days/${dayId}/session`).send({});
+    const response = await agent.patch(`/api/days/${dayId}/session`).send({});
     expect(response.status).toBe(400);
   });
 
   it('rejects notes beyond the size limit', async () => {
-    const response = await request(app)
+    const response = await agent
       .patch(`/api/days/${dayId}/session`)
       .send({ notes: 'x'.repeat(5000) });
     expect(response.status).toBe(400);
   });
 
   it('404s for a day that does not exist', async () => {
-    const response = await request(app).patch('/api/days/999999/session').send({ notes: 'x' });
+    const response = await agent.patch('/api/days/999999/session').send({ notes: 'x' });
     expect(response.status).toBe(404);
   });
 });
@@ -587,7 +596,7 @@ function isEmpty(set: unknown): boolean {
 
 describe('unknown endpoints', () => {
   it('404s as JSON, not as HTML', async () => {
-    const response = await request(app).get('/api/no-existe');
+    const response = await agent.get('/api/no-existe');
     expect(response.status).toBe(404);
     expect(response.body.error).toBe('Endpoint no encontrado.');
   });
@@ -595,7 +604,7 @@ describe('unknown endpoints', () => {
 
 describe('security headers', () => {
   it('sets a restrictive CSP and the usual hardening headers', async () => {
-    const response = await request(app).get('/api/health');
+    const response = await agent.get('/api/health');
     expect(response.headers['content-security-policy']).toContain("default-src 'self'");
     expect(response.headers['content-security-policy']).toContain("object-src 'none'");
     expect(response.headers['x-content-type-options']).toBe('nosniff');
@@ -606,9 +615,15 @@ describe('security headers', () => {
 
 describe('seed', () => {
   it('imports the reference workbook into an empty database', async () => {
+    // The account for this test already exists, so the seeded program stays
+    // unowned and is invisible through the API; it is checked in the table.
+    await db.query('DELETE FROM programs');
     expect(await seedReferenceProgram(db, REFERENCE_FILE)).toBe('importado');
-    const { body } = await request(app).get('/api/programs').expect(200);
-    expect(body.programs).toHaveLength(1);
+
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM programs WHERE user_id IS NULL',
+    );
+    expect(rows[0]?.count).toBe(1);
   });
 
   it('does not overwrite an existing program', async () => {

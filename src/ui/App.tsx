@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
@@ -8,11 +9,54 @@ import { ImportScreen } from './components/ImportScreen';
 import { ProgressScreen } from './components/ProgressScreen';
 import { RestTimer } from './components/RestTimer';
 import { SettingsScreen } from './components/SettingsScreen';
+import { useAccount } from './hooks/useAccount';
 import { useProgram } from './hooks/useProgram';
+import { useTheme } from './hooks/useTheme';
 
 export default function App() {
-  const state = useProgram();
+  const auth = useAccount();
+  const theme = useTheme();
   const [tab, setTab] = useState<Tab>('home');
+
+  // Nothing loads the training data until we know who is asking.
+  if (auth.checking) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center px-4">
+        <p role="status" className="text-iron-400">
+          Un momento…
+        </p>
+      </main>
+    );
+  }
+
+  // Offline, whether there is a session is unknown. Showing a login form
+  // nobody can submit would be worse than showing the cached workout.
+  if (!auth.account && !auth.offline) {
+    return <AuthScreen onSubmit={auth.submit} busy={auth.busy} error={auth.error} />;
+  }
+
+  return (
+    <SignedIn
+      theme={theme}
+      onSignOut={auth.signOut}
+      email={auth.account?.email ?? 'sin conexión'}
+      tab={tab}
+      setTab={setTab}
+    />
+  );
+}
+
+interface SignedInProps {
+  theme: ReturnType<typeof useTheme>;
+  onSignOut: () => Promise<void>;
+  email: string;
+  tab: Tab;
+  setTab: (tab: Tab) => void;
+}
+
+/** The app proper. Mounted only once there is a session. */
+function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
+  const state = useProgram();
 
   if (state.loading) {
     return (
@@ -59,10 +103,19 @@ export default function App() {
         {state.offline ? (
           <p
             role="alert"
-            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
+            className="rounded-xl border border-signal-500/40 bg-signal-500/10 px-3 py-2 text-sm text-signal-300"
           >
-            Sin conexión con el servidor. Se muestran los últimos datos guardados en este
-            dispositivo; los cambios se enviarán cuando vuelva la conexión.
+            Sin conexión con el servidor. Puedes seguir entrenando: se muestran los últimos
+            datos de este dispositivo y lo que anotes se envía solo cuando vuelva la conexión.
+            {state.pendingWrites > 0 ? (
+              <span className="mt-1 block font-semibold">
+                {state.pendingWrites} {state.pendingWrites === 1 ? 'cambio' : 'cambios'} en espera.
+              </span>
+            ) : null}
+          </p>
+        ) : state.pendingWrites > 0 ? (
+          <p role="status" className="rounded-xl border border-iron-700 px-3 py-2 text-sm text-iron-400">
+            Enviando {state.pendingWrites} {state.pendingWrites === 1 ? 'cambio' : 'cambios'}…
           </p>
         ) : null}
 
@@ -178,6 +231,9 @@ export default function App() {
             onDeleteProgram={async (programId) => {
               await state.deleteProgram(programId);
             }}
+            email={email}
+            theme={theme}
+            onSignOut={onSignOut}
           />
         ) : null}
       </main>

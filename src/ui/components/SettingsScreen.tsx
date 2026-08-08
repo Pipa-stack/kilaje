@@ -1,4 +1,5 @@
 import type { ProgramSummary } from '../../api/client';
+import type { ThemeChoice } from '../hooks/useTheme';
 import { Dropzone } from './Dropzone';
 
 interface SettingsScreenProps {
@@ -10,7 +11,16 @@ interface SettingsScreenProps {
   onFile: (file: File) => Promise<void>;
   onSelectProgram: (programId: number) => Promise<void>;
   onDeleteProgram: (programId: number) => Promise<void>;
+  email: string;
+  theme: { choice: ThemeChoice; select: (choice: ThemeChoice) => void };
+  onSignOut: () => Promise<void>;
 }
+
+const THEME_OPTIONS: { id: ThemeChoice; label: string }[] = [
+  { id: 'system', label: 'Sistema' },
+  { id: 'light', label: 'Claro' },
+  { id: 'dark', label: 'Oscuro' },
+];
 
 /** Programs, importing, and what the app is doing with the data. */
 export function SettingsScreen({
@@ -22,9 +32,38 @@ export function SettingsScreen({
   onFile,
   onSelectProgram,
   onDeleteProgram,
+  email,
+  theme,
+  onSignOut,
 }: SettingsScreenProps) {
   return (
     <div className="space-y-4">
+      <section aria-labelledby="theme-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="theme-title" className="mb-1 font-semibold text-chalk">
+          Aspecto
+        </h2>
+        <p className="mb-3 text-sm text-iron-400">
+          «Sistema» sigue la preferencia del móvil y cambia sola al anochecer.
+        </p>
+        <div role="group" aria-label="Tema" className="flex gap-2">
+          {THEME_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => theme.select(option.id)}
+              aria-pressed={theme.choice === option.id}
+              className={`min-h-11 flex-1 rounded-xl border text-sm font-semibold transition-colors ${
+                theme.choice === option.id
+                  ? 'border-signal-500 bg-signal-500/10 text-signal-300'
+                  : 'border-iron-700 text-iron-400 hover:bg-iron-850'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section aria-labelledby="import-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <h2 id="import-title" className="mb-1 font-semibold text-chalk">
           Importar entrenamiento
@@ -124,6 +163,20 @@ export function SettingsScreen({
             RIR de la semana anterior — las mismas fórmulas del Excel.
           </Fact>
         </ul>
+      </section>
+
+      <section aria-labelledby="account-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="account-title" className="mb-1 font-semibold text-chalk">
+          Tu cuenta
+        </h2>
+        <p className="mb-3 break-all text-sm text-iron-400">{email}</p>
+        <button
+          type="button"
+          onClick={() => void onSignOut()}
+          className="min-h-11 w-full rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
+        >
+          Cerrar sesión
+        </button>
       </section>
     </div>
   );

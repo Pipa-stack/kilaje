@@ -11,7 +11,7 @@ import { ZodError } from 'zod';
 
 import { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
 import { parseWorkbook } from '../parser/excelParser';
-import { ping, type Database } from '../db/database';
+import type { Database } from '../db/database';
 import {
   deleteProgram,
   getProgram,
@@ -28,6 +28,7 @@ import {
   updateSession,
 } from '../repositories/sessions';
 import { deleteSetBody, idParam, sanitizeFileName, saveSetBody, sessionPatchBody } from './schemas';
+import { currentUserId } from './authRouter';
 
 /** Wraps an async handler so rejections reach the error middleware. */
 function handle(
@@ -42,30 +43,22 @@ export function createApiRouter(db: Database): Router {
   const router = Router();
 
   router.get(
-    '/health',
-    handle(async (_req, res) => {
-      await ping(db);
-      res.json({ status: 'ok' });
-    }),
-  );
-
-  router.get(
     '/programs',
-    handle(async (_req, res) => {
-      res.json({ programs: await listPrograms(db) });
+    handle(async (req, res) => {
+      res.json({ programs: await listPrograms(db, currentUserId(req)) });
     }),
   );
 
   /** The program to open on load: the most recently imported one. */
   router.get(
     '/programs/latest',
-    handle(async (_req, res) => {
-      const id = await findLatestProgramId(db);
+    handle(async (req, res) => {
+      const id = await findLatestProgramId(db, currentUserId(req));
       if (id === null) {
         res.status(404).json({ error: 'Todavía no hay ningún programa importado.' });
         return;
       }
-      res.json({ program: await getProgram(db, id) });
+      res.json({ program: await getProgram(db, id, currentUserId(req)) });
     }),
   );
 
@@ -73,7 +66,7 @@ export function createApiRouter(db: Database): Router {
     '/programs/:programId',
     handle(async (req, res) => {
       const programId = idParam.parse(req.params.programId);
-      const program = await getProgram(db, programId);
+      const program = await getProgram(db, programId, currentUserId(req));
       if (!program) {
         res.status(404).json({ error: 'El programa no existe.' });
         return;
@@ -107,7 +100,12 @@ export function createApiRouter(db: Database): Router {
       const bytes = new Uint8Array(body);
 
       const parsed = parseWorkbook(bytes, fileName);
-      const { program, created } = await importProgram(db, parsed, hashSource(bytes));
+      const { program, created } = await importProgram(
+        db,
+        parsed,
+        hashSource(bytes),
+        currentUserId(req),
+      );
 
       res.status(created ? 201 : 200).json({ program, created });
     }),
@@ -118,7 +116,7 @@ export function createApiRouter(db: Database): Router {
     '/programs/:programId',
     handle(async (req, res) => {
       const programId = idParam.parse(req.params.programId);
-      const removed = await deleteProgram(db, programId);
+      const removed = await deleteProgram(db, programId, currentUserId(req));
       if (!removed) {
         res.status(404).json({ error: 'El programa no existe.' });
         return;
@@ -133,7 +131,7 @@ export function createApiRouter(db: Database): Router {
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       const { exerciseId, setIndex, weight, reps, rir } = saveSetBody.parse(req.body);
-      await saveSet(db, dayId, exerciseId, setIndex, { weight, reps, rir });
+      await saveSet(db, dayId, exerciseId, setIndex, { weight, reps, rir }, currentUserId(req));
       res.status(204).end();
     }),
   );
@@ -143,7 +141,7 @@ export function createApiRouter(db: Database): Router {
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       const { exerciseId, setIndex } = deleteSetBody.parse(req.body);
-      await deleteSet(db, dayId, exerciseId, setIndex);
+      await deleteSet(db, dayId, exerciseId, setIndex, currentUserId(req));
       res.status(204).end();
     }),
   );
@@ -153,7 +151,7 @@ export function createApiRouter(db: Database): Router {
     '/days/:dayId/session',
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
-      await updateSession(db, dayId, sessionPatchBody.parse(req.body));
+      await updateSession(db, dayId, sessionPatchBody.parse(req.body), currentUserId(req));
       res.status(204).end();
     }),
   );
@@ -163,7 +161,7 @@ export function createApiRouter(db: Database): Router {
     '/days/:dayId/session',
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
-      await resetSession(db, dayId);
+      await resetSession(db, dayId, currentUserId(req));
       res.status(204).end();
     }),
   );

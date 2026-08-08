@@ -31,6 +31,43 @@ import {
   saveSelection,
   type Selection,
 } from '../../storage/storage';
+import {
+  enqueue,
+  readOutbox,
+  removeEntry,
+  type PendingOperation,
+} from '../../storage/outbox';
+
+/**
+ * Performs one queued operation.
+ *
+ * Live writes and replayed ones go through here, so a change that failed
+ * offline is retried by exactly the same code that would have sent it.
+ */
+async function performOperation(operation: PendingOperation): Promise<void> {
+  switch (operation.kind) {
+    case 'set':
+      return api.saveSet(operation.dayId, {
+        exerciseId: operation.exerciseId,
+        setIndex: operation.setIndex,
+        weight: operation.weight,
+        reps: operation.reps,
+        rir: operation.rir,
+      });
+    case 'deleteSet':
+      return api.deleteSet(operation.dayId, {
+        exerciseId: operation.exerciseId,
+        setIndex: operation.setIndex,
+      });
+    case 'session':
+      return api.updateSession(operation.dayId, {
+        ...(operation.notes !== undefined ? { notes: operation.notes } : {}),
+        ...(operation.completed !== undefined ? { completed: operation.completed } : {}),
+      });
+    case 'resetSession':
+      return api.resetSession(operation.dayId);
+  }
+}
 
 /** How long to wait after the last keystroke before writing notes to the API. */
 const NOTES_DEBOUNCE_MS = 600;
@@ -45,6 +82,8 @@ export interface ProgramState {
   error: string | null;
   /** True when the API is unreachable and the cached program is being shown. */
   offline: boolean;
+  /** How many edits are waiting to reach the server. */
+  pendingWrites: number;
 
   importFile: (file: File) => Promise<void>;
   selectProgram: (programId: number) => Promise<void>;
@@ -70,6 +109,7 @@ export function useProgram(): ProgramState {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [pendingWrites, setPendingWrites] = useState(() => readOutbox().length);
 
   /** Latest program state, readable from callbacks without re-subscribing. */
   const latest = useRef<StoredProgram | null>(null);
@@ -85,9 +125,11 @@ export function useProgram(): ProgramState {
    * Reports a failed write without discarding what the user typed: local
    * state keeps the edit and the cache keeps it across a reload.
    */
-  const reportFailure = useCallback((cause: unknown) => {
+  const reportFailure = useCallback((cause: unknown, operation?: PendingOperation) => {
     if (cause instanceof ApiError && cause.isOffline) {
       setOffline(true);
+      // Keep the write so it can be replayed instead of silently lost.
+      if (operation) setPendingWrites(enqueue(operation).length);
       return;
     }
     setError(cause instanceof Error ? cause.message : 'No se ha podido guardar el cambio.');
@@ -103,7 +145,7 @@ export function useProgram(): ProgramState {
   const mutate = useCallback(
     (
       apply: (current: StoredProgram, dayId: string) => StoredProgram,
-      send: (next: StoredProgram, dayId: string) => Promise<void>,
+      describe: (next: StoredProgram, dayId: string) => PendingOperation | null,
     ) => {
       const current = latest.current;
       if (!current) return;
@@ -114,9 +156,12 @@ export function useProgram(): ProgramState {
       latest.current = next;
       setProgram(next);
 
-      send(next, target.id)
+      const operation = describe(next, target.id);
+      if (!operation) return;
+
+      performOperation(operation)
         .then(() => setOffline(false))
-        .catch(reportFailure);
+        .catch((cause: unknown) => reportFailure(cause, operation));
     },
     [reportFailure, selection],
   );
@@ -145,6 +190,48 @@ export function useProgram(): ProgramState {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Replays queued writes.
+   *
+   * Runs oldest first and stops at the first failure, so the queue keeps its
+   * order and a still-dead connection does not burn through every entry. An
+   * entry the server rejects on its merits (a 4xx: the day was deleted, the
+   * value is invalid) is dropped rather than retried forever.
+   */
+  const flushOutbox = useCallback(async () => {
+    for (const entry of readOutbox()) {
+      try {
+        await performOperation(entry.operation);
+        setPendingWrites(removeEntry(entry.key).length);
+      } catch (cause) {
+        if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
+          setPendingWrites(removeEntry(entry.key).length);
+          continue;
+        }
+        return;
+      }
+    }
+    setOffline(false);
+  }, []);
+
+  // Retry when the browser says the network is back, and once on load for a
+  // queue left over from a previous session.
+  useEffect(() => {
+    void flushOutbox();
+
+    const onOnline = () => void flushOutbox();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [flushOutbox]);
+
+  // `online` does not fire when the phone had signal but the server was down,
+  // so a slow poll covers that case while anything is still queued.
+  useEffect(() => {
+    if (pendingWrites === 0) return;
+    const timer = setInterval(() => void flushOutbox(), 20_000);
+    return () => clearInterval(timer);
+  }, [flushOutbox, pendingWrites]);
 
   const week = useMemo(() => resolveWeek(program, selection), [program, selection]);
   const day = useMemo(() => resolveDay(week, selection), [week, selection]);
@@ -230,10 +317,14 @@ export function useProgram(): ProgramState {
     const pending = pendingNotes.current;
     if (!pending) return;
     pendingNotes.current = null;
-    api
-      .updateSession(pending.dayId, { notes: pending.notes })
+    const operation: PendingOperation = {
+      kind: 'session',
+      dayId: pending.dayId,
+      notes: pending.notes,
+    };
+    performOperation(operation)
       .then(() => setOffline(false))
-      .catch(reportFailure);
+      .catch((cause: unknown) => reportFailure(cause, operation));
   }, [reportFailure]);
 
   useEffect(() => {
@@ -266,6 +357,7 @@ export function useProgram(): ProgramState {
     importing,
     error,
     offline,
+    pendingWrites,
 
     importFile,
     selectProgram,
@@ -295,10 +387,10 @@ export function useProgram(): ProgramState {
       (exerciseId: string, setIndex: number, patch: SetPatch) => {
         mutate(
           (current, dayId) => updateSetIn(current, dayId, exerciseId, setIndex, patch),
-          async (next, dayId) => {
+          (next, dayId) => {
             const set = findSet(next, dayId, exerciseId, setIndex);
-            if (!set) return;
-            await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex, ...set });
+            if (!set) return null;
+            return { kind: 'set', dayId, exerciseId: Number(exerciseId), setIndex, ...set };
           },
         );
       },
@@ -309,13 +401,13 @@ export function useProgram(): ProgramState {
       (exerciseId: string) => {
         mutate(
           (current, dayId) => addSetTo(current, dayId, exerciseId),
-          async (next, dayId) => {
+          (next, dayId) => {
             const exercise = findExercise(next, dayId, exerciseId);
             const index = (exercise?.currentWeek.length ?? 1) - 1;
             const set = exercise?.currentWeek[index];
             // A seeded weight is worth persisting; an empty slot is not.
-            if (!set || (set.weight === null && set.reps === null && set.rir === null)) return;
-            await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex: index, ...set });
+            if (!set || (set.weight === null && set.reps === null && set.rir === null)) return null;
+            return { kind: 'set', dayId, exerciseId: Number(exerciseId), setIndex: index, ...set };
           },
         );
       },
@@ -326,13 +418,13 @@ export function useProgram(): ProgramState {
       (exerciseId: string, setIndex: number) => {
         mutate(
           (current, dayId) => removeSetFrom(current, dayId, exerciseId, setIndex),
-          async (next, dayId) => {
-            await api.deleteSet(dayId, { exerciseId: Number(exerciseId), setIndex });
+          (next, dayId) => {
             // Removing a slot above the template shifts the ones after it, so
             // the whole exercise is re-sent to keep indexes truthful.
             if (setIndex >= TEMPLATE_SET_COUNT) {
-              await resendSets(next, dayId, exerciseId);
+              void resendSets(next, dayId, exerciseId).catch(() => undefined);
             }
+            return { kind: 'deleteSet', dayId, exerciseId: Number(exerciseId), setIndex };
           },
         );
       },
@@ -343,10 +435,12 @@ export function useProgram(): ProgramState {
       (notes: string) => {
         mutate(
           (current, dayId) => setDayNotes(current, dayId, notes),
-          async (_next, dayId) => {
+          (_next, dayId) => {
+            // Notes are debounced separately; nothing to send right now.
             pendingNotes.current = { dayId, notes };
             if (notesTimer.current) clearTimeout(notesTimer.current);
             notesTimer.current = setTimeout(flushNotes, NOTES_DEBOUNCE_MS);
+            return null;
           },
         );
       },
@@ -360,18 +454,16 @@ export function useProgram(): ProgramState {
       const completed = !target.completed;
 
       setProgram(setDayCompleted(current, target.id, completed));
-      api
-        .updateSession(target.id, { completed })
+      const operation: PendingOperation = { kind: 'session', dayId: target.id, completed };
+      performOperation(operation)
         .then(() => setOffline(false))
-        .catch(reportFailure);
+        .catch((cause: unknown) => reportFailure(cause, operation));
     }, [reportFailure, selection]),
 
     resetDay: useCallback(() => {
       mutate(
         (current, dayId) => resetDayIn(current, dayId),
-        async (_next, dayId) => {
-          await api.resetSession(dayId);
-        },
+        (_next, dayId) => ({ kind: 'resetSession', dayId }),
       );
     }, [mutate]),
   };
