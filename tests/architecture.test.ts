@@ -12,6 +12,7 @@ import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SRC = resolve(process.cwd(), 'src');
+const SERVER = resolve(process.cwd(), 'server');
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -79,6 +80,63 @@ describe('layer boundaries', () => {
     // A regression here would mean the parser stopped being template-driven.
     const suspicious = /PRESS DE BANCA|SENTADILLA|DOMINADAS|CURL DE B/i;
     const offenders = ALL_FILES.filter((file) => suspicious.test(code(file)));
+    expect(offenders.map((file) => relative(SRC, file))).toEqual([]);
+  });
+});
+
+const SERVER_FILES = sourceFiles(SERVER);
+
+describe('server boundaries', () => {
+  it('has server files to check', () => {
+    expect(SERVER_FILES.length).toBeGreaterThan(5);
+  });
+
+  it('never hardcodes a credential or connection string', () => {
+    // Everything comes from the environment; a literal here would ship a secret.
+    const literalUrl = /postgres(ql)?:\/\/[^'"$\s]*:[^'"$\s]*@/i;
+    const offenders = SERVER_FILES.filter((file) => literalUrl.test(code(file)));
+    expect(offenders.map((file) => relative(SERVER, file))).toEqual([]);
+  });
+
+  it('reads DATABASE_URL only where the connection is created', () => {
+    const offenders = SERVER_FILES.filter(
+      (file) =>
+        /DATABASE_URL/.test(code(file)) &&
+        !['index.ts', 'scripts\\migrate.ts', 'scripts\\seed.ts', 'scripts/migrate.ts', 'scripts/seed.ts'].includes(
+          relative(SERVER, file),
+        ),
+    );
+    expect(offenders.map((file) => relative(SERVER, file))).toEqual([]);
+  });
+
+  it('keeps raw SQL inside db/ and repositories/', () => {
+    const sqlKeyword = /\b(SELECT|INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM)\b/;
+    const offenders = SERVER_FILES.filter((file) => {
+      const location = relative(SERVER, file).replace(/\\/g, '/');
+      if (location.startsWith('db/') || location.startsWith('repositories/')) return false;
+      return sqlKeyword.test(code(file));
+    });
+    expect(offenders.map((file) => relative(SERVER, file))).toEqual([]);
+  });
+
+  it('never interpolates a request value into SQL', () => {
+    // Parameterised queries only: `$1`, `$2`... Template literals carrying a
+    // variable into a query string would be an injection waiting to happen.
+    const offenders = SERVER_FILES.filter((file) =>
+      /(SELECT|INSERT|UPDATE|DELETE)[^`'"]*\$\{/i.test(code(file)),
+    );
+    expect(offenders.map((file) => relative(SERVER, file))).toEqual([]);
+  });
+
+  it('never uses eval or the Function constructor', () => {
+    const offenders = [...ALL_FILES, ...SERVER_FILES].filter((file) =>
+      /\beval\s*\(|new Function\s*\(/.test(code(file)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps the frontend free of the xlsx bundle — parsing moved server-side', () => {
+    const offenders = ALL_FILES.filter((file) => /from\s+['"]xlsx['"]/.test(code(file)));
     expect(offenders.map((file) => relative(SRC, file))).toEqual([]);
   });
 });

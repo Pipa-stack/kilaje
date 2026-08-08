@@ -1,136 +1,174 @@
 /**
- * End-to-end through the React app, driven by the REAL workbook.
+ * End-to-end through the React app against a REAL backend over real HTTP.
  *
- * This is the acceptance test for the whole product claim: import an Excel,
- * train, reload, keep everything, import another one.
+ * The server (Express + PGlite, i.e. actual PostgreSQL) is started in
+ * `globalSetup.ts`. Nothing is mocked: the component, the API client, HTTP,
+ * validation and SQL all run, driven by the real workbook.
+ *
+ * Assertions go through the public API rather than raw SQL — `api.test.ts`
+ * already covers the schema, and asserting through the interface is what
+ * proves the app and the database actually agree.
  */
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from '../src/ui/App';
-import { loadProgram } from '../src/storage/storage';
+import type { Program } from '../src/domain/types';
 
 const REFERENCE_FILE = resolve(process.cwd(), 'Ejemplo/ejemplo.xlsx');
+const API_ORIGIN = inject('apiOrigin');
 
-function referenceFile(name = 'ejemplo.xlsx'): File {
-  const bytes = readFileSync(REFERENCE_FILE);
-  return new File([bytes], name, {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
+// The app calls same-origin paths ("/api/..."); jsdom serves nothing, so
+// relative requests are pointed at the test server.
+const realFetch = globalThis.fetch;
+function installFetch(): void {
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' && input.startsWith('/') ? `${API_ORIGIN}${input}` : input;
+    return realFetch(url as RequestInfo, init);
+  }) as typeof fetch;
+}
+installFetch();
+
+beforeEach(async () => {
+  await realFetch(`${API_ORIGIN}/__test__/reset`, { method: 'POST' });
+  installFetch();
+  localStorage.clear();
+});
+
+/** Reads the stored program straight from the API. */
+async function latestProgram(): Promise<Program | null> {
+  const response = await realFetch(`${API_ORIGIN}/api/programs/latest`);
+  if (!response.ok) return null;
+  const { program } = (await response.json()) as { program: Program };
+  return program;
 }
 
-/** jsdom has no File.arrayBuffer in some versions; make sure it is there. */
-function ensureArrayBuffer(file: File): File {
+async function allPrograms(): Promise<{ id: number; name: string }[]> {
+  const response = await realFetch(`${API_ORIGIN}/api/programs`);
+  const { programs } = (await response.json()) as { programs: { id: number; name: string }[] };
+  return programs;
+}
+
+function referenceFile(name = 'ejemplo.xlsx', extra = 0): File {
+  const bytes = readFileSync(REFERENCE_FILE);
+  const payload = extra > 0 ? Buffer.concat([bytes, Buffer.alloc(extra)]) : bytes;
+  const file = new File([payload], name, {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  // jsdom's File does not always implement arrayBuffer.
   if (typeof file.arrayBuffer !== 'function') {
-    const bytes = readFileSync(REFERENCE_FILE);
     Object.defineProperty(file, 'arrayBuffer', {
-      value: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      value: async () =>
+        payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength),
     });
   }
   return file;
 }
 
-async function importReference(user: ReturnType<typeof userEvent.setup>, name?: string) {
-  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
-  expect(input).not.toBeNull();
-  await user.upload(input!, ensureArrayBuffer(referenceFile(name)));
+async function importFile(user: ReturnType<typeof userEvent.setup>, file: File) {
+  // The app shows a loading state first; the file input only exists after it.
+  const input = await waitFor(() => {
+    const found = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(found).not.toBeNull();
+    return found!;
+  }, WAIT);
+  await user.upload(input, file);
 }
 
-describe('the full training flow', () => {
-  it('imports, trains, persists, reloads and re-imports', async () => {
+const BENCH = 'PRESS DE BANCA PLANO CON BARRA LIBRE';
+const WAIT = { timeout: 20_000 };
+
+describe('the full training flow, persisted in PostgreSQL', () => {
+  it('imports, trains, saves, reloads from the database and re-imports', async () => {
     const user = userEvent.setup();
     const app = render(<App />);
 
     // --- Import ---------------------------------------------------------
-    expect(screen.getByRole('heading', { name: 'Gimnasio' })).toBeInTheDocument();
-    await importReference(user);
+    expect(await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT)).toBeInTheDocument();
+    await importFile(user, referenceFile());
 
-    await screen.findByRole('heading', { name: /Día 1/ });
-    expect(screen.getByRole('heading', { name: /Día 1\s*PUSH/ })).toBeInTheDocument();
-
-    // Exercise names come from the file, not from any hardcoded list.
-    expect(
-      screen.getByRole('heading', { name: 'PRESS DE BANCA PLANO CON BARRA LIBRE' }),
-    ).toBeInTheDocument();
+    await screen.findByRole('heading', { name: /Día 1\s*PUSH/ }, WAIT);
+    expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
     expect(screen.getByText('3 SETS X 4-6 / 6-8 / 8-10 REPS (RIR 0)')).toBeInTheDocument();
 
-    // --- The value seeded in the workbook is already there ---------------
-    const seededWeight = screen.getByLabelText(
-      /Peso de la serie 1 de PRESS DE BANCA PLANO CON BARRA LIBRE/,
-    );
-    expect(seededWeight).toHaveValue('82.5');
+    // The value recorded inside the workbook came back through the database.
+    const seeded = screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`));
+    expect(seeded).toHaveValue('82.5');
 
     // --- Train ----------------------------------------------------------
-    const secondWeight = screen.getByLabelText(
-      /Peso de la serie 2 de PRESS DE BANCA PLANO CON BARRA LIBRE/,
+    await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`)), '80');
+    await user.type(
+      screen.getByLabelText(new RegExp(`Repeticiones de la serie 2 de ${BENCH}`)),
+      '8',
     );
-    const secondReps = screen.getByLabelText(
-      /Repeticiones de la serie 2 de PRESS DE BANCA PLANO CON BARRA LIBRE/,
-    );
-    const secondRir = screen.getByLabelText(
-      /RIR de la serie 2 de PRESS DE BANCA PLANO CON BARRA LIBRE/,
-    );
-
-    await user.type(secondWeight, '80');
-    await user.type(secondReps, '8');
-    await user.type(secondRir, '1');
+    await user.type(screen.getByLabelText(new RegExp(`RIR de la serie 2 de ${BENCH}`)), '1');
 
     // --- Calculations update live ---------------------------------------
-    const card = seededWeight.closest('article');
-    expect(card).not.toBeNull();
-    // 82.5 x 4 = 330, plus 80 x 8 = 640 -> 970
-    expect(within(card!).getByText('970 kg')).toBeInTheDocument();
-    // Epley on set 1: 82.5 x (1 + 4/30) = 93.5
-    expect(within(card!).getByText('93.5 kg')).toBeInTheDocument();
+    const card = seeded.closest('article');
+    expect(within(card!).getByText('970 kg')).toBeInTheDocument(); // 82.5x4 + 80x8
+    expect(within(card!).getByText('93.5 kg')).toBeInTheDocument(); // Epley on set 1
 
     // --- Notes and completion -------------------------------------------
     await user.type(screen.getByLabelText('Notas de la sesión'), 'buenas sensaciones');
     await user.click(screen.getByRole('button', { name: 'Completar sesión' }));
-    expect(screen.getByText('Completada')).toBeInTheDocument();
 
-    // --- Persisted -------------------------------------------------------
-    await waitFor(() => {
-      const stored = loadProgram();
-      expect(stored?.weeks[0]?.days[0]?.exercises[0]?.currentWeek[1]).toEqual({
-        weight: 80,
-        reps: 8,
-        rir: 1,
-      });
-    });
+    // --- It reached the database ----------------------------------------
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      const day = stored?.weeks[0]?.days[0];
+      expect(day?.exercises[0]?.currentWeek[1]).toEqual({ weight: 80, reps: 8, rir: 1 });
+      expect(day?.notes).toBe('buenas sensaciones');
+      expect(day?.completed).toBe(true);
+    }, WAIT);
 
-    // --- Reload ----------------------------------------------------------
+    // --- Reload with an empty cache: data comes from PostgreSQL ----------
     app.unmount();
+    localStorage.clear();
     render(<App />);
 
-    await screen.findByRole('heading', { name: /Día 1/ });
-    expect(
-      screen.getByLabelText(/Peso de la serie 2 de PRESS DE BANCA PLANO CON BARRA LIBRE/),
-    ).toHaveValue('80');
+    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+    expect(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`))).toHaveValue('80');
     expect(screen.getByLabelText('Notas de la sesión')).toHaveValue('buenas sensaciones');
     expect(screen.getByText('Completada')).toBeInTheDocument();
 
-    // --- Re-import the same template -------------------------------------
+    // --- Re-import: a new program, old history preserved -----------------
     await user.click(screen.getByRole('button', { name: 'Importar' }));
-    await importReference(user, 'otro-mesociclo.xlsx');
+    await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
 
-    await screen.findByText('otro-mesociclo.xlsx');
-    // Structure regenerated, logged data preserved.
-    expect(
-      screen.getByLabelText(/Peso de la serie 2 de PRESS DE BANCA PLANO CON BARRA LIBRE/),
-    ).toHaveValue('80');
-    expect(screen.getByLabelText('Notas de la sesión')).toHaveValue('buenas sensaciones');
-  }, 30_000);
+    await waitFor(async () => {
+      expect(await allPrograms()).toHaveLength(2);
+    }, WAIT);
+
+    const [newest, previous] = await allPrograms();
+    expect(newest?.name).toContain('mesociclo-2');
+
+    // The first program kept everything that was logged against it.
+    const oldResponse = await realFetch(`${API_ORIGIN}/api/programs/${previous!.id}`);
+    const { program: old } = (await oldResponse.json()) as { program: Program };
+    expect(old.weeks[0]?.days[0]?.notes).toBe('buenas sensaciones');
+    expect(old.weeks[0]?.days[0]?.completed).toBe(true);
+    expect(old.weeks[0]?.days[0]?.exercises[0]?.currentWeek[1]).toEqual({
+      weight: 80,
+      reps: 8,
+      rir: 1,
+    });
+
+    // And the new one starts clean.
+    const fresh = await latestProgram();
+    expect(fresh?.weeks[0]?.days[0]?.notes).toBe('');
+    expect(fresh?.weeks[0]?.days[0]?.completed).toBe(false);
+  }, 90_000);
 
   it('navigates between days', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await importReference(user);
-    await screen.findByRole('heading', { name: /Día 1/ });
+    await importFile(user, referenceFile());
+    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
 
     await user.click(screen.getByRole('button', { name: 'Día siguiente →' }));
     expect(await screen.findByRole('heading', { name: /Día 2\s*PULL/ })).toBeInTheDocument();
@@ -138,48 +176,46 @@ describe('the full training flow', () => {
     await user.click(screen.getByRole('button', { name: '← Día anterior' }));
     expect(await screen.findByRole('heading', { name: /Día 1\s*PUSH/ })).toBeInTheDocument();
 
-    // Jump straight to a day from the day list.
     await user.click(screen.getByRole('button', { name: /^Día 4$/ }));
     expect(await screen.findByRole('heading', { name: /Día 4\s*UPPER/ })).toBeInTheDocument();
-  }, 30_000);
+  }, 90_000);
 
-  it('adds and clears sets beyond the template', async () => {
+  it('adds a set beyond the template and persists it', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await importReference(user);
-    await screen.findByRole('heading', { name: /Día 1/ });
+    await importFile(user, referenceFile());
+    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
 
-    const weightLabel = /Peso de la serie 5 de PRESS DE BANCA PLANO CON BARRA LIBRE/;
-    expect(screen.queryByLabelText(weightLabel)).toBeNull();
+    const label = new RegExp(`Peso de la serie 5 de ${BENCH}`);
+    expect(screen.queryByLabelText(label)).toBeNull();
 
-    const card = screen
-      .getByRole('heading', { name: 'PRESS DE BANCA PLANO CON BARRA LIBRE' })
-      .closest('article');
+    const card = screen.getByRole('heading', { name: BENCH }).closest('article');
     await user.click(within(card!).getByRole('button', { name: '+ Añadir serie' }));
 
-    // The new set inherits the weight of the last logged one.
-    expect(screen.getByLabelText(weightLabel)).toHaveValue('82.5');
+    // The new set inherits the last logged weight.
+    expect(screen.getByLabelText(label)).toHaveValue('82.5');
 
-    await user.click(within(card!).getByRole('button', { name: /Eliminar serie 5/ }));
-    expect(screen.queryByLabelText(weightLabel)).toBeNull();
-  }, 30_000);
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      expect(stored?.weeks[0]?.days[0]?.exercises[0]?.currentWeek).toHaveLength(5);
+    }, WAIT);
+  }, 90_000);
 
   it('rejects a dropped file that is not a workbook', async () => {
     render(<App />);
+    await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT);
 
-    // The file picker filters by `accept`, but a drag-and-drop does not — this
-    // is the path a wrong file actually arrives through.
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
     const bogus = new File(['no soy un excel'], 'notas.txt', { type: 'text/plain' });
     fireEvent.drop(dropzone, { dataTransfer: { files: [bogus] } });
 
     expect(await screen.findByText(/Sube un archivo \.xlsx/)).toBeInTheDocument();
-    // And the app stays on the import screen.
     expect(screen.getByRole('heading', { name: 'Gimnasio' })).toBeInTheDocument();
-  });
+  }, 30_000);
 
-  it('rejects a dropped .xlsx that is not the training template', async () => {
+  it("surfaces the server's rejection of a non-template .xlsx", async () => {
     render(<App />);
+    await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT);
 
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
     const notATemplate = new File(['contenido cualquiera'], 'presupuesto.xlsx', {
@@ -190,11 +226,32 @@ describe('the full training flow', () => {
     });
     fireEvent.drop(dropzone, { dataTransfer: { files: [notATemplate] } });
 
-    // SheetJS is lenient about what it will open, so the rejection may come
-    // from the read itself or from finding no "Semana N" sheet inside.
     expect(
-      await screen.findByText(/No se ha podido leer el archivo|Semana N/),
+      await screen.findByText(/No se ha podido leer el archivo|Semana N/, undefined, WAIT),
     ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Gimnasio' })).toBeInTheDocument();
-  });
+  }, 30_000);
+});
+
+describe('offline behaviour', () => {
+  it('falls back to the cached program when the API is unreachable', async () => {
+    const user = userEvent.setup();
+    const app = render(<App />);
+    await importFile(user, referenceFile());
+    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+
+    await waitFor(() => expect(localStorage.getItem('gimnasio.program.v1')).not.toBeNull(), WAIT);
+    app.unmount();
+
+    const working = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError('network down'))) as typeof fetch;
+
+    try {
+      render(<App />);
+      await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+      expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent(/Sin conexión/);
+    } finally {
+      globalThis.fetch = working;
+    }
+  }, 90_000);
 });

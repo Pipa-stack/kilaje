@@ -1,9 +1,13 @@
 /**
- * Persistence in `localStorage`.
+ * Offline cache in `localStorage`.
  *
- * Everything the user types must survive a reload, but nothing here may ever
- * throw: a full quota, a disabled storage (Safari private mode) or a corrupted
- * entry must degrade to "no saved program", not to a blank screen.
+ * PostgreSQL is the source of truth; this is the fallback that keeps the app
+ * usable when the API cannot be reached — a gym basement with no signal shows
+ * the last known workout instead of an empty screen.
+ *
+ * Nothing here may ever throw: a full quota, a disabled storage (Safari
+ * private mode) or a corrupted entry must degrade to "nothing cached", not to
+ * a blank page.
  */
 
 import {
@@ -72,6 +76,52 @@ export function saveProgram(program: Program): boolean {
   } catch {
     // Quota exceeded, most likely. The in-memory state stays correct.
     return false;
+  }
+}
+
+/** A cached program keeps the database identity so it can be reconciled. */
+export interface CachedProgram extends Program {
+  id: number;
+  name: string;
+  version: number;
+}
+
+/** Stores the program currently on screen for offline use. */
+export function cacheProgram(program: CachedProgram): boolean {
+  return saveProgram(program);
+}
+
+/**
+ * Reads the cached program.
+ *
+ * Returns `null` unless the entry still carries its database identity: a
+ * cache written by an older, `localStorage`-only build cannot be written back
+ * to the API and must not be shown as if it could.
+ */
+export function loadCachedProgram(): CachedProgram | null {
+  const store = storage();
+  if (!store) return null;
+
+  try {
+    const raw = store.getItem(STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed: unknown = JSON.parse(raw);
+    const program = normalizeProgram(parsed);
+    if (!program || !isRecord(parsed)) return null;
+
+    const id = finiteNumber(parsed.id);
+    const version = finiteNumber(parsed.version);
+    if (id === null || version === null) return null;
+
+    return {
+      ...program,
+      id,
+      version,
+      name: typeof parsed.name === 'string' ? parsed.name : program.sourceFileName,
+    };
+  } catch {
+    return null;
   }
 }
 

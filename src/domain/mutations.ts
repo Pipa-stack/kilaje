@@ -22,7 +22,7 @@ export type SetPatch = Partial<Pick<SetEntry, 'weight' | 'reps' | 'rir'>>;
 /** Maximum sets per exercise. Generous, but stops runaway input. */
 export const MAX_SETS = 12;
 
-function mapDay(program: Program, dayId: string, update: (day: Day) => Day): Program {
+function mapDay<T extends Program>(program: T, dayId: string, update: (day: Day) => Day): T {
   return {
     ...program,
     weeks: program.weeks.map((week) => ({
@@ -32,12 +32,12 @@ function mapDay(program: Program, dayId: string, update: (day: Day) => Day): Pro
   };
 }
 
-function mapExercise(
-  program: Program,
+function mapExercise<T extends Program>(
+  program: T,
   dayId: string,
   exerciseId: string,
   update: (exercise: Exercise) => Exercise,
-): Program {
+): T {
   return mapDay(program, dayId, (day) => ({
     ...day,
     exercises: day.exercises.map((exercise) =>
@@ -47,13 +47,13 @@ function mapExercise(
 }
 
 /** Writes one field of one set. */
-export function updateSet(
-  program: Program,
+export function updateSet<T extends Program>(
+  program: T,
   dayId: string,
   exerciseId: string,
   setIndex: number,
   patch: SetPatch,
-): Program {
+): T {
   return mapExercise(program, dayId, exerciseId, (exercise) => {
     if (setIndex < 0 || setIndex >= exercise.currentWeek.length) return exercise;
     return {
@@ -69,7 +69,7 @@ export function updateSet(
  * Appends a set, pre-filling weight and reps from the last logged set —
  * during a workout the next set is usually the same as the one before it.
  */
-export function addSet(program: Program, dayId: string, exerciseId: string): Program {
+export function addSet<T extends Program>(program: T, dayId: string, exerciseId: string): T {
   return mapExercise(program, dayId, exerciseId, (exercise) => {
     if (exercise.currentWeek.length >= MAX_SETS) return exercise;
 
@@ -84,12 +84,12 @@ export function addSet(program: Program, dayId: string, exerciseId: string): Pro
  * Removes a set. The template's own four slots are cleared rather than
  * removed, so the layout the user imported stays recognizable.
  */
-export function removeSet(
-  program: Program,
+export function removeSet<T extends Program>(
+  program: T,
   dayId: string,
   exerciseId: string,
   setIndex: number,
-): Program {
+): T {
   return mapExercise(program, dayId, exerciseId, (exercise) => {
     if (setIndex < 0 || setIndex >= exercise.currentWeek.length) return exercise;
 
@@ -109,16 +109,16 @@ export function removeSet(
   });
 }
 
-export function setDayNotes(program: Program, dayId: string, notes: string): Program {
+export function setDayNotes<T extends Program>(program: T, dayId: string, notes: string): T {
   return mapDay(program, dayId, (day) => ({ ...day, notes }));
 }
 
-export function setDayCompleted(program: Program, dayId: string, completed: boolean): Program {
+export function setDayCompleted<T extends Program>(program: T, dayId: string, completed: boolean): T {
   return mapDay(program, dayId, (day) => ({ ...day, completed }));
 }
 
 /** Clears every logged set, note and completion flag for a day. */
-export function resetDay(program: Program, dayId: string): Program {
+export function resetDay<T extends Program>(program: T, dayId: string): T {
   return mapDay(program, dayId, (day) => ({
     ...day,
     notes: '',

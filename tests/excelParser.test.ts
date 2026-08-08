@@ -11,8 +11,8 @@ import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { MAX_FILE_BYTES, TemplateError, parseWorkbook, sanitizeUrl } from '../src/parser/excelParser';
-import { normalize, toNumber } from '../src/parser/cells';
+import { MAX_FILE_BYTES, TemplateError, parseWorkbook, sanitizeUrl } from '../server/parser/excelParser';
+import { normalize, toNumber } from '../server/parser/cells';
 import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
 import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 

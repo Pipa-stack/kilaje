@@ -1,9 +1,11 @@
 /**
- * The app's single source of state: the program, the current selection, and
- * every way of changing them.
+ * The app's single source of state.
  *
- * All business logic lives in `domain/` and `storage/`; this hook only wires
- * it to React and keeps `localStorage` in sync.
+ * PostgreSQL is the source of truth. Every edit is applied to local state
+ * immediately (so the UI never lags behind a thumb between sets) and sent to
+ * the API right after; `localStorage` is kept as an offline cache so a dropped
+ * connection in a basement gym shows the last known workout instead of an
+ * empty screen.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,33 +20,34 @@ import {
   updateSet as updateSetIn,
   type SetPatch,
 } from '../../domain/mutations';
-import { MAX_FILE_BYTES, TemplateError } from '../../parser/errors';
+import { TEMPLATE_SET_COUNT } from '../../domain/types';
+import { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES, TemplateError } from '../../domain/upload';
+import * as api from '../../api/client';
+import { ApiError, type ProgramSummary, type StoredProgram } from '../../api/client';
 import {
-  clearProgram,
-  isStorageAvailable,
-  loadProgram,
+  cacheProgram,
+  loadCachedProgram,
   loadSelection,
-  mergeProgram,
-  saveProgram,
   saveSelection,
   type Selection,
 } from '../../storage/storage';
 
-/** How long to wait after the last keystroke before writing to storage. */
-const SAVE_DEBOUNCE_MS = 300;
+/** How long to wait after the last keystroke before writing notes to the API. */
+const NOTES_DEBOUNCE_MS = 600;
 
 export interface ProgramState {
-  program: Program | null;
+  program: StoredProgram | null;
+  programs: ProgramSummary[];
   week: Week | null;
   day: Day | null;
-  weekNumber: number | null;
-  dayNumber: number | null;
+  loading: boolean;
   importing: boolean;
   error: string | null;
-  /** Set when the device cannot persist, so the UI can warn once. */
-  storageBlocked: boolean;
+  /** True when the API is unreachable and the cached program is being shown. */
+  offline: boolean;
 
   importFile: (file: File) => Promise<void>;
+  selectProgram: (programId: number) => Promise<void>;
   dismissError: () => void;
   selectWeek: (weekNumber: number) => void;
   selectDay: (dayNumber: number) => void;
@@ -55,58 +58,92 @@ export interface ProgramState {
   updateNotes: (notes: string) => void;
   toggleCompleted: () => void;
   resetDay: () => void;
-  discardProgram: () => void;
+  reload: () => Promise<void>;
 }
 
 export function useProgram(): ProgramState {
-  const [program, setProgram] = useState<Program | null>(() => loadProgram());
+  const [program, setProgram] = useState<StoredProgram | null>(null);
+  const [programs, setPrograms] = useState<ProgramSummary[]>([]);
   const [selection, setSelection] = useState<Selection | null>(() => loadSelection());
+  const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [storageBlocked, setStorageBlocked] = useState(() => !isStorageAvailable());
+  const [offline, setOffline] = useState(false);
 
-  // Debounced persistence: typing a set should not hit storage on every key.
-  // `unsaved` always holds the newest state that has not reached storage yet,
-  // so no code path can drop the user's last few hundred milliseconds of work.
-  const unsaved = useRef<Program | null>(null);
+  /** Latest program state, readable from callbacks without re-subscribing. */
+  const latest = useRef<StoredProgram | null>(null);
+  latest.current = program;
 
+  // Cache every version of the program we hold, so a reload while offline
+  // still has something to show.
   useEffect(() => {
-    if (!program) return;
-
-    unsaved.current = program;
-    const timer = setTimeout(() => {
-      if (saveProgram(program)) unsaved.current = null;
-      else setStorageBlocked(true);
-    }, SAVE_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
+    if (program) cacheProgram(program);
   }, [program]);
 
-  // Flush on unmount: the pending timer above is cancelled when it runs.
-  useEffect(
-    () => () => {
-      if (unsaved.current) saveProgram(unsaved.current);
+  /**
+   * Reports a failed write without discarding what the user typed: local
+   * state keeps the edit and the cache keeps it across a reload.
+   */
+  const reportFailure = useCallback((cause: unknown) => {
+    if (cause instanceof ApiError && cause.isOffline) {
+      setOffline(true);
+      return;
+    }
+    setError(cause instanceof Error ? cause.message : 'No se ha podido guardar el cambio.');
+  }, []);
+
+  /**
+   * Applies a change locally first, then sends it.
+   *
+   * `send` receives the *already updated* program. Reading it back from the
+   * ref instead would see the state from before this edit, because React has
+   * not re-rendered yet — which silently dropped newly added sets.
+   */
+  const mutate = useCallback(
+    (
+      apply: (current: StoredProgram, dayId: string) => StoredProgram,
+      send: (next: StoredProgram, dayId: string) => Promise<void>,
+    ) => {
+      const current = latest.current;
+      if (!current) return;
+      const target = resolveDay(resolveWeek(current, selection), selection);
+      if (!target) return;
+
+      const next = apply(current, target.id);
+      latest.current = next;
+      setProgram(next);
+
+      send(next, target.id)
+        .then(() => setOffline(false))
+        .catch(reportFailure);
     },
-    [],
+    [reportFailure, selection],
   );
 
-  // A backgrounded phone can be killed without warning, and `pagehide` is the
-  // only teardown event Safari reliably fires.
-  useEffect(() => {
-    const flush = () => {
-      if (unsaved.current) saveProgram(unsaved.current);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flush();
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('pagehide', flush);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('pagehide', flush);
-    };
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [fetched, list] = await Promise.all([api.fetchLatestProgram(), api.fetchPrograms()]);
+      setProgram(fetched);
+      setPrograms(list);
+      setOffline(false);
+    } catch (cause) {
+      // Offline: show the cached program rather than an empty app.
+      const cached = loadCachedProgram();
+      if (cached) {
+        setProgram(cached);
+        setOffline(true);
+      } else {
+        setError(cause instanceof Error ? cause.message : 'No se ha podido cargar el entrenamiento.');
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const week = useMemo(() => resolveWeek(program, selection), [program, selection]);
   const day = useMemo(() => resolveDay(week, selection), [week, selection]);
@@ -116,42 +153,73 @@ export function useProgram(): ProgramState {
     saveSelection(next);
   }, []);
 
+  const openProgram = useCallback(
+    (next: StoredProgram) => {
+      setProgram(next);
+      const firstWeek = next.weeks[0];
+      const firstDay = firstWeek?.days[0];
+      if (firstWeek && firstDay) {
+        select({ weekNumber: firstWeek.number, dayNumber: firstDay.number });
+      }
+    },
+    [select],
+  );
+
   const importFile = useCallback(
     async (file: File) => {
       setImporting(true);
       setError(null);
       try {
         validateFile(file);
-        // SheetJS is ~600 kB; it is only needed when a file is actually
-        // imported, so it stays out of the initial bundle.
-        const { parseWorkbook } = await import('../../parser/excelParser');
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const parsed = parseWorkbook(bytes, file.name);
-        const merged = mergeProgram(parsed, loadProgram());
-
-        setProgram(merged);
-        const first = merged.weeks[0];
-        const firstDay = first?.days[0];
-        if (first && firstDay) select({ weekNumber: first.number, dayNumber: firstDay.number });
+        const imported = await api.importProgram(file);
+        openProgram(imported);
+        setPrograms(await api.fetchPrograms());
+        setOffline(false);
       } catch (cause) {
         setError(toMessage(cause));
       } finally {
         setImporting(false);
       }
     },
-    [select],
+    [openProgram],
   );
 
-  const mutateDay = useCallback(
-    (mutation: (current: Program, dayId: string) => Program) => {
-      setProgram((current) => {
-        if (!current) return current;
-        const target = resolveDay(resolveWeek(current, selection), selection);
-        return target ? mutation(current, target.id) : current;
-      });
+  const selectProgram = useCallback(
+    async (programId: number) => {
+      setError(null);
+      try {
+        openProgram(await api.fetchProgram(programId));
+      } catch (cause) {
+        setError(toMessage(cause));
+      }
     },
-    [selection],
+    [openProgram],
   );
+
+  // Notes fire on every keystroke; only the last one needs to reach the API.
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNotes = useRef<{ dayId: string; notes: string } | null>(null);
+
+  const flushNotes = useCallback(() => {
+    const pending = pendingNotes.current;
+    if (!pending) return;
+    pendingNotes.current = null;
+    api
+      .updateSession(pending.dayId, { notes: pending.notes })
+      .then(() => setOffline(false))
+      .catch(reportFailure);
+  }, [reportFailure]);
+
+  useEffect(() => {
+    const onHide = () => flushNotes();
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onHide);
+      flushNotes();
+    };
+  }, [flushNotes]);
 
   const goToAdjacentDay = useCallback(
     (offset: number) => {
@@ -165,15 +233,17 @@ export function useProgram(): ProgramState {
 
   return {
     program,
+    programs,
     week,
     day,
-    weekNumber: week?.number ?? null,
-    dayNumber: day?.number ?? null,
+    loading,
     importing,
     error,
-    storageBlocked,
+    offline,
 
     importFile,
+    selectProgram,
+    reload: load,
     dismissError: useCallback(() => setError(null), []),
 
     selectWeek: useCallback(
@@ -196,67 +266,134 @@ export function useProgram(): ProgramState {
 
     updateSet: useCallback(
       (exerciseId: string, setIndex: number, patch: SetPatch) => {
-        mutateDay((current, dayId) => updateSetIn(current, dayId, exerciseId, setIndex, patch));
+        mutate(
+          (current, dayId) => updateSetIn(current, dayId, exerciseId, setIndex, patch),
+          async (next, dayId) => {
+            const set = findSet(next, dayId, exerciseId, setIndex);
+            if (!set) return;
+            await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex, ...set });
+          },
+        );
       },
-      [mutateDay],
+      [mutate],
     ),
 
     addSet: useCallback(
-      (exerciseId: string) => mutateDay((current, dayId) => addSetTo(current, dayId, exerciseId)),
-      [mutateDay],
+      (exerciseId: string) => {
+        mutate(
+          (current, dayId) => addSetTo(current, dayId, exerciseId),
+          async (next, dayId) => {
+            const exercise = findExercise(next, dayId, exerciseId);
+            const index = (exercise?.currentWeek.length ?? 1) - 1;
+            const set = exercise?.currentWeek[index];
+            // A seeded weight is worth persisting; an empty slot is not.
+            if (!set || (set.weight === null && set.reps === null && set.rir === null)) return;
+            await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex: index, ...set });
+          },
+        );
+      },
+      [mutate],
     ),
 
     removeSet: useCallback(
-      (exerciseId: string, setIndex: number) =>
-        mutateDay((current, dayId) => removeSetFrom(current, dayId, exerciseId, setIndex)),
-      [mutateDay],
+      (exerciseId: string, setIndex: number) => {
+        mutate(
+          (current, dayId) => removeSetFrom(current, dayId, exerciseId, setIndex),
+          async (next, dayId) => {
+            await api.deleteSet(dayId, { exerciseId: Number(exerciseId), setIndex });
+            // Removing a slot above the template shifts the ones after it, so
+            // the whole exercise is re-sent to keep indexes truthful.
+            if (setIndex >= TEMPLATE_SET_COUNT) {
+              await resendSets(next, dayId, exerciseId);
+            }
+          },
+        );
+      },
+      [mutate],
     ),
 
     updateNotes: useCallback(
-      (notes: string) => mutateDay((current, dayId) => setDayNotes(current, dayId, notes)),
-      [mutateDay],
+      (notes: string) => {
+        mutate(
+          (current, dayId) => setDayNotes(current, dayId, notes),
+          async (_next, dayId) => {
+            pendingNotes.current = { dayId, notes };
+            if (notesTimer.current) clearTimeout(notesTimer.current);
+            notesTimer.current = setTimeout(flushNotes, NOTES_DEBOUNCE_MS);
+          },
+        );
+      },
+      [flushNotes, mutate],
     ),
 
     toggleCompleted: useCallback(() => {
-      mutateDay((current, dayId) => {
-        const target = current.weeks.flatMap((w) => w.days).find((d) => d.id === dayId);
-        return setDayCompleted(current, dayId, !target?.completed);
-      });
-    }, [mutateDay]),
+      const current = latest.current;
+      const target = resolveDay(resolveWeek(current, selection), selection);
+      if (!current || !target) return;
+      const completed = !target.completed;
 
-    resetDay: useCallback(
-      () => mutateDay((current, dayId) => resetDayIn(current, dayId)),
-      [mutateDay],
-    ),
+      setProgram(setDayCompleted(current, target.id, completed));
+      api
+        .updateSession(target.id, { completed })
+        .then(() => setOffline(false))
+        .catch(reportFailure);
+    }, [reportFailure, selection]),
 
-    discardProgram: useCallback(() => {
-      clearProgram();
-      setProgram(null);
-      setSelection(null);
-      setError(null);
-    }, []),
+    resetDay: useCallback(() => {
+      mutate(
+        (current, dayId) => resetDayIn(current, dayId),
+        async (_next, dayId) => {
+          await api.resetSession(dayId);
+        },
+      );
+    }, [mutate]),
   };
 }
 
-/** The selected week, falling back to the first one. */
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
 function resolveWeek(program: Program | null, selection: Selection | null): Week | null {
   if (!program || program.weeks.length === 0) return null;
   const match = program.weeks.find((week) => week.number === selection?.weekNumber);
   return match ?? program.weeks[0] ?? null;
 }
 
-/** The selected day within the week, falling back to the first one. */
 function resolveDay(week: Week | null, selection: Selection | null): Day | null {
   if (!week || week.days.length === 0) return null;
   const match = week.days.find((day) => day.number === selection?.dayNumber);
   return match ?? week.days[0] ?? null;
 }
 
-const XLSX_EXTENSIONS = ['.xlsx', '.xlsm'];
+function findExercise(program: Program | null, dayId: string, exerciseId: string) {
+  return program?.weeks
+    .flatMap((week) => week.days)
+    .find((day) => day.id === dayId)
+    ?.exercises.find((exercise) => exercise.id === exerciseId);
+}
+
+function findSet(program: Program | null, dayId: string, exerciseId: string, index: number) {
+  return findExercise(program, dayId, exerciseId)?.currentWeek[index] ?? null;
+}
+
+/** Re-sends every set of an exercise after indexes have shifted. */
+async function resendSets(
+  program: Program | null,
+  dayId: string,
+  exerciseId: string,
+): Promise<void> {
+  const exercise = findExercise(program, dayId, exerciseId);
+  if (!exercise) return;
+
+  for (const [index, set] of exercise.currentWeek.entries()) {
+    await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex: index, ...set });
+  }
+}
 
 function validateFile(file: File): void {
   const name = file.name.toLowerCase();
-  if (!XLSX_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+  if (!ACCEPTED_EXTENSIONS.some((extension) => name.endsWith(extension))) {
     throw new TemplateError('Sube un archivo .xlsx (el .xls antiguo no está soportado).');
   }
   if (file.size > MAX_FILE_BYTES) {
@@ -268,7 +405,7 @@ function validateFile(file: File): void {
 }
 
 function toMessage(cause: unknown): string {
-  if (cause instanceof TemplateError) return cause.message;
+  if (cause instanceof TemplateError || cause instanceof ApiError) return cause.message;
   if (cause instanceof Error) return `No se ha podido importar el archivo: ${cause.message}`;
   return 'No se ha podido importar el archivo.';
 }

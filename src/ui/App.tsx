@@ -10,6 +10,16 @@ export default function App() {
   const state = useProgram();
   const [showImport, setShowImport] = useState(false);
 
+  if (state.loading) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center px-4">
+        <p role="status" className="text-ink-400">
+          Cargando entrenamiento…
+        </p>
+      </main>
+    );
+  }
+
   if (!state.program || !state.week || !state.day) {
     return (
       <ImportScreen
@@ -29,7 +39,7 @@ export default function App() {
       <header className="mb-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold text-ink-50">{program.sourceFileName}</h1>
+            <h1 className="truncate text-lg font-bold text-ink-50">{program.name}</h1>
             <p className="text-xs text-ink-600">
               Volumen de la semana: {Math.round(weekVolume(week)).toLocaleString('es-ES')} kg
             </p>
@@ -44,9 +54,13 @@ export default function App() {
           </button>
         </div>
 
-        {state.storageBlocked ? (
-          <p role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-            Este navegador no permite guardar datos. Lo que anotes se perderá al recargar.
+        {state.offline ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
+          >
+            Sin conexión con el servidor. Se muestran los últimos datos guardados en este
+            dispositivo; los cambios se enviarán cuando vuelva la conexión.
           </p>
         ) : null}
 
@@ -58,21 +72,43 @@ export default function App() {
                 setShowImport(false);
               }}
               disabled={state.importing}
-              label={state.importing ? 'Importando…' : 'Sustituir por otro Excel'}
-              hint="Se conserva lo que ya hayas anotado en los ejercicios que no cambien."
+              label={state.importing ? 'Importando…' : 'Importar otro Excel'}
+              hint="Se crea un programa nuevo. Los anteriores y su historial se conservan."
             />
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm('¿Borrar el entrenamiento y todos los datos guardados?')) {
-                  state.discardProgram();
-                  setShowImport(false);
-                }
-              }}
-              className="min-h-11 w-full rounded-xl text-sm font-semibold text-ink-600 hover:bg-ink-850 hover:text-red-300"
-            >
-              Empezar de cero (borra todo)
-            </button>
+
+            {state.programs.length > 1 ? (
+              <nav aria-label="Programas guardados">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-600">
+                  Programas guardados
+                </h2>
+                <ul className="space-y-2">
+                  {state.programs.map((candidate) => (
+                    <li key={candidate.id}>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await state.selectProgram(candidate.id);
+                          setShowImport(false);
+                        }}
+                        aria-current={candidate.id === program.id ? 'true' : undefined}
+                        className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm ${
+                          candidate.id === program.id
+                            ? 'bg-ink-700 text-ink-50'
+                            : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-semibold">
+                          {candidate.name}
+                        </span>
+                        <span className="shrink-0 text-xs text-ink-600">
+                          {candidate.dayCount} días · {candidate.completedDays} completados
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ) : null}
           </div>
         ) : null}
 

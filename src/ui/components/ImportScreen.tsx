@@ -10,7 +10,7 @@ interface ImportScreenProps {
 const STEPS = [
   'Sube tu plantilla de entrenamiento en .xlsx.',
   'Se detectan automáticamente las semanas, los días y los ejercicios.',
-  'Entrena y anota peso, reps y RIR. Todo se guarda en este dispositivo.',
+  'Entrena y anota peso, reps y RIR. Todo se guarda en la base de datos.',
 ];
 
 /** First-run screen: nothing to show until a workbook is imported. */
@@ -29,7 +29,7 @@ export function ImportScreen({ onFile, importing, error, onDismissError }: Impor
         onFile={onFile}
         disabled={importing}
         label={importing ? 'Importando…' : 'Arrastra tu Excel o toca para elegirlo'}
-        hint="Archivos .xlsx hasta 10 MB. No se sube a ningún servidor."
+        hint="Archivos .xlsx hasta 10 MB. Se procesa en el servidor y se guarda en tu base de datos."
       />
 
       <div role="status" aria-live="polite">

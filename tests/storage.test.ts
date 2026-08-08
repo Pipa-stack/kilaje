@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SELECTION_KEY,
   STORAGE_KEY,
+  cacheProgram,
   clearProgram,
+  loadCachedProgram,
   isStorageAvailable,
   loadProgram,
   loadSelection,
@@ -87,6 +89,44 @@ describe('save and load', () => {
     clearProgram();
     expect(loadProgram()).toBeNull();
     expect(loadSelection()).toBeNull();
+  });
+});
+
+describe('offline cache', () => {
+  const stored = { ...makeProgram(), id: 7, name: 'Ejemplo (v2)', version: 2 };
+
+  it('round-trips a program together with its database identity', () => {
+    expect(cacheProgram(stored)).toBe(true);
+    const cached = loadCachedProgram();
+    expect(cached?.id).toBe(7);
+    expect(cached?.name).toBe('Ejemplo (v2)');
+    expect(cached?.version).toBe(2);
+    expect(cached?.weeks[0]?.days[0]?.exercises[0]?.name).toBe('PRESS DE BANCA');
+  });
+
+  it('keeps logged sets available while offline', () => {
+    const withWork = structuredClone(stored);
+    withWork.weeks[0]!.days[0]!.exercises[0]!.currentWeek[0] = set(82.5, 4, 1);
+    cacheProgram(withWork);
+    expect(loadCachedProgram()?.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0]).toEqual(
+      set(82.5, 4, 1),
+    );
+  });
+
+  it('returns nothing when there is no cache', () => {
+    expect(loadCachedProgram()).toBeNull();
+  });
+
+  it('rejects a cache without database identity', () => {
+    // Written by the older localStorage-only build: it cannot be reconciled
+    // with the API, so showing it as if it could would be a lie.
+    saveProgram(makeProgram());
+    expect(loadCachedProgram()).toBeNull();
+  });
+
+  it('rejects a corrupted cache', () => {
+    localStorage.setItem(STORAGE_KEY, '{oops');
+    expect(loadCachedProgram()).toBeNull();
   });
 });
 

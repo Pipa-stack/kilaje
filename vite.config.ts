@@ -15,6 +15,13 @@ export default defineConfig({
     sourcemap: false,
   },
   server: {
+    // `npm run dev` serves the UI; the API comes from `npm run dev:server`.
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
     watch: {
       // Tooling that writes scratch files into the project must not trigger a
       // full page reload while a workout is being logged.
@@ -29,6 +36,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // Boots an Express + PGlite server in Node for the jsdom suites to call.
+    globalSetup: ['./tests/globalSetup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',

@@ -14,7 +14,7 @@
 
 import * as XLSX from 'xlsx';
 
-import { MAX_FILE_BYTES, TemplateError } from './errors';
+import { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
 import {
   SCHEMA_VERSION,
   TEMPLATE_SET_COUNT,
@@ -26,7 +26,7 @@ import {
   type Program,
   type SetEntry,
   type Week,
-} from '../domain/types';
+} from '../../src/domain/types';
 import {
   cellAt,
   findColumn,
@@ -39,7 +39,11 @@ import {
   type Grid,
 } from './cells';
 
-export { MAX_FILE_BYTES, TemplateError } from './errors';
+export { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
+
+// The parser now runs only on the server: uploads are posted as raw bytes and
+// turned into a program here, so the database is never given a model built by
+// the browser, and SheetJS stays out of the client bundle entirely.
 
 /** How far below a day header we will look for its table headers. */
 const HEADER_SEARCH_DEPTH = 5;
