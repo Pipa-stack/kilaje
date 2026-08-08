@@ -22,10 +22,10 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
 
   if (summary.startedExercises === 0) {
     return (
-      <div role="status" className="rounded-2xl border border-ink-800 bg-ink-900 px-4 py-12 text-center">
-        <Icon name="chart" size={32} className="mx-auto text-ink-600" />
-        <h2 className="mt-2 font-semibold text-ink-50">Todavía no hay progreso</h2>
-        <p className="mx-auto mt-1 max-w-xs text-sm text-ink-400">
+      <div role="status" className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-12 text-center">
+        <Icon name="chart" size={32} className="mx-auto text-iron-600" />
+        <h2 className="mt-2 font-semibold text-chalk">Todavía no hay progreso</h2>
+        <p className="mx-auto mt-1 max-w-xs text-sm text-iron-400">
           En cuanto anotes tu primera serie verás aquí el volumen por sesión y tus mejores
           levantamientos.
         </p>
@@ -37,9 +37,9 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
     <div className="space-y-4">
       <section
         aria-labelledby="totals-title"
-        className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
-        <h2 id="totals-title" className="text-lg font-bold text-ink-50">
+        <h2 id="totals-title" className="text-lg font-bold text-chalk">
           Semana {week.number}
         </h2>
         <dl className="mt-3 grid grid-cols-2 gap-3">
@@ -66,27 +66,27 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
 
       <section
         aria-labelledby="by-day-title"
-        className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
-        <h2 id="by-day-title" className="mb-3 text-sm font-semibold text-ink-50">
+        <h2 id="by-day-title" className="mb-3 text-sm font-semibold text-chalk">
           Volumen por sesión
         </h2>
         <ul className="space-y-2">
           {days.map((day) => (
             <li key={day.dayNumber} className="flex items-center gap-3">
-              <span className="w-14 shrink-0 text-xs font-semibold text-ink-400">
+              <span className="figure w-14 shrink-0 text-sm font-semibold text-iron-400">
                 Día {day.dayNumber}
               </span>
               {/* The bar is decorative; the figure beside it carries the value. */}
-              <span aria-hidden="true" className="h-3 flex-1 overflow-hidden rounded-full bg-ink-800">
+              <span aria-hidden="true" className="h-3 flex-1 overflow-hidden rounded-full bg-iron-800">
                 <span
                   className={`block h-full rounded-full ${
-                    day.completed ? 'bg-success-500' : 'bg-accent-500'
+                    day.completed ? 'bg-done-500' : 'bg-signal-500'
                   }`}
                   style={{ width: `${Math.max((day.volume / peak) * 100, day.volume > 0 ? 4 : 0)}%` }}
                 />
               </span>
-              <span className="w-24 shrink-0 text-right text-xs tabular-nums text-ink-200">
+              <span className="figure w-24 shrink-0 text-right text-sm text-iron-100">
                 {day.volume > 0 ? `${Math.round(day.volume).toLocaleString('es-ES')} kg` : '—'}
               </span>
             </li>
@@ -96,30 +96,30 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
 
       <section
         aria-labelledby="by-exercise-title"
-        className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
-        <h2 id="by-exercise-title" className="mb-1 text-sm font-semibold text-ink-50">
+        <h2 id="by-exercise-title" className="mb-1 text-sm font-semibold text-chalk">
           Ejercicios entrenados
         </h2>
-        <p className="mb-3 text-xs text-ink-600">Ordenados por volumen acumulado.</p>
+        <p className="mb-3 text-xs text-iron-600">Ordenados por volumen acumulado.</p>
 
-        <ul className="divide-y divide-ink-800">
+        <ul className="divide-y divide-iron-800">
           {exercises.map((row) => (
             <li key={row.exerciseId} className="flex items-baseline gap-3 py-2">
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-ink-50">{row.name}</span>
-                <span className="block text-xs text-ink-600">
+                <span className="block truncate text-sm font-medium text-chalk">{row.name}</span>
+                <span className="block text-xs text-iron-600">
                   Día {row.dayNumber} · {row.loggedSets}{' '}
                   {row.loggedSets === 1 ? 'serie' : 'series'}
                   {row.topWeight !== null ? ` · tope ${formatNumber(row.topWeight)} kg` : ''}
                 </span>
               </span>
               <span className="shrink-0 text-right">
-                <span className="block text-sm font-semibold tabular-nums text-ink-50">
+                <span className="block text-sm font-semibold tabular-nums text-chalk">
                   {Math.round(row.volume).toLocaleString('es-ES')} kg
                 </span>
                 {row.oneRepMax !== null ? (
-                  <span className="block text-xs tabular-nums text-ink-600">
+                  <span className="block text-xs tabular-nums text-iron-600">
                     1RM {formatNumber(row.oneRepMax)}
                   </span>
                 ) : null}
@@ -144,14 +144,14 @@ function Stat({
   tone?: 'neutral' | 'positive' | 'warning';
 }) {
   const color =
-    tone === 'positive' ? 'text-success-300' : tone === 'warning' ? 'text-amber-300' : 'text-ink-50';
+    tone === 'positive' ? 'text-done-300' : tone === 'warning' ? 'text-amber-300' : 'text-chalk';
 
   return (
     <div className="min-w-0">
-      <dt className="text-xs uppercase tracking-wide text-ink-600">{label}</dt>
-      <dd className={`mt-0.5 truncate text-lg font-bold tabular-nums ${color}`}>
+      <dt className="eyebrow block">{label}</dt>
+      <dd className={`figure mt-0.5 truncate text-2xl font-bold ${color}`}>
         {value}
-        {note ? <span className="block truncate text-xs font-normal text-ink-600">{note}</span> : null}
+        {note ? <span className="block truncate text-xs font-normal text-iron-600">{note}</span> : null}
       </dd>
     </div>
   );

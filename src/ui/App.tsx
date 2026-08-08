@@ -17,7 +17,7 @@ export default function App() {
   if (state.loading) {
     return (
       <main className="flex min-h-dvh items-center justify-center px-4">
-        <p role="status" className="text-ink-400">
+        <p role="status" className="text-iron-400">
           Cargando entrenamiento…
         </p>
       </main>
@@ -48,8 +48,8 @@ export default function App() {
       <header className="mb-4 space-y-3">
         <div className="flex items-baseline justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold text-ink-50">{program.name}</h1>
-            <p className="truncate text-xs text-ink-600">
+            <h1 className="truncate text-lg font-bold text-chalk">{program.name}</h1>
+            <p className="truncate text-xs text-iron-600">
               {program.weeks.length} {program.weeks.length === 1 ? 'semana' : 'semanas'} ·{' '}
               {week.days.length} sesiones
             </p>
@@ -92,8 +92,8 @@ export default function App() {
                     aria-current={candidate.number === week.number ? 'true' : undefined}
                     className={`min-h-11 whitespace-nowrap rounded-xl px-4 text-sm font-semibold ${
                       candidate.number === week.number
-                        ? 'bg-ink-700 text-ink-50'
-                        : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
+                        ? 'bg-iron-700 text-chalk'
+                        : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
                     }`}
                   >
                     Semana {candidate.number}
@@ -115,8 +115,8 @@ export default function App() {
                     aria-current={candidate.number === day.number ? 'true' : undefined}
                     className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-colors ${
                       candidate.number === day.number
-                        ? 'bg-accent-500 text-white'
-                        : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
+                        ? 'bg-signal-500 text-iron-950'
+                        : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
                     }`}
                   >
                     <span>Día {candidate.number}</span>

@@ -12,6 +12,7 @@ import {
 import { MAX_SETS, type SetPatch } from '../../domain/mutations';
 import { TEMPLATE_SET_COUNT, isSetEmpty, type Exercise } from '../../domain/types';
 import { Icon } from './Icon';
+import { PlateMath } from './PlateMath';
 import { NumberField } from './NumberField';
 
 interface ExerciseCardProps {
@@ -42,26 +43,26 @@ export function ExerciseCard({
 
   return (
     <article
-      className={`overflow-hidden rounded-2xl border bg-ink-900 transition-colors ${
-        started ? 'border-accent-500/40' : 'border-ink-800'
+      className={`overflow-hidden rounded-2xl border bg-iron-900 transition-colors ${
+        started ? 'border-signal-500/40' : 'border-iron-800'
       }`}
       aria-labelledby={`${exercise.id}-title`}
     >
-      <header className="flex items-start gap-3 border-b border-ink-800 px-4 py-3">
+      <header className="flex items-start gap-3 border-b border-iron-800 px-4 py-3">
         <span
           aria-hidden="true"
-          className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
-            started ? 'bg-accent-500 text-white' : 'bg-ink-800 text-ink-400'
+          className={`figure mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${
+            started ? 'bg-signal-500 text-iron-950' : 'bg-iron-800 text-iron-400'
           }`}
         >
           {exercise.number}
         </span>
         <div className="min-w-0 flex-1">
-          <h3 id={`${exercise.id}-title`} className="text-balance font-semibold leading-snug text-ink-50">
+          <h3 id={`${exercise.id}-title`} className="text-balance font-semibold leading-snug text-chalk">
             {exercise.name || `Ejercicio ${exercise.number}`}
           </h3>
           {exercise.protocol ? (
-            <p className="mt-1 text-sm leading-snug text-ink-400">{exercise.protocol}</p>
+            <p className="mt-1 text-sm leading-snug text-iron-400">{exercise.protocol}</p>
           ) : null}
         </div>
         {exercise.video ? (
@@ -69,7 +70,7 @@ export function ExerciseCard({
             href={exercise.video}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-ink-800 text-lg hover:bg-ink-700"
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-iron-800 text-lg hover:bg-iron-700"
             title="Ver vídeo del ejercicio"
           >
             <Icon name="play" size={18} />
@@ -79,14 +80,14 @@ export function ExerciseCard({
       </header>
 
       {exercise.comments ? (
-        <p className="border-b border-ink-800 bg-ink-850 px-4 py-2 text-sm text-ink-200">
-          <span className="font-semibold text-ink-400">Nota: </span>
+        <p className="border-b border-iron-800 bg-iron-850 px-4 py-2 text-sm text-iron-100">
+          <span className="font-semibold text-iron-400">Nota: </span>
           {exercise.comments}
         </p>
       ) : null}
 
       <div className="px-4 py-3">
-        <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-ink-600">
+        <div className="eyebrow mb-2 flex items-center gap-2 px-1">
           <span className="w-8">Set</span>
           <span className="flex-1 text-center">Peso</span>
           <span className="flex-1 text-center">Reps</span>
@@ -100,10 +101,11 @@ export function ExerciseCard({
             const beyondPlan = plannedSets !== null && index >= plannedSets;
 
             return (
-              <li key={index} className="flex items-start gap-2">
+              <li key={index}>
+                <div className="flex items-start gap-2">
                 <span
-                  className={`mt-3 w-8 shrink-0 text-sm font-bold ${
-                    beyondPlan ? 'text-ink-600' : 'text-ink-400'
+                  className={`figure mt-3 w-8 shrink-0 text-base font-bold ${
+                    beyondPlan ? 'text-iron-600' : 'text-iron-400'
                   }`}
                 >
                   {index + 1}
@@ -133,7 +135,7 @@ export function ExerciseCard({
                   type="button"
                   onClick={() => onRemoveSet(exercise.id, index)}
                   disabled={isSetEmpty(set) && index < TEMPLATE_SET_COUNT}
-                  className="mt-1 flex size-11 shrink-0 items-center justify-center rounded-xl text-ink-600 hover:bg-ink-800 hover:text-ink-200 disabled:pointer-events-none disabled:opacity-30"
+                  className="mt-1 flex size-11 shrink-0 items-center justify-center rounded-xl text-iron-600 hover:bg-iron-800 hover:text-iron-100 disabled:pointer-events-none disabled:opacity-30"
                   title={index < TEMPLATE_SET_COUNT ? 'Vaciar serie' : 'Eliminar serie'}
                 >
                   <Icon name="close" size={18} />
@@ -141,6 +143,8 @@ export function ExerciseCard({
                     {index < TEMPLATE_SET_COUNT ? 'Vaciar' : 'Eliminar'} serie {index + 1}
                   </span>
                 </button>
+                </div>
+                <PlateMath weightKg={set.weight} />
               </li>
             );
           })}
@@ -150,13 +154,13 @@ export function ExerciseCard({
           type="button"
           onClick={() => onAddSet(exercise.id)}
           disabled={exercise.currentWeek.length >= MAX_SETS}
-          className="mt-3 min-h-11 w-full rounded-xl border border-dashed border-ink-700 text-sm font-semibold text-ink-400 hover:border-ink-600 hover:bg-ink-850 hover:text-ink-200 disabled:pointer-events-none disabled:opacity-40"
+          className="mt-3 min-h-11 w-full rounded-xl border border-dashed border-iron-700 text-sm font-semibold text-iron-400 hover:border-iron-600 hover:bg-iron-850 hover:text-iron-100 disabled:pointer-events-none disabled:opacity-40"
         >
           + Añadir serie
         </button>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-ink-800 bg-ink-850 px-4 py-3 text-sm">
+      <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-iron-800 bg-iron-850 px-4 py-3 text-sm">
         <Stat label="Volumen" value={volume > 0 ? formatVolume(volume) : '—'} />
         <Stat label="1RM est." value={oneRepMax !== null ? `${formatNumber(oneRepMax)} kg` : '—'} />
         <Stat label="Progresión" value={progression.text} hint="Sugerido según el RIR de la semana anterior" />
@@ -165,7 +169,7 @@ export function ExerciseCard({
             type="button"
             onClick={() => setShowHistory((current) => !current)}
             aria-expanded={showHistory}
-            className="ml-auto min-h-11 rounded-lg px-2 text-xs font-semibold text-accent-300 hover:bg-ink-800"
+            className="ml-auto min-h-11 rounded-lg px-2 text-xs font-semibold text-signal-300 hover:bg-iron-800"
           >
             {showHistory ? 'Ocultar semana anterior' : 'Ver semana anterior'}
           </button>
@@ -173,18 +177,18 @@ export function ExerciseCard({
       </footer>
 
       {showHistory && hasHistory ? (
-        <div className="border-t border-ink-800 px-4 py-3">
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-600">
+        <div className="border-t border-iron-800 px-4 py-3">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-iron-600">
             Semana anterior
           </h4>
-          <ul className="space-y-1 text-sm text-ink-200">
+          <ul className="space-y-1 text-sm text-iron-100">
             {exercise.previousWeek.map((set, index) =>
               isSetEmpty(set) ? null : (
                 <li key={index} className="flex gap-3 tabular-nums">
-                  <span className="w-10 text-ink-600">S{index + 1}</span>
+                  <span className="w-10 text-iron-600">S{index + 1}</span>
                   <span>{set.weight ?? '—'} kg</span>
                   <span>× {set.reps ?? '—'}</span>
-                  <span className="text-ink-400">RIR {set.rir ?? '—'}</span>
+                  <span className="text-iron-400">RIR {set.rir ?? '—'}</span>
                 </li>
               ),
             )}
@@ -198,8 +202,8 @@ export function ExerciseCard({
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div title={hint}>
-      <span className="block text-xs uppercase tracking-wide text-ink-600">{label}</span>
-      <span className="font-semibold tabular-nums text-ink-50">{value}</span>
+      <span className="eyebrow block">{label}</span>
+      <span className="figure text-lg font-semibold text-chalk">{value}</span>
     </div>
   );
 }

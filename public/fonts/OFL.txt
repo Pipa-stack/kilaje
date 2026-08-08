@@ -1,0 +1,13 @@
+Barlow y Barlow Condensed
+Copyright (c) Jeremy Tribby
+Distribuidas bajo la SIL Open Font License 1.1
+https://openfontlicense.org
+https://github.com/jeremytribby/barlow
+
+Se autoalojan aquí (en lugar de cargarlas desde un CDN) por tres motivos:
+la CSP de la app es `default-src 'self'` y bloquearía un origen externo,
+no se filtra la IP de quien usa la app a un tercero, y no hay una petición
+de red bloqueante antes de poder leer la pantalla.
+
+Solo se incluye el subconjunto latino (U+0000–00FF), suficiente para el
+castellano. Los cinco ficheros suman ~110 kB.

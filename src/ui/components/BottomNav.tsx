@@ -33,7 +33,7 @@ export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
   return (
     <nav
       aria-label="Secciones"
-      className="fixed inset-x-0 bottom-0 z-10 border-t border-ink-800 bg-ink-950/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-10 border-t border-iron-800 bg-iron-950/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <ul className="mx-auto flex w-full max-w-2xl">
@@ -46,7 +46,7 @@ export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
                 onClick={() => onChange(tab.id)}
                 aria-current={active ? 'page' : undefined}
                 className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 px-1 transition-colors ${
-                  active ? 'text-accent-300' : 'text-ink-400 hover:text-ink-200'
+                  active ? 'text-signal-300' : 'text-iron-400 hover:text-iron-100'
                 }`}
               >
                 <Icon name={ICONS[tab.id]} size={22} />

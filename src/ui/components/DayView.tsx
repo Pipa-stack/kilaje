@@ -44,15 +44,15 @@ export function DayView({
     <div className="space-y-4">
       <section
         aria-label="Resumen del día"
-        className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-xl font-bold text-ink-50">
+          <h2 className="text-xl font-bold text-chalk">
             Día {day.number}
-            {day.type ? <span className="ml-2 text-base font-medium text-accent-300">{day.type}</span> : null}
+            {day.type ? <span className="ml-2 text-base font-medium text-signal-300">{day.type}</span> : null}
           </h2>
           {day.completed ? (
-            <span className="shrink-0 rounded-full bg-success-500/15 px-3 py-1 text-xs font-bold text-success-300">
+            <span className="shrink-0 rounded-full bg-done-500/15 px-3 py-1 text-xs font-bold text-done-300">
               Completada
             </span>
           ) : null}
@@ -60,13 +60,13 @@ export function DayView({
 
         <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
           <div>
-            <span className="block text-xs uppercase tracking-wide text-ink-600">Volumen del día</span>
-            <span className="text-2xl font-bold tabular-nums text-ink-50">{formatVolume(volume)}</span>
+            <span className="eyebrow block">Volumen del día</span>
+            <span className="figure text-4xl font-bold text-chalk">{formatVolume(volume)}</span>
           </div>
           {change !== null ? (
             <span
               className={`pb-1 text-sm font-semibold tabular-nums ${
-                change >= 0 ? 'text-success-300' : 'text-amber-300'
+                change >= 0 ? 'text-done-300' : 'text-amber-300'
               }`}
             >
               {change >= 0 ? '+' : ''}
@@ -76,7 +76,7 @@ export function DayView({
         </div>
 
         <div className="mt-4">
-          <div className="mb-1 flex justify-between text-xs text-ink-400">
+          <div className="mb-1 flex justify-between text-xs text-iron-400">
             <span>
               {progress.startedExercises} de {progress.totalExercises} ejercicios
             </span>
@@ -88,10 +88,10 @@ export function DayView({
             aria-valuemin={0}
             aria-valuemax={progress.totalExercises}
             aria-label="Ejercicios empezados"
-            className="h-2 overflow-hidden rounded-full bg-ink-800"
+            className="h-2 overflow-hidden rounded-full bg-iron-800"
           >
             <div
-              className="h-full rounded-full bg-accent-500 transition-[width] duration-300"
+              className="h-full rounded-full bg-signal-500 transition-[width] duration-300"
               style={{ width: `${progress.ratio * 100}%` }}
             />
           </div>
@@ -111,8 +111,8 @@ export function DayView({
         ))}
       </ol>
 
-      <section className="rounded-2xl border border-ink-800 bg-ink-900 p-4">
-        <label htmlFor={`${day.id}-notes`} className="mb-2 block font-semibold text-ink-50">
+      <section className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <label htmlFor={`${day.id}-notes`} className="mb-2 block font-semibold text-chalk">
           Notas de la sesión
         </label>
         <textarea
@@ -122,19 +122,19 @@ export function DayView({
           rows={3}
           maxLength={4000}
           placeholder="Sensaciones, molestias, cambios de material…"
-          className="w-full resize-y rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-ink-50 placeholder:text-ink-600 focus:border-accent-400 focus:outline-none"
+          className="w-full resize-y rounded-xl border border-iron-700 bg-iron-850 px-3 py-2 text-chalk placeholder:text-iron-600 focus:border-signal-400 focus:outline-none"
         />
       </section>
 
-      <section className="space-y-3 rounded-2xl border border-ink-800 bg-ink-900 p-4">
+      <section className="space-y-3 rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <button
           type="button"
           onClick={onToggleCompleted}
           aria-pressed={day.completed}
           className={`min-h-12 w-full rounded-xl px-4 font-bold transition-colors ${
             day.completed
-              ? 'bg-success-500/15 text-success-300 hover:bg-success-500/25'
-              : 'bg-success-500 text-white hover:bg-success-500/90'
+              ? 'bg-done-500/15 text-done-300 hover:bg-done-500/25'
+              : 'bg-done-500 text-white hover:bg-done-500/90'
           }`}
         >
           {day.completed ? (
@@ -152,7 +152,7 @@ export function DayView({
             type="button"
             onClick={() => onNavigate(-1)}
             disabled={!hasPreviousDay}
-            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
+            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-iron-700 px-3 font-semibold text-iron-100 hover:bg-iron-850 disabled:opacity-30"
           >
             <Icon name="chevronRight" size={18} className="rotate-180" />
             Día anterior
@@ -161,7 +161,7 @@ export function DayView({
             type="button"
             onClick={() => onNavigate(1)}
             disabled={!hasNextDay}
-            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-ink-700 px-3 font-semibold text-ink-200 hover:bg-ink-850 disabled:opacity-30"
+            className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-iron-700 px-3 font-semibold text-iron-100 hover:bg-iron-850 disabled:opacity-30"
           >
             Día siguiente
             <Icon name="chevronRight" size={18} />
@@ -173,7 +173,7 @@ export function DayView({
           onClick={() => {
             if (confirm(`¿Borrar todo lo anotado en el día ${day.number}?`)) onResetDay();
           }}
-          className="min-h-11 w-full rounded-xl text-sm font-semibold text-ink-600 hover:bg-ink-850 hover:text-ink-400"
+          className="min-h-11 w-full rounded-xl text-sm font-semibold text-iron-600 hover:bg-iron-850 hover:text-iron-400"
         >
           Vaciar los datos de este día
         </button>

@@ -1,30 +1,99 @@
 @import 'tailwindcss';
 
+/* ------------------------------------------------------------------ */
+/* Typefaces                                                           */
+/*                                                                     */
+/* Barlow and Barlow Condensed, self-hosted. Width contrast rather     */
+/* than family contrast: the condensed cut carries numbers and         */
+/* headings, the normal cut carries prose. Latin subset only (~110 kB  */
+/* for five files), served from this origin because the CSP is         */
+/* `default-src 'self'` and because a font CDN would leak the visitor's*/
+/* IP and block first paint on a third party.                          */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-700.woff2') format('woff2');
+}
+
 @theme {
-  --color-ink-950: #07090d;
-  --color-ink-900: #0b0f14;
-  --color-ink-850: #11161d;
-  --color-ink-800: #161d26;
-  --color-ink-700: #212b38;
-  --color-ink-600: #33414f;
-  --color-ink-400: #7d8da0;
-  --color-ink-200: #c3ced9;
-  --color-ink-50: #eef3f8;
+  /* --------------------------------------------------------------- */
+  /* Colour                                                          */
+  /*                                                                 */
+  /* Painted cast iron, not neutral black: every step carries a       */
+  /* green-grey cast, so the surfaces read as a material rather than  */
+  /* as an absence of light.                                         */
+  /* --------------------------------------------------------------- */
+  --color-iron-950: #0e100f;
+  --color-iron-900: #141716;
+  --color-iron-850: #1a1e1c;
+  --color-iron-800: #222724;
+  --color-iron-700: #2f3531;
+  --color-iron-600: #454d48;
+  --color-iron-400: #7d8781;
+  --color-iron-300: #9aa39d;
+  --color-iron-100: #d8ddd8;
+  --color-chalk: #f2f4f0;
 
-  --color-accent-500: #2f7dfa;
-  --color-accent-400: #5b9bff;
-  --color-accent-300: #8fbaff;
+  /* Competition yellow: the most legible accent under bad gym
+     lighting, and the colour gym signage already uses. */
+  --color-signal-500: #f2c200;
+  --color-signal-400: #ffd42e;
+  --color-signal-300: #ffe27a;
 
-  --color-success-500: #23a06b;
-  --color-success-300: #6fd6a8;
+  /* Reserved for effort and failure, never for decoration. */
+  --color-effort-500: #d8402f;
+  --color-effort-300: #f08575;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  --color-done-500: #4a9d5f;
+  --color-done-300: #8fd0a0;
+
+  /* Competition plate colours (IPF/IWF). Information, not decoration. */
+  --color-plate-red: #d4342a;
+  --color-plate-blue: #2b5fd9;
+  --color-plate-yellow: #f2c200;
+  --color-plate-green: #2f9e4f;
+  --color-plate-white: #e8e8e4;
+  --color-plate-chrome: #9aa3a8;
+
+  --font-sans: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-condensed: 'Barlow Condensed', 'Barlow', ui-sans-serif, sans-serif;
 }
 
 @layer base {
   html {
-    background-color: var(--color-ink-950);
+    background-color: var(--color-iron-950);
     color-scheme: dark;
     -webkit-text-size-adjust: 100%;
   }
@@ -32,20 +101,31 @@
   body {
     margin: 0;
     min-height: 100dvh;
-    background-color: var(--color-ink-950);
-    color: var(--color-ink-50);
+    background-color: var(--color-iron-950);
+    color: var(--color-chalk);
     font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
 
-  /* A visible focus ring everywhere; the app is used one-handed and often
-     with a keyboard on desktop. */
+  /* Condensed carries every heading and every number. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-condensed);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: 0.01em;
+  }
+
+  /* A visible focus ring everywhere: the app is used one-handed and
+     often with a keyboard on desktop. */
   :focus-visible {
-    outline: 2px solid var(--color-accent-400);
+    outline: 2px solid var(--color-signal-400);
     outline-offset: 2px;
   }
 
-  /* Numeric fields are typed into constantly; the spinners only get in the way. */
   input[type='number']::-webkit-outer-spin-button,
   input[type='number']::-webkit-inline-spin-button {
     appearance: none;
@@ -54,15 +134,26 @@
 }
 
 @layer components {
+  /* Eyebrow labels: condensed, wide-tracked, small. The one repeated
+     typographic device in the app. */
+  .eyebrow {
+    @apply font-condensed text-xs font-semibold uppercase tracking-[0.14em] text-iron-400;
+  }
+
+  /* Numbers that are meant to be read across rows line up. */
+  .figure {
+    @apply font-condensed tabular-nums;
+  }
+
   .field {
-    @apply w-full rounded-xl border border-ink-700 bg-ink-850 px-2 py-3 text-center text-lg
-      font-semibold tabular-nums text-ink-50 transition-colors;
-    @apply placeholder:font-normal placeholder:text-ink-600;
-    @apply focus:border-accent-400 focus:bg-ink-800 focus:outline-none;
+    @apply w-full rounded-lg border border-iron-700 bg-iron-850 px-2 py-3 text-center;
+    @apply font-condensed text-2xl font-semibold tabular-nums text-chalk transition-colors;
+    @apply placeholder:font-sans placeholder:text-lg placeholder:font-normal placeholder:text-iron-600;
+    @apply focus:border-signal-400 focus:bg-iron-800 focus:outline-none;
   }
 
   .field-filled {
-    @apply border-accent-500/60 bg-accent-500/10;
+    @apply border-signal-500/50 bg-signal-500/8;
   }
 }
 

@@ -50,17 +50,17 @@ export function RestTimer() {
   return (
     <section
       aria-labelledby="rest-timer-title"
-      className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+      className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 id="rest-timer-title" className="text-sm font-semibold text-ink-50">
+        <h2 id="rest-timer-title" className="text-sm font-semibold text-chalk">
           Descanso
         </h2>
         {running ? (
           <button
             type="button"
             onClick={stop}
-            className="min-h-11 rounded-xl px-3 text-sm font-semibold text-ink-400 hover:bg-ink-850 hover:text-ink-200"
+            className="min-h-11 rounded-xl px-3 text-sm font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100"
           >
             Parar
           </button>
@@ -72,16 +72,16 @@ export function RestTimer() {
           <p
             role="timer"
             aria-live="off"
-            className="text-center text-4xl font-bold tabular-nums text-ink-50"
+            className="figure text-center text-6xl font-bold text-chalk"
           >
             {formatSeconds(remaining)}
           </p>
           <div
             aria-hidden="true"
-            className="mt-2 h-2 overflow-hidden rounded-full bg-ink-800"
+            className="mt-2 h-2 overflow-hidden rounded-full bg-iron-800"
           >
             <div
-              className="h-full rounded-full bg-accent-500 transition-[width] duration-200"
+              className="h-full rounded-full bg-signal-500 transition-[width] duration-200"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
@@ -94,13 +94,13 @@ export function RestTimer() {
                 key={seconds}
                 type="button"
                 onClick={() => start(seconds)}
-                className="min-h-12 flex-1 rounded-xl border border-ink-700 text-sm font-semibold tabular-nums text-ink-200 hover:border-accent-400 hover:bg-ink-850"
+                className="figure min-h-12 flex-1 rounded-xl border border-iron-700 text-base font-semibold text-iron-100 hover:border-signal-400 hover:bg-iron-850"
               >
                 {formatSeconds(seconds)}
               </button>
             ))}
           </div>
-          <p role="status" className="mt-2 text-center text-xs text-ink-600">
+          <p role="status" className="mt-2 text-center text-xs text-iron-600">
             {finished ? '¡Descanso terminado! A por la siguiente serie.' : 'Elige cuánto descansas entre series.'}
           </p>
         </>

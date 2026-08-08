@@ -27,7 +27,32 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 | **Ajustes** | Importar otro Excel, cambiar entre programas guardados, borrarlos y ver qué hace la app con tus datos |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
-color: lleva siempre una palabra y una marca.
+color: la palabra lo dice.
+
+### Cálculo de discos
+
+Escribes 82.5 kg y debajo del campo aparece **qué poner en cada lado de la barra**:
+`25 + 5 + 1.25`, con los discos dibujados en los colores de competición IPF (25 rojo,
+20 azul, 15 amarillo, 10 verde, 5 blanco, 2.5 rojo, 1.25 cromado). Es la cuenta que todo
+levantador hace entre series y falla cuando está cansado; la app ya sabe el peso, así que
+la hace ella.
+
+No aparece cuando el peso está por debajo de la barra: una polea o una mancuerna registran
+un peso que no tiene discos, y adivinar sería peor que callarse. Si algo no cuadra con los
+discos disponibles lo dice (`+0.5 sin cuadrar`) en vez de redondearlo a escondidas.
+
+### Sistema visual
+
+- **Color:** hierro fundido pintado, con un matiz verde-gris en cada paso, para que las
+  superficies se lean como material y no como ausencia de luz. Un solo acento: **amarillo
+  de competición**, el más legible con mala luz de gimnasio. El rojo queda reservado para
+  esfuerzo y fallo, nunca para decorar.
+- **Tipografía:** **Barlow Condensed** para cifras y titulares, **Barlow** para texto.
+  Contraste por anchura, no por familia. Autoalojadas en `public/fonts/` (subconjunto
+  latino, ~110 kB): la CSP es `default-src 'self'` y bloquearía un CDN, que además filtraría
+  la IP de quien usa la app y retrasaría el primer pintado.
+- **Iconos:** SVG propios sobre rejilla de 24 px, un solo grosor de trazo, heredan el color
+  del texto. Cero emoji: se dibujan distinto en cada sistema y no heredan color ni peso.
 
 ---
 
@@ -75,7 +100,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      194 tests
+tests/                      205 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -216,7 +241,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 194 tests |
+| `npm test` | Los 205 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -304,7 +329,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 194 tests, contra PGlite
+npm test                      # 205 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 

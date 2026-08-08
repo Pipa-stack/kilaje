@@ -18,8 +18,8 @@ export function ImportScreen({ onFile, importing, error, onDismissError }: Impor
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-8 px-4 py-12">
       <header className="space-y-3 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-ink-50">Gimnasio</h1>
-        <p className="text-balance text-ink-400">
+        <h1 className="text-3xl font-bold tracking-tight text-chalk">Gimnasio</h1>
+        <p className="text-balance text-iron-400">
           Tu plantilla de Excel, convertida en algo que se puede usar con una mano entre serie
           y serie.
         </p>
@@ -47,10 +47,10 @@ export function ImportScreen({ onFile, importing, error, onDismissError }: Impor
         ) : null}
       </div>
 
-      <ol className="space-y-3 text-sm text-ink-400">
+      <ol className="space-y-3 text-sm text-iron-400">
         {STEPS.map((step, index) => (
           <li key={step} className="flex gap-3">
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-ink-800 text-xs font-bold text-ink-200">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-iron-800 text-xs font-bold text-iron-100">
               {index + 1}
             </span>
             <span className="pt-0.5">{step}</span>

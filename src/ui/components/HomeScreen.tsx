@@ -33,19 +33,19 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
     <div className="space-y-4">
       <section
         aria-labelledby="week-summary-title"
-        className="rounded-2xl border border-ink-800 bg-ink-900 p-4"
+        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
         <div className="flex items-baseline justify-between gap-3">
-          <h2 id="week-summary-title" className="text-xl font-bold text-ink-50">
+          <h2 id="week-summary-title" className="text-xl font-bold text-chalk">
             Semana {week.number}
           </h2>
           {weekCount > 1 ? (
-            <span className="text-xs text-ink-600">de {weekCount} semanas</span>
+            <span className="text-xs text-iron-600">de {weekCount} semanas</span>
           ) : null}
         </div>
 
         <div className="mt-3">
-          <div className="mb-1 flex justify-between text-xs text-ink-400">
+          <div className="mb-1 flex justify-between text-xs text-iron-400">
             <span>
               {summary.completedDays} de {summary.totalDays} sesiones completadas
             </span>
@@ -57,10 +57,10 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
             aria-valuemin={0}
             aria-valuemax={summary.totalDays}
             aria-label="Sesiones completadas esta semana"
-            className="h-2 overflow-hidden rounded-full bg-ink-800"
+            className="h-2 overflow-hidden rounded-full bg-iron-800"
           >
             <div
-              className="h-full rounded-full bg-success-500 transition-[width] duration-300"
+              className="h-full rounded-full bg-done-500 transition-[width] duration-300"
               style={{ width: `${summary.ratio * 100}%` }}
             />
           </div>
@@ -109,17 +109,17 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
           <button
             type="button"
             onClick={() => onOpenDay(nextDay.number)}
-            className="flex w-full items-center gap-4 rounded-2xl bg-accent-500 px-4 py-4 text-left text-white transition-colors hover:bg-accent-400"
+            className="flex w-full items-center gap-4 rounded-2xl bg-signal-500 px-4 py-4 text-left text-iron-950 transition-colors hover:bg-signal-400"
           >
             <span className="flex-1">
-              <span className="block text-xs font-semibold uppercase tracking-wide text-white/70">
+              <span className="eyebrow block text-iron-950/70">
                 {daySessionStatus(nextDay) === 'in-progress' ? 'Continuar' : 'Empezar'}
               </span>
-              <span className="block text-lg font-bold leading-tight">
+              <span className="block font-condensed text-2xl font-bold uppercase leading-none tracking-tight">
                 Día {nextDay.number}
                 {nextDay.type ? ` · ${nextDay.type}` : ''}
               </span>
-              <span className="block text-sm text-white/80">
+              <span className="block text-sm font-medium text-iron-950/70">
                 {nextDay.exercises.length} ejercicios
               </span>
             </span>
@@ -129,14 +129,14 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
       ) : (
         <p
           role="status"
-          className="rounded-2xl border border-success-500/40 bg-success-500/10 px-4 py-4 text-center text-sm font-semibold text-success-300"
+          className="rounded-2xl border border-done-500/40 bg-done-500/10 px-4 py-4 text-center text-sm font-semibold text-done-300"
         >
           Semana completada. Buen trabajo.
         </p>
       )}
 
       <section aria-labelledby="days-title">
-        <h2 id="days-title" className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-ink-600">
+        <h2 id="days-title" className="eyebrow mb-2 block px-1">
           Sesiones de la semana
         </h2>
         <ul className="space-y-2">
@@ -163,13 +163,13 @@ function Metric({
   tone?: 'neutral' | 'positive' | 'warning';
 }) {
   const noteColor =
-    tone === 'positive' ? 'text-success-300' : tone === 'warning' ? 'text-amber-300' : 'text-ink-600';
+    tone === 'positive' ? 'text-done-300' : tone === 'warning' ? 'text-amber-300' : 'text-iron-600';
 
   return (
     <div className="min-w-0">
-      <dt className="text-xs uppercase tracking-wide text-ink-600">{label}</dt>
+      <dt className="eyebrow block">{label}</dt>
       <dd className="mt-0.5">
-        <span className="block truncate text-lg font-bold tabular-nums text-ink-50">{value}</span>
+        <span className="figure block truncate text-2xl font-bold text-chalk">{value}</span>
         {note ? <span className={`block truncate text-xs ${noteColor}`}>{note}</span> : null}
       </dd>
     </div>
@@ -190,29 +190,29 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
   // Status is never colour alone: the word carries it on its own.
   const chip =
     status === 'completed'
-      ? 'bg-success-500/15 text-success-300'
+      ? 'bg-done-500/15 text-done-300'
       : status === 'in-progress'
-        ? 'bg-accent-500/15 text-accent-300'
-        : 'bg-ink-800 text-ink-400';
+        ? 'bg-signal-500/15 text-signal-300'
+        : 'bg-iron-800 text-iron-400';
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors hover:bg-ink-850 ${
-        status === 'pending' ? 'border-ink-800 bg-ink-900' : 'border-ink-700 bg-ink-900'
+      className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors hover:bg-iron-850 ${
+        status === 'pending' ? 'border-iron-800 bg-iron-900' : 'border-iron-700 bg-iron-900'
       }`}
     >
       <span
         aria-hidden="true"
-        className={`flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${chip}`}
+        className={`figure flex size-11 shrink-0 items-center justify-center rounded-xl text-xl font-bold ${chip}`}
       >
         {day.number}
       </span>
 
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="truncate font-semibold text-ink-50">
+          <span className="truncate font-semibold text-chalk">
             {/* The number badge is decorative, so the day number is spoken here. */}
             <span className="sr-only">Día {day.number}: </span>
             {day.type ?? `Día ${day.number}`}
@@ -224,14 +224,14 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
             {STATUS_LABEL[status]}
           </span>
         </span>
-        <span className="mt-0.5 block truncate text-xs text-ink-400">
+        <span className="mt-0.5 block truncate text-xs text-iron-400">
           {progress.startedExercises}/{progress.totalExercises} ejercicios
           {volume > 0 ? ` · ${Math.round(volume).toLocaleString('es-ES')} kg` : ''}
           {day.notes.trim() !== '' ? ' · con notas' : ''}
         </span>
       </span>
 
-      <Icon name="chevronRight" size={20} className="shrink-0 text-ink-600" />
+      <Icon name="chevronRight" size={20} className="shrink-0 text-iron-600" />
     </button>
   );
 }

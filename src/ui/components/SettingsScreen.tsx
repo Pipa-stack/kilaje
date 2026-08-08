@@ -25,11 +25,11 @@ export function SettingsScreen({
 }: SettingsScreenProps) {
   return (
     <div className="space-y-4">
-      <section aria-labelledby="import-title" className="rounded-2xl border border-ink-800 bg-ink-900 p-4">
-        <h2 id="import-title" className="mb-1 font-semibold text-ink-50">
+      <section aria-labelledby="import-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="import-title" className="mb-1 font-semibold text-chalk">
           Importar entrenamiento
         </h2>
-        <p className="mb-3 text-sm text-ink-400">
+        <p className="mb-3 text-sm text-iron-400">
           Sube tu plantilla .xlsx. Se crea un programa nuevo: los anteriores y su historial
           se conservan.
         </p>
@@ -45,11 +45,11 @@ export function SettingsScreen({
         />
       </section>
 
-      <section aria-labelledby="programs-title" className="rounded-2xl border border-ink-800 bg-ink-900 p-4">
-        <h2 id="programs-title" className="mb-1 font-semibold text-ink-50">
+      <section aria-labelledby="programs-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="programs-title" className="mb-1 font-semibold text-chalk">
           Programas guardados
         </h2>
-        <p className="mb-3 text-sm text-ink-400">
+        <p className="mb-3 text-sm text-iron-400">
           {programs.length} {programs.length === 1 ? 'programa' : 'programas'} en la base de datos.
         </p>
 
@@ -60,20 +60,20 @@ export function SettingsScreen({
               <li
                 key={program.id}
                 className={`rounded-xl border px-3 py-3 ${
-                  isCurrent ? 'border-accent-500/50 bg-accent-500/5' : 'border-ink-800 bg-ink-850'
+                  isCurrent ? 'border-signal-500/50 bg-signal-500/5' : 'border-iron-800 bg-iron-850'
                 }`}
               >
                 <div className="flex items-baseline gap-2">
-                  <h3 className="min-w-0 flex-1 truncate font-semibold text-ink-50">
+                  <h3 className="min-w-0 flex-1 truncate font-semibold text-chalk">
                     {program.name}
                   </h3>
                   {isCurrent ? (
-                    <span className="shrink-0 rounded-full bg-accent-500/20 px-2 py-0.5 text-xs font-semibold text-accent-300">
+                    <span className="shrink-0 rounded-full bg-signal-500/20 px-2 py-0.5 text-xs font-semibold text-signal-300">
                       En uso
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-0.5 text-xs text-ink-600">
+                <p className="mt-0.5 text-xs text-iron-600">
                   {program.weekCount} {program.weekCount === 1 ? 'semana' : 'semanas'} ·{' '}
                   {program.dayCount} sesiones · {program.completedDays} completadas ·{' '}
                   {formatDate(program.importedAt)}
@@ -84,7 +84,7 @@ export function SettingsScreen({
                     type="button"
                     disabled={isCurrent}
                     onClick={() => void onSelectProgram(program.id)}
-                    className="min-h-11 flex-1 rounded-xl border border-ink-700 px-3 text-sm font-semibold text-ink-200 hover:bg-ink-800 disabled:pointer-events-none disabled:opacity-40"
+                    className="min-h-11 flex-1 rounded-xl border border-iron-700 px-3 text-sm font-semibold text-iron-100 hover:bg-iron-800 disabled:pointer-events-none disabled:opacity-40"
                   >
                     {isCurrent ? 'Abierto' : 'Abrir'}
                   </button>
@@ -98,7 +98,7 @@ export function SettingsScreen({
                         'registradas en ese programa. No se puede deshacer.';
                       if (confirm(message)) void onDeleteProgram(program.id);
                     }}
-                    className="min-h-11 rounded-xl px-3 text-sm font-semibold text-ink-600 hover:bg-red-500/10 hover:text-red-300 disabled:pointer-events-none disabled:opacity-30"
+                    className="min-h-11 rounded-xl px-3 text-sm font-semibold text-iron-600 hover:bg-red-500/10 hover:text-red-300 disabled:pointer-events-none disabled:opacity-30"
                   >
                     Borrar
                   </button>
@@ -109,11 +109,11 @@ export function SettingsScreen({
         </ul>
       </section>
 
-      <section aria-labelledby="about-title" className="rounded-2xl border border-ink-800 bg-ink-900 p-4">
-        <h2 id="about-title" className="mb-2 font-semibold text-ink-50">
+      <section aria-labelledby="about-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="about-title" className="mb-2 font-semibold text-chalk">
           Sobre tus datos
         </h2>
-        <ul className="space-y-2 text-sm text-ink-400">
+        <ul className="space-y-2 text-sm text-iron-400">
           <Fact label="Guardado en">PostgreSQL. Se conserva aunque cambies de dispositivo.</Fact>
           <Fact label="Sin conexión">
             Se guarda una copia en este navegador para poder consultar el entrenamiento.
@@ -132,8 +132,8 @@ export function SettingsScreen({
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <li>
-      <span className="block text-xs uppercase tracking-wide text-ink-600">{label}</span>
-      <span className="block text-ink-200">{children}</span>
+      <span className="block text-xs uppercase tracking-wide text-iron-600">{label}</span>
+      <span className="block text-iron-100">{children}</span>
     </li>
   );
 }

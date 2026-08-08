@@ -57,7 +57,7 @@ export function NumberField({
         onBlur={() => setDraft(toDraft(value))}
       />
       {reference !== null ? (
-        <span className="text-center text-xs text-ink-600" aria-hidden="true">
+        <span className="text-center text-xs text-iron-600" aria-hidden="true">
           {reference}
         </span>
       ) : null}
