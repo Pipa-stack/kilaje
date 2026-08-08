@@ -13,7 +13,7 @@
 > - **Arquitectura:** `Frontend → Express → PostgreSQL`, un solo servicio en Railway.
 > - **§5 Estructura:** el parser pasa de `src/parser/` a `server/parser/`; los límites de
 >   subida compartidos van a `src/domain/upload.ts`; se añaden `server/` y `src/api/`.
-> - **§8 Tests:** 172 en total. Los de servidor usan PGlite (PostgreSQL real en WASM) y
+> - **§8 Tests:** 194 en total. Los de servidor usan PGlite (PostgreSQL real en WASM) y
 >   CI los repite contra un PostgreSQL 16 auténtico.
 > - **§10 Seguridad:** se suma validación de cuerpos con zod, comprobación de que el
 >   ejercicio pertenece al día, saneado del nombre de fichero y cabeceras de seguridad.

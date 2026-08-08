@@ -228,6 +228,20 @@ export async function requireSessionId(db: Database, dayId: number): Promise<num
 /* Reading                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Deletes a program and everything hanging off it.
+ *
+ * The foreign keys cascade, so the plan, its sessions and its logged sets go
+ * together — deleting a program is meant to erase that training history, not
+ * to orphan it.
+ *
+ * @returns false when the program did not exist.
+ */
+export async function deleteProgram(db: Database, programId: number): Promise<boolean> {
+  const { rowCount } = await db.query('DELETE FROM programs WHERE id = $1', [programId]);
+  return rowCount > 0;
+}
+
 export async function findProgramIdByHash(db: Database, hash: string): Promise<number | null> {
   const { rows } = await db.query<{ id: number }>('SELECT id FROM programs WHERE source_hash = $1', [
     hash,

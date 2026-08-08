@@ -142,6 +142,160 @@ export function dayProgress(day: Day): DayProgress {
   };
 }
 
+/** Where a session stands, for the home screen. */
+export type SessionStatus = 'completed' | 'in-progress' | 'pending';
+
+/**
+ * A day is "in progress" as soon as anything is logged against it, and only
+ * "completed" once the user says so — finishing is a decision, not something
+ * inferred from having filled every box.
+ */
+export function daySessionStatus(day: Day): SessionStatus {
+  if (day.completed) return 'completed';
+  return dayProgress(day).startedExercises > 0 ? 'in-progress' : 'pending';
+}
+
+export interface WeekSummary {
+  totalDays: number;
+  completedDays: number;
+  /** Days started but not finished. */
+  activeDays: number;
+  totalExercises: number;
+  startedExercises: number;
+  volume: number;
+  previousVolume: number;
+  /** Percentage change against the previous week, or `null` with no history. */
+  changePercent: number | null;
+  /** 0–1, by completed sessions. */
+  ratio: number;
+}
+
+/** Everything the home screen needs about a week, in one pass. */
+export function weekSummary(week: Week): WeekSummary {
+  const volume = weekVolume(week);
+  const previousVolume = week.days.reduce((total, day) => total + dayPreviousVolume(day), 0);
+  const completedDays = week.days.filter((day) => day.completed).length;
+  const activeDays = week.days.filter((day) => daySessionStatus(day) === 'in-progress').length;
+
+  const exercises = week.days.reduce(
+    (totals, day) => {
+      const progress = dayProgress(day);
+      return {
+        total: totals.total + progress.totalExercises,
+        started: totals.started + progress.startedExercises,
+      };
+    },
+    { total: 0, started: 0 },
+  );
+
+  return {
+    totalDays: week.days.length,
+    completedDays,
+    activeDays,
+    totalExercises: exercises.total,
+    startedExercises: exercises.started,
+    volume,
+    previousVolume,
+    changePercent: volumeChangePercent(volume, previousVolume),
+    ratio: week.days.length === 0 ? 0 : completedDays / week.days.length,
+  };
+}
+
+/**
+ * The session to offer as "continue": the one already started, otherwise the
+ * first pending one. `null` when the whole week is done.
+ */
+export function findNextDay(week: Week): Day | null {
+  return (
+    week.days.find((day) => daySessionStatus(day) === 'in-progress') ??
+    week.days.find((day) => daySessionStatus(day) === 'pending') ??
+    null
+  );
+}
+
+export interface TopLift {
+  oneRepMax: number;
+  exerciseName: string;
+}
+
+/** The best estimated 1RM logged in the week, for the summary. */
+export function bestEstimated1RM(week: Week): TopLift | null {
+  let best: TopLift | null = null;
+
+  for (const day of week.days) {
+    for (const exercise of day.exercises) {
+      const oneRepMax = exercise1RM(exercise);
+      if (oneRepMax === null) continue;
+      if (!best || oneRepMax > best.oneRepMax) {
+        best = { oneRepMax, exerciseName: exercise.name };
+      }
+    }
+  }
+
+  return best;
+}
+
+export interface ExerciseProgressRow {
+  exerciseId: string;
+  name: string;
+  dayNumber: number;
+  volume: number;
+  oneRepMax: number | null;
+  /** Heaviest weight lifted for at least one rep. */
+  topWeight: number | null;
+  loggedSets: number;
+}
+
+/**
+ * Per-exercise totals for the progress screen, heaviest lift first.
+ *
+ * Only exercises with something logged are included: a table of zeroes tells
+ * the user nothing about their training.
+ */
+export function exerciseProgress(week: Week): ExerciseProgressRow[] {
+  const rows: ExerciseProgressRow[] = [];
+
+  for (const day of week.days) {
+    for (const exercise of day.exercises) {
+      const logged = loggedSetCount(exercise.currentWeek);
+      if (logged === 0) continue;
+
+      const weights = exercise.currentWeek
+        .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
+        .map((set) => set.weight as number);
+
+      rows.push({
+        exerciseId: exercise.id,
+        name: exercise.name,
+        dayNumber: day.number,
+        volume: exerciseVolume(exercise.currentWeek),
+        oneRepMax: exercise1RM(exercise),
+        topWeight: weights.length > 0 ? Math.max(...weights) : null,
+        loggedSets: logged,
+      });
+    }
+  }
+
+  return rows.sort((a, b) => b.volume - a.volume);
+}
+
+export interface DayVolumeRow {
+  dayNumber: number;
+  type: string | null;
+  volume: number;
+  completed: boolean;
+}
+
+/** Volume per day, for the bar chart on the progress screen. */
+export function volumeByDay(week: Week): DayVolumeRow[] {
+  return week.days.map((day) => ({
+    dayNumber: day.number,
+    type: day.type,
+    volume: dayVolume(day),
+    completed: day.completed,
+  }));
+}
+
 /**
  * Percentage change between this week's and last week's volume.
  * `null` when there is nothing to compare against.

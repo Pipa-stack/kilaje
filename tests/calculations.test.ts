@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  bestEstimated1RM,
   dayProgress,
   dayPreviousVolume,
+  daySessionStatus,
   dayVolume,
   epley1RM,
+  exerciseProgress,
+  findNextDay,
+  volumeByDay,
+  weekSummary,
   excelRound,
   exercise1RM,
   exerciseProgression,
@@ -220,6 +226,153 @@ describe('progress helpers', () => {
 
   it('reports zero progress for a day with no exercises', () => {
     expect(dayProgress(day([])).ratio).toBe(0);
+  });
+});
+
+describe('home screen summaries', () => {
+  const started = exercise({ currentWeek: [set(80, 10), ...emptySets(3)] });
+  const untouched = exercise({ id: 'w1:d1:e2', number: 2 });
+
+  function makeWeek(days: Day[]): Week {
+    return { number: 1, sheetName: 'Semana 1', days };
+  }
+
+  it('reports a day as pending, in progress or completed', () => {
+    expect(daySessionStatus(day([untouched]))).toBe('pending');
+    expect(daySessionStatus(day([started, untouched]))).toBe('in-progress');
+    expect(daySessionStatus({ ...day([started]), completed: true })).toBe('completed');
+  });
+
+  it('only calls a day completed when the user says so', () => {
+    // Every exercise logged, but not marked finished: still in progress.
+    expect(daySessionStatus(day([started]))).toBe('in-progress');
+  });
+
+  it('summarises the week', () => {
+    const week = makeWeek([
+      { ...day([started, untouched]), id: 'w1:d1', number: 1, completed: true },
+      { ...day([untouched]), id: 'w1:d2', number: 2 },
+      { ...day([started]), id: 'w1:d3', number: 3 },
+    ]);
+
+    expect(weekSummary(week)).toMatchObject({
+      totalDays: 3,
+      completedDays: 1,
+      activeDays: 1,
+      totalExercises: 4,
+      startedExercises: 2,
+      volume: 800 * 2,
+      previousVolume: 0,
+      changePercent: null,
+      ratio: 1 / 3,
+    });
+  });
+
+  it('compares against the previous week when there is history', () => {
+    const withHistory = exercise({
+      previousWeek: [set(80, 5), ...emptySets(3)],
+      currentWeek: [set(80, 10), ...emptySets(3)],
+    });
+    const summary = weekSummary(makeWeek([day([withHistory])]));
+    expect(summary.previousVolume).toBe(400);
+    expect(summary.changePercent).toBe(100);
+  });
+
+  it('offers the started day first, then the first pending one', () => {
+    const pendingFirst = makeWeek([
+      { ...day([untouched]), id: 'w1:d1', number: 1 },
+      { ...day([started]), id: 'w1:d2', number: 2 },
+    ]);
+    // Day 2 is already underway, so that is the one to continue.
+    expect(findNextDay(pendingFirst)?.number).toBe(2);
+
+    const allPending = makeWeek([
+      { ...day([untouched]), id: 'w1:d1', number: 1 },
+      { ...day([untouched]), id: 'w1:d2', number: 2 },
+    ]);
+    expect(findNextDay(allPending)?.number).toBe(1);
+  });
+
+  it('has nothing to offer once the week is finished', () => {
+    const done = makeWeek([{ ...day([started]), id: 'w1:d1', number: 1, completed: true }]);
+    expect(findNextDay(done)).toBeNull();
+  });
+
+  it('finds the best estimated 1RM of the week', () => {
+    const heavy = exercise({
+      id: 'w1:d2:e1',
+      name: 'SENTADILLA',
+      currentWeek: [set(120, 3), ...emptySets(3)],
+    });
+    const week = makeWeek([
+      { ...day([started]), id: 'w1:d1', number: 1 },
+      { ...day([heavy]), id: 'w1:d2', number: 2 },
+    ]);
+
+    expect(bestEstimated1RM(week)).toEqual({ oneRepMax: 132, exerciseName: 'SENTADILLA' });
+  });
+
+  it('has no best lift before anything is logged', () => {
+    expect(bestEstimated1RM(makeWeek([day([untouched])]))).toBeNull();
+  });
+
+  it('handles an empty week without dividing by zero', () => {
+    const empty = makeWeek([]);
+    expect(weekSummary(empty).ratio).toBe(0);
+    expect(findNextDay(empty)).toBeNull();
+    expect(bestEstimated1RM(empty)).toBeNull();
+  });
+});
+
+describe('progress screen data', () => {
+  const bench = exercise({ currentWeek: [set(82.5, 4), set(80, 8), ...emptySets(2)] });
+  const squat = exercise({
+    id: 'w1:d2:e1',
+    name: 'SENTADILLA',
+    currentWeek: [set(100, 5), ...emptySets(3)],
+  });
+  const untouched = exercise({ id: 'w1:d1:e9', number: 9, name: 'SIN TOCAR' });
+
+  const week: Week = {
+    number: 1,
+    sheetName: 'Semana 1',
+    days: [
+      { ...day([bench, untouched]), id: 'w1:d1', number: 1 },
+      { ...day([squat]), id: 'w1:d2', number: 2, completed: true },
+    ],
+  };
+
+  it('lists only exercises with something logged, heaviest volume first', () => {
+    const rows = exerciseProgress(week);
+    expect(rows.map((row) => row.name)).toEqual(['PRESS DE BANCA', 'SENTADILLA']);
+    expect(rows.map((row) => row.volume)).toEqual([82.5 * 4 + 80 * 8, 500]);
+  });
+
+  it('reports the top weight and 1RM per exercise', () => {
+    const [benchRow] = exerciseProgress(week);
+    expect(benchRow).toMatchObject({ topWeight: 82.5, loggedSets: 2, dayNumber: 1 });
+    expect(benchRow?.oneRepMax).toBe(93.5);
+  });
+
+  it('ignores a weight recorded without reps when picking the top weight', () => {
+    const oddball = exercise({ currentWeek: [set(200, null), set(60, 10), ...emptySets(2)] });
+    const [row] = exerciseProgress({ ...week, days: [day([oddball])] });
+    expect(row?.topWeight).toBe(60);
+  });
+
+  it('gives volume per day for the chart, including empty days', () => {
+    expect(volumeByDay(week)).toEqual([
+      { dayNumber: 1, type: 'PUSH', volume: 82.5 * 4 + 80 * 8, completed: false },
+      { dayNumber: 2, type: 'PUSH', volume: 500, completed: true },
+    ]);
+  });
+
+  it('returns nothing for a week with no training logged', () => {
+    const blank: Week = { number: 1, sheetName: 'Semana 1', days: [day([untouched])] };
+    expect(exerciseProgress(blank)).toEqual([]);
+    expect(volumeByDay(blank)).toEqual([
+      { dayNumber: 1, type: 'PUSH', volume: 0, completed: false },
+    ]);
   });
 });
 

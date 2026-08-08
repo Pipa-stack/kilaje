@@ -120,6 +120,11 @@ export async function importProgram(file: File): Promise<StoredProgram> {
   return program;
 }
 
+/** Deletes a program and every session logged against it. */
+export async function deleteProgram(programId: number): Promise<void> {
+  await callApi<void>(`/programs/${programId}`, { method: 'DELETE' });
+}
+
 export interface SetPayload {
   exerciseId: number;
   setIndex: number;

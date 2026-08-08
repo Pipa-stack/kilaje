@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -83,6 +83,20 @@ async function importFile(user: ReturnType<typeof userEvent.setup>, file: File) 
 const BENCH = 'PRESS DE BANCA PLANO CON BARRA LIBRE';
 const WAIT = { timeout: 20_000 };
 
+/**
+ * The app opens on the home screen; a session is one tap away. Tests go
+ * through that tap rather than assuming a day is already open.
+ */
+async function openDay(user: ReturnType<typeof userEvent.setup>, dayNumber = 1) {
+  const [cta] = await screen.findAllByRole(
+    'button',
+    { name: new RegExp(`Día ${dayNumber}\\b`) },
+    WAIT,
+  );
+  await user.click(cta!);
+  return screen.findByRole('heading', { name: new RegExp(`Día ${dayNumber}\\b`) }, WAIT);
+}
+
 describe('the full training flow, persisted in PostgreSQL', () => {
   it('imports, trains, saves, reloads from the database and re-imports', async () => {
     const user = userEvent.setup();
@@ -92,7 +106,11 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     expect(await screen.findByRole('heading', { name: 'Gimnasio' }, WAIT)).toBeInTheDocument();
     await importFile(user, referenceFile());
 
-    await screen.findByRole('heading', { name: /Día 1\s*PUSH/ }, WAIT);
+    // Lands on the home screen: the week summary and the sessions.
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+    expect(screen.getByText(/0 de 5 sesiones completadas/)).toBeInTheDocument();
+
+    await openDay(user, 1);
     expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
     expect(screen.getByText('3 SETS X 4-6 / 6-8 / 8-10 REPS (RIR 0)')).toBeInTheDocument();
 
@@ -131,13 +149,17 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     localStorage.clear();
     render(<App />);
 
-    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+    await openDay(user, 1);
     expect(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`))).toHaveValue('80');
     expect(screen.getByLabelText('Notas de la sesión')).toHaveValue('buenas sensaciones');
     expect(screen.getByText('Completada')).toBeInTheDocument();
 
     // --- Re-import: a new program, old history preserved -----------------
-    await user.click(screen.getByRole('button', { name: 'Importar' }));
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('button', {
+        name: /Ajustes/,
+      }),
+    );
     await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
 
     await waitFor(async () => {
@@ -168,7 +190,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     const user = userEvent.setup();
     render(<App />);
     await importFile(user, referenceFile());
-    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+    await openDay(user, 1);
 
     await user.click(screen.getByRole('button', { name: 'Día siguiente →' }));
     expect(await screen.findByRole('heading', { name: /Día 2\s*PULL/ })).toBeInTheDocument();
@@ -184,7 +206,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     const user = userEvent.setup();
     render(<App />);
     await importFile(user, referenceFile());
-    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+    await openDay(user, 1);
 
     const label = new RegExp(`Peso de la serie 5 de ${BENCH}`);
     expect(screen.queryByLabelText(label)).toBeNull();
@@ -232,12 +254,98 @@ describe('the full training flow, persisted in PostgreSQL', () => {
   }, 30_000);
 });
 
+describe('the app shell', () => {
+  it('moves between Inicio, Entrenar, Progreso y Ajustes', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await importFile(user, referenceFile());
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
+
+    // The workbook already carried one logged set, so progress has content.
+    await user.click(tabs.getByRole('button', { name: /Progreso/ }));
+    expect(await screen.findByRole('heading', { name: 'Volumen por sesión' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ejercicios entrenados' })).toBeInTheDocument();
+
+    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    expect(await screen.findByRole('heading', { name: 'Programas guardados' })).toBeInTheDocument();
+    expect(screen.getByText('En uso')).toBeInTheDocument();
+
+    await user.click(tabs.getByRole('button', { name: /Día 1/ }));
+    expect(await screen.findByRole('heading', { name: BENCH })).toBeInTheDocument();
+
+    await user.click(tabs.getByRole('button', { name: /Inicio/ }));
+    expect(await screen.findByRole('heading', { name: /Semana 1/ })).toBeInTheDocument();
+  }, 90_000);
+
+  it('shows real progress once something is logged', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await importFile(user, referenceFile());
+    await openDay(user, 1);
+
+    await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`)), '80');
+    await user.type(
+      screen.getByLabelText(new RegExp(`Repeticiones de la serie 2 de ${BENCH}`)),
+      '8',
+    );
+
+    const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
+    await user.click(tabs.getByRole('button', { name: /Progreso/ }));
+
+    expect(await screen.findByRole('heading', { name: 'Ejercicios entrenados' })).toBeInTheDocument();
+    // 82.5x4 + 80x8 = 970
+    expect(screen.getAllByText('970 kg').length).toBeGreaterThan(0);
+    // Appears both in the exercise table and as the best lift of the week.
+    expect(screen.getAllByText(BENCH).length).toBeGreaterThan(0);
+  }, 90_000);
+
+  it('offers a rest timer on the training tab', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await importFile(user, referenceFile());
+    await openDay(user, 1);
+
+    expect(screen.getByRole('heading', { name: 'Descanso' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '1:30' }));
+    expect(await screen.findByRole('timer')).toHaveTextContent(/1:2\d|1:30/);
+
+    await user.click(screen.getByRole('button', { name: 'Parar' }));
+    expect(screen.queryByRole('timer')).toBeNull();
+  }, 90_000);
+
+  it('deletes a program and its history from Ajustes', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await importFile(user, referenceFile());
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+
+    // A second program, so deletion is allowed.
+    const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
+    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
+
+    await waitFor(async () => expect(await allPrograms()).toHaveLength(2), WAIT);
+
+    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      const [firstDelete] = await screen.findAllByRole('button', { name: 'Borrar' }, WAIT);
+      await user.click(firstDelete!);
+      await waitFor(async () => expect(await allPrograms()).toHaveLength(1), WAIT);
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  }, 90_000);
+});
+
 describe('offline behaviour', () => {
   it('falls back to the cached program when the API is unreachable', async () => {
     const user = userEvent.setup();
     const app = render(<App />);
     await importFile(user, referenceFile());
-    await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
     await waitFor(() => expect(localStorage.getItem('gimnasio.program.v1')).not.toBeNull(), WAIT);
     app.unmount();
@@ -247,9 +355,11 @@ describe('offline behaviour', () => {
 
     try {
       render(<App />);
-      await screen.findByRole('heading', { name: /Día 1/ }, WAIT);
-      expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
+      await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
       expect(screen.getByRole('alert')).toHaveTextContent(/Sin conexión/);
+      // The cached program is fully usable, not just a banner.
+      await openDay(user, 1);
+      expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
     } finally {
       globalThis.fetch = working;
     }

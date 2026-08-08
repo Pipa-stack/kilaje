@@ -48,6 +48,7 @@ export interface ProgramState {
 
   importFile: (file: File) => Promise<void>;
   selectProgram: (programId: number) => Promise<void>;
+  deleteProgram: (programId: number) => Promise<void>;
   dismissError: () => void;
   selectWeek: (weekNumber: number) => void;
   selectDay: (dayNumber: number) => void;
@@ -196,6 +197,31 @@ export function useProgram(): ProgramState {
     [openProgram],
   );
 
+  /**
+   * Deletes a program and its history. If it was the one on screen, the app
+   * falls back to whatever remains rather than showing a program that no
+   * longer exists.
+   */
+  const deleteProgram = useCallback(
+    async (programId: number) => {
+      setError(null);
+      try {
+        await api.deleteProgram(programId);
+        const remaining = await api.fetchPrograms();
+        setPrograms(remaining);
+
+        if (latest.current?.id === programId) {
+          const next = await api.fetchLatestProgram();
+          if (next) openProgram(next);
+          else setProgram(null);
+        }
+      } catch (cause) {
+        setError(toMessage(cause));
+      }
+    },
+    [openProgram],
+  );
+
   // Notes fire on every keystroke; only the last one needs to reach the API.
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNotes = useRef<{ dayId: string; notes: string } | null>(null);
@@ -243,6 +269,7 @@ export function useProgram(): ProgramState {
 
     importFile,
     selectProgram,
+    deleteProgram,
     reload: load,
     dismissError: useCallback(() => setError(null), []),
 

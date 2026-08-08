@@ -15,6 +15,20 @@ el Excel original.
 
 Al abrir la app aparece el programa ya almacenado. No hace falta subir el Excel cada vez.
 
+## La app
+
+Cuatro secciones, con navegación inferior al alcance del pulgar:
+
+| Sección | Qué hay |
+|---|---|
+| **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
+| **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión |
+| **Progreso** | Volumen por sesión, comparación con la semana anterior y tabla de ejercicios entrenados con su volumen, tope y 1RM |
+| **Ajustes** | Importar otro Excel, cambiar entre programas guardados, borrarlos y ver qué hace la app con tus datos |
+
+El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
+color: lleva siempre una palabra y una marca.
+
 ---
 
 ## Arquitectura
@@ -41,7 +55,11 @@ src/                        FRONTEND + dominio compartido
     upload.ts               Límites de subida compartidos con el servidor
   api/client.ts             Cliente tipado de la API
   storage/storage.ts        Caché offline en localStorage
-  ui/                       App, hook useProgram, componentes
+  ui/
+    App.tsx                 Composición y pestañas
+    hooks/useProgram.ts     Estado + API + caché offline
+    components/             HomeScreen, DayView, ProgressScreen, SettingsScreen,
+                            BottomNav, RestTimer, ExerciseCard, NumberField…
 
 server/                     BACKEND
   index.ts                  Arranque: migra, siembra (opcional) y sirve
@@ -57,7 +75,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      172 tests
+tests/                      194 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -136,6 +154,7 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 | `GET` | `/api/programs/latest` | El último importado (lo que abre la app) |
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
 | `POST` | `/api/programs` | Importa un `.xlsx` (bytes en crudo, `?filename=`) |
+| `DELETE` | `/api/programs/:id` | Borra un programa y todo lo entrenado en él |
 | `PUT` | `/api/days/:dayId/sets` | Guarda una serie (`exerciseId`, `setIndex`, peso, reps, RIR) |
 | `DELETE` | `/api/days/:dayId/sets` | Elimina una serie |
 | `PATCH` | `/api/days/:dayId/session` | Notas y/o sesión completada |
@@ -197,7 +216,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 172 tests |
+| `npm test` | Los 194 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -285,7 +304,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 172 tests, contra PGlite
+npm test                      # 194 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 

@@ -1,14 +1,17 @@
 import { useState } from 'react';
 
-import { weekVolume } from '../domain/calculations';
+import { BottomNav, type Tab } from './components/BottomNav';
 import { DayView } from './components/DayView';
-import { Dropzone } from './components/Dropzone';
+import { HomeScreen } from './components/HomeScreen';
 import { ImportScreen } from './components/ImportScreen';
+import { ProgressScreen } from './components/ProgressScreen';
+import { RestTimer } from './components/RestTimer';
+import { SettingsScreen } from './components/SettingsScreen';
 import { useProgram } from './hooks/useProgram';
 
 export default function App() {
   const state = useProgram();
-  const [showImport, setShowImport] = useState(false);
+  const [tab, setTab] = useState<Tab>('home');
 
   if (state.loading) {
     return (
@@ -34,24 +37,22 @@ export default function App() {
   const { program, week, day } = state;
   const dayIndex = week.days.findIndex((candidate) => candidate.number === day.number);
 
+  const openDay = (dayNumber: number) => {
+    state.selectDay(dayNumber);
+    setTab('day');
+  };
+
   return (
-    <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-16 pt-4">
+    <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-24 pt-4">
       <header className="mb-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-baseline justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold text-ink-50">{program.name}</h1>
-            <p className="text-xs text-ink-600">
-              Volumen de la semana: {Math.round(weekVolume(week)).toLocaleString('es-ES')} kg
+            <p className="truncate text-xs text-ink-600">
+              {program.weeks.length} {program.weeks.length === 1 ? 'semana' : 'semanas'} ·{' '}
+              {week.days.length} sesiones
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowImport((current) => !current)}
-            aria-expanded={showImport}
-            className="min-h-11 shrink-0 rounded-xl border border-ink-700 px-3 text-sm font-semibold text-ink-200 hover:bg-ink-850"
-          >
-            Importar
-          </button>
         </div>
 
         {state.offline ? (
@@ -62,54 +63,6 @@ export default function App() {
             Sin conexión con el servidor. Se muestran los últimos datos guardados en este
             dispositivo; los cambios se enviarán cuando vuelva la conexión.
           </p>
-        ) : null}
-
-        {showImport ? (
-          <div className="space-y-3">
-            <Dropzone
-              onFile={async (file) => {
-                await state.importFile(file);
-                setShowImport(false);
-              }}
-              disabled={state.importing}
-              label={state.importing ? 'Importando…' : 'Importar otro Excel'}
-              hint="Se crea un programa nuevo. Los anteriores y su historial se conservan."
-            />
-
-            {state.programs.length > 1 ? (
-              <nav aria-label="Programas guardados">
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-600">
-                  Programas guardados
-                </h2>
-                <ul className="space-y-2">
-                  {state.programs.map((candidate) => (
-                    <li key={candidate.id}>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await state.selectProgram(candidate.id);
-                          setShowImport(false);
-                        }}
-                        aria-current={candidate.id === program.id ? 'true' : undefined}
-                        className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm ${
-                          candidate.id === program.id
-                            ? 'bg-ink-700 text-ink-50'
-                            : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1 truncate font-semibold">
-                          {candidate.name}
-                        </span>
-                        <span className="shrink-0 text-xs text-ink-600">
-                          {candidate.dayCount} días · {candidate.completedDays} completados
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            ) : null}
-          </div>
         ) : null}
 
         <div role="status" aria-live="polite">
@@ -127,7 +80,7 @@ export default function App() {
           ) : null}
         </div>
 
-        {program.weeks.length > 1 ? (
+        {program.weeks.length > 1 && tab !== 'settings' ? (
           <nav aria-label="Semanas">
             <ul className="flex gap-2 overflow-x-auto pb-1">
               {program.weeks.map((candidate) => (
@@ -150,44 +103,84 @@ export default function App() {
           </nav>
         ) : null}
 
-        <nav aria-label="Días de la semana">
-          <ul className="flex gap-2 overflow-x-auto pb-1">
-            {week.days.map((candidate) => (
-              <li key={candidate.id}>
-                <button
-                  type="button"
-                  onClick={() => state.selectDay(candidate.number)}
-                  aria-current={candidate.number === day.number ? 'true' : undefined}
-                  className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-colors ${
-                    candidate.number === day.number
-                      ? 'bg-accent-500 text-white'
-                      : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
-                  }`}
-                >
-                  <span>Día {candidate.number}</span>
-                  {candidate.completed ? <span aria-label="completada">✓</span> : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        {tab === 'day' ? (
+          <nav aria-label="Días de la semana">
+            <ul className="flex gap-2 overflow-x-auto pb-1">
+              {week.days.map((candidate) => (
+                <li key={candidate.id}>
+                  <button
+                    type="button"
+                    onClick={() => state.selectDay(candidate.number)}
+                    aria-current={candidate.number === day.number ? 'true' : undefined}
+                    className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-colors ${
+                      candidate.number === day.number
+                        ? 'bg-accent-500 text-white'
+                        : 'bg-ink-900 text-ink-400 hover:bg-ink-850'
+                    }`}
+                  >
+                    <span>Día {candidate.number}</span>
+                    {candidate.completed ? <span aria-label="completada">✓</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
       </header>
 
       <main>
-        <DayView
-          key={day.id}
-          day={day}
-          hasPreviousDay={dayIndex > 0}
-          hasNextDay={dayIndex >= 0 && dayIndex < week.days.length - 1}
-          onNavigate={state.goToAdjacentDay}
-          onUpdateSet={state.updateSet}
-          onAddSet={state.addSet}
-          onRemoveSet={state.removeSet}
-          onNotesChange={state.updateNotes}
-          onToggleCompleted={state.toggleCompleted}
-          onResetDay={state.resetDay}
-        />
+        {tab === 'home' ? (
+          <HomeScreen week={week} weekCount={program.weeks.length} onOpenDay={openDay} />
+        ) : null}
+
+        {tab === 'day' ? (
+          <div className="space-y-4">
+            <RestTimer />
+            <DayView
+              key={day.id}
+              day={day}
+              hasPreviousDay={dayIndex > 0}
+              hasNextDay={dayIndex >= 0 && dayIndex < week.days.length - 1}
+              onNavigate={state.goToAdjacentDay}
+              onUpdateSet={state.updateSet}
+              onAddSet={state.addSet}
+              onRemoveSet={state.removeSet}
+              onNotesChange={state.updateNotes}
+              onToggleCompleted={state.toggleCompleted}
+              onResetDay={state.resetDay}
+            />
+          </div>
+        ) : null}
+
+        {tab === 'progress' ? <ProgressScreen week={week} /> : null}
+
+        {tab === 'settings' ? (
+          <SettingsScreen
+            programs={state.programs}
+            currentProgramId={program.id}
+            currentProgramName={program.name}
+            importing={state.importing}
+            offline={state.offline}
+            onFile={async (file) => {
+              await state.importFile(file);
+              setTab('home');
+            }}
+            onSelectProgram={async (programId) => {
+              await state.selectProgram(programId);
+              setTab('home');
+            }}
+            onDeleteProgram={async (programId) => {
+              await state.deleteProgram(programId);
+            }}
+          />
+        ) : null}
       </main>
+
+      <BottomNav
+        current={tab}
+        onChange={setTab}
+        dayLabel={day.type ? `Día ${day.number}` : `Día ${day.number}`}
+      />
     </div>
   );
 }

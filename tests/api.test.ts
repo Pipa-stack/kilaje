@@ -252,6 +252,58 @@ describe('re-importing keeps history intact', () => {
   });
 });
 
+describe('DELETE /api/programs/:id', () => {
+  it('removes the program and everything logged against it', async () => {
+    const { body } = await importReference();
+    const programId = body.program.id;
+    const dayId = Number(body.program.weeks[0].days[0].id);
+    const exerciseId = Number(body.program.weeks[0].days[0].exercises[0].id);
+
+    await request(app)
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
+      .expect(204);
+
+    await request(app).delete(`/api/programs/${programId}`).expect(204);
+
+    await request(app).get(`/api/programs/${programId}`).expect(404);
+
+    // The cascade left nothing orphaned.
+    for (const table of ['weeks', 'workout_days', 'exercises', 'workout_sessions', 'session_sets']) {
+      const { rows } = await db.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM ${table}`,
+      );
+      expect(rows[0]?.count).toBe(0);
+    }
+  });
+
+  it('leaves other programs untouched', async () => {
+    const first = await importReference();
+    const second = await request(app)
+      .post('/api/programs?filename=ejemplo.xlsx')
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.concat([workbook(), Buffer.from([0])]));
+
+    const keptId = second.body.program.id;
+    const keptDay = Number(second.body.program.weeks[0].days[0].id);
+    await request(app).patch(`/api/days/${keptDay}/session`).send({ notes: 'no me borres' }).expect(204);
+
+    await request(app).delete(`/api/programs/${first.body.program.id}`).expect(204);
+
+    const { body } = await request(app).get(`/api/programs/${keptId}`).expect(200);
+    expect(body.program.weeks[0].days[0].notes).toBe('no me borres');
+    expect(body.program.weeks[0].days[0].exercises).toHaveLength(7);
+  });
+
+  it('404s for a program that does not exist', async () => {
+    await request(app).delete('/api/programs/999999').expect(404);
+  });
+
+  it('rejects a non-numeric id', async () => {
+    await request(app).delete('/api/programs/abc').expect(400);
+  });
+});
+
 describe('GET /api/programs', () => {
   it('returns an empty list on a fresh database', async () => {
     const { body } = await request(app).get('/api/programs').expect(200);

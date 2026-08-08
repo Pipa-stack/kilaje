@@ -48,7 +48,13 @@ async function openPGlite(): Promise<TestDatabase> {
   const db: Database = {
     async query(sql, params) {
       const result = await client.query(sql, params as unknown[]);
-      return { rows: (result.rows ?? []) as never[], rowCount: result.rows?.length ?? 0 };
+      return {
+        rows: (result.rows ?? []) as never[],
+        // DELETE/UPDATE return no rows, so the count has to come from
+        // `affectedRows`; using `rows.length` would report every write as
+        // having changed nothing.
+        rowCount: result.affectedRows ?? result.rows?.length ?? 0,
+      };
     },
     async exec(sql) {
       await client.exec(sql);

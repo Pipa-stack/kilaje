@@ -13,6 +13,7 @@ import { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
 import { parseWorkbook } from '../parser/excelParser';
 import { ping, type Database } from '../db/database';
 import {
+  deleteProgram,
   getProgram,
   hashSource,
   importProgram,
@@ -109,6 +110,20 @@ export function createApiRouter(db: Database): Router {
       const { program, created } = await importProgram(db, parsed, hashSource(bytes));
 
       res.status(created ? 201 : 200).json({ program, created });
+    }),
+  );
+
+  /** Deletes a program and all the training logged against it. */
+  router.delete(
+    '/programs/:programId',
+    handle(async (req, res) => {
+      const programId = idParam.parse(req.params.programId);
+      const removed = await deleteProgram(db, programId);
+      if (!removed) {
+        res.status(404).json({ error: 'El programa no existe.' });
+        return;
+      }
+      res.status(204).end();
     }),
   );
 
