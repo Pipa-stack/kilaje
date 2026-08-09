@@ -259,14 +259,10 @@ export async function resetPassword(token: string, newPassword: string): Promise
 /* Profile                                                             */
 /* ------------------------------------------------------------------ */
 
-export type WeightUnit = 'kg' | 'lb';
-
 export interface Profile {
   identity: {
     email: string;
     displayName: string;
-    gym: string | null;
-    weightUnit: WeightUnit;
     memberSince: string;
   };
   stats: {
@@ -278,7 +274,6 @@ export interface Profile {
     programs: number;
   };
   records: { exercise: string; oneRepMax: number; topWeight: number | null; achievedAt: string }[];
-  bodyWeights: { weightKg: number; measuredOn: string }[];
 }
 
 export async function fetchProfile(): Promise<Profile> {
@@ -286,18 +281,6 @@ export async function fetchProfile(): Promise<Profile> {
   return profile;
 }
 
-export async function updateProfile(patch: {
-  displayName?: string | null;
-  gym?: string | null;
-  weightUnit?: WeightUnit;
-}): Promise<void> {
+export async function updateProfile(patch: { displayName: string | null }): Promise<void> {
   await callApi<void>('/profile', { ...json(patch), method: 'PATCH' });
-}
-
-/** Records today's weigh-in, in kilos. One reading per day replaces the last. */
-export async function recordBodyWeight(weightKg: number, measuredOn?: string): Promise<void> {
-  await callApi<void>('/profile/weight', {
-    ...json({ weightKg, ...(measuredOn ? { measuredOn } : {}) }),
-    method: 'PUT',
-  });
 }

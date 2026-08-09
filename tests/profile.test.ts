@@ -208,30 +208,21 @@ describe('the profile', () => {
   async function profile() {
     const { body } = await agent.get('/api/profile').expect(200);
     return body.profile as {
-      identity: { displayName: string; gym: string | null; weightUnit: string; email: string };
+      identity: { displayName: string; email: string; memberSince: string };
       stats: { completedSessions: number; totalVolumeKg: number; distinctExercises: number };
       records: { exercise: string; oneRepMax: number }[];
-      bodyWeights: { weightKg: number; measuredOn: string }[];
     };
   }
 
   it('falls back to the email when there is no name yet', async () => {
     const { identity } = await profile();
     expect(identity.displayName).toBe('ana');
-    expect(identity.weightUnit).toBe('kg');
-    expect(identity.gym).toBeNull();
+    expect(identity.email).toBe('ana@ejemplo.com');
   });
 
-  it('stores the name, the gym and the unit', async () => {
-    await agent
-      .patch('/api/profile')
-      .send({ displayName: '  Ana  ', gym: 'Gimnasio del barrio', weightUnit: 'lb' })
-      .expect(204);
-
-    const { identity } = await profile();
-    expect(identity.displayName).toBe('Ana');
-    expect(identity.gym).toBe('Gimnasio del barrio');
-    expect(identity.weightUnit).toBe('lb');
+  it('stores the name, trimmed', async () => {
+    await agent.patch('/api/profile').send({ displayName: '  Ana  ' }).expect(204);
+    expect((await profile()).identity.displayName).toBe('Ana');
   });
 
   it('treats an emptied name as no name', async () => {
@@ -239,13 +230,10 @@ describe('the profile', () => {
     expect((await profile()).identity.displayName).toBe('ana');
   });
 
-  it('rejects a unit that is not one', async () => {
-    await agent.patch('/api/profile').send({ weightUnit: 'piedras' }).expect(400);
-  });
-
-  it('rejects an empty patch and unknown fields', async () => {
-    await agent.patch('/api/profile').send({}).expect(400);
+  it('rejects unknown fields instead of ignoring them', async () => {
     await agent.patch('/api/profile').send({ isAdmin: true }).expect(400);
+    // The removed fields must not quietly come back either.
+    await agent.patch('/api/profile').send({ displayName: 'Ana', gym: 'X' }).expect(400);
   });
 
   it('builds records and totals from what was actually logged', async () => {
@@ -264,64 +252,16 @@ describe('the profile', () => {
   }, 60_000);
 
   it('is empty, not broken, for an account that has logged nothing', async () => {
-    const { stats, records, bodyWeights } = await profile();
+    const { stats, records } = await profile();
     expect(stats.completedSessions).toBe(0);
     expect(stats.totalVolumeKg).toBe(0);
     expect(records).toEqual([]);
-    expect(bodyWeights).toEqual([]);
   });
 });
 
-describe('body weight', () => {
-  it('records a weigh-in and reads it back', async () => {
-    await agent.put('/api/profile/weight').send({ weightKg: 75.4 }).expect(204);
-
-    const { body } = await agent.get('/api/profile').expect(200);
-    expect(body.profile.bodyWeights).toHaveLength(1);
-    expect(body.profile.bodyWeights[0].weightKg).toBe(75.4);
-  });
-
-  it('replaces the reading instead of stacking two for the same day', async () => {
-    // Stepping on the scale twice should not draw a sawtooth.
-    await agent.put('/api/profile/weight').send({ weightKg: 75.4, measuredOn: '2026-08-01' }).expect(204);
-    await agent.put('/api/profile/weight').send({ weightKg: 75.9, measuredOn: '2026-08-01' }).expect(204);
-
-    const { body } = await agent.get('/api/profile').expect(200);
-    expect(body.profile.bodyWeights).toHaveLength(1);
-    expect(body.profile.bodyWeights[0].weightKg).toBe(75.9);
-  });
-
-  it('returns readings oldest first, so a chart reads left to right', async () => {
-    await agent.put('/api/profile/weight').send({ weightKg: 76, measuredOn: '2026-08-02' }).expect(204);
-    await agent.put('/api/profile/weight').send({ weightKg: 75, measuredOn: '2026-08-01' }).expect(204);
-
-    const { body } = await agent.get('/api/profile').expect(200);
-    expect(body.profile.bodyWeights.map((entry: { measuredOn: string }) => entry.measuredOn)).toEqual([
-      '2026-08-01',
-      '2026-08-02',
-    ]);
-  });
-
-  it('deletes a reading', async () => {
-    await agent.put('/api/profile/weight').send({ weightKg: 75, measuredOn: '2026-08-01' }).expect(204);
-    await agent.delete('/api/profile/weight/2026-08-01').expect(204);
-
-    const { body } = await agent.get('/api/profile').expect(200);
-    expect(body.profile.bodyWeights).toEqual([]);
-  });
-
-  it.each([
-    ['zero', { weightKg: 0 }],
-    ['negative', { weightKg: -5 }],
-    ['absurd', { weightKg: 900 }],
-    ['text', { weightKg: '75' }],
-    ['a bad date', { weightKg: 75, measuredOn: 'ayer' }],
-  ])('rejects %s', async (_label, payload) => {
-    await agent.put('/api/profile/weight').send(payload).expect(400);
-  });
-
+describe('scope', () => {
   it('never mixes accounts', async () => {
-    await agent.put('/api/profile/weight').send({ weightKg: 75.4 }).expect(204);
+    await agent.patch('/api/profile').send({ displayName: 'Ana' }).expect(204);
 
     const bruno = request.agent(app);
     await bruno
@@ -330,12 +270,13 @@ describe('body weight', () => {
       .expect(201);
 
     const { body } = await bruno.get('/api/profile').expect(200);
-    expect(body.profile.bodyWeights).toEqual([]);
     expect(body.profile.identity.email).toBe('bruno@ejemplo.com');
+    expect(body.profile.identity.displayName).toBe('bruno');
+    expect(body.profile.records).toEqual([]);
   }, 40_000);
 
   it('requires a session', async () => {
     await request(app).get('/api/profile').expect(401);
-    await request(app).put('/api/profile/weight').send({ weightKg: 75 }).expect(401);
+    await request(app).patch('/api/profile').send({ displayName: 'x' }).expect(401);
   });
 });

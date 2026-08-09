@@ -1,23 +1,18 @@
 /**
  * The profile: who you are, and what you have lifted since you started.
  *
- * Modelled on what training apps actually put on this screen — personal
- * records, lifetime totals, consistency, body weight — rather than on
- * invented engagement metrics. Everything here is derived from sets the user
- * already logged; nothing new is asked of them.
+ * Only two things: what you have lifted, and what to call you. Everything is
+ * derived from sets already logged — the profile exists to show the training,
+ * not to collect fields nobody looks at twice.
  */
 
 import { loadHistory } from './history';
 import type { Database } from '../db/database';
 
-export type WeightUnit = 'kg' | 'lb';
-
 export interface ProfileIdentity {
   email: string;
   /** What to call you. Falls back to the part of the email before the @. */
   displayName: string;
-  gym: string | null;
-  weightUnit: WeightUnit;
   memberSince: string;
 }
 
@@ -41,19 +36,11 @@ export interface PersonalRecord {
   achievedAt: string;
 }
 
-export interface BodyWeightEntry {
-  /** Always kilos. The unit above is a display preference. */
-  weightKg: number;
-  measuredOn: string;
-}
-
 export interface Profile {
   identity: ProfileIdentity;
   stats: LifetimeStats;
   /** Best lifts, heaviest estimate first. */
   records: PersonalRecord[];
-  /** Oldest first, so a chart reads left to right. */
-  bodyWeights: BodyWeightEntry[];
 }
 
 /** How many records to show. Beyond this it stops being a highlight. */
@@ -63,21 +50,15 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
   const { rows } = await db.query<{
     email: string;
     display_name: string | null;
-    gym: string | null;
-    weight_unit: WeightUnit;
     created_at: Date | string;
-  }>(
-    'SELECT email, display_name, gym, weight_unit, created_at FROM users WHERE id = $1',
-    [userId],
-  );
+  }>('SELECT email, display_name, created_at FROM users WHERE id = $1', [userId]);
 
   const user = rows[0];
   if (!user) return null;
 
-  const [history, sessions, bodyWeights] = await Promise.all([
+  const [history, sessions] = await Promise.all([
     loadHistory(db, userId),
     countSessions(db, userId),
-    listBodyWeights(db, userId),
   ]);
 
   const records = history
@@ -102,8 +83,6 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
     identity: {
       email: user.email,
       displayName: user.display_name?.trim() || user.email.split('@')[0] || 'Sin nombre',
-      gym: user.gym,
-      weightUnit: user.weight_unit,
       memberSince: toIso(user.created_at),
     },
     stats: {
@@ -119,7 +98,6 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
       programs: sessions.programs,
     },
     records,
-    bodyWeights,
   };
 }
 
@@ -154,8 +132,6 @@ async function countSessions(
 
 export interface ProfilePatch {
   displayName?: string | null;
-  gym?: string | null;
-  weightUnit?: WeightUnit;
 }
 
 export async function updateProfile(
@@ -169,61 +145,6 @@ export async function updateProfile(
       emptyToNull(patch.displayName),
     ]);
   }
-  if (patch.gym !== undefined) {
-    await db.query('UPDATE users SET gym = $2 WHERE id = $1', [userId, emptyToNull(patch.gym)]);
-  }
-  if (patch.weightUnit !== undefined) {
-    await db.query('UPDATE users SET weight_unit = $2 WHERE id = $1', [userId, patch.weightUnit]);
-  }
-}
-
-export async function listBodyWeights(
-  db: Database,
-  userId: number,
-): Promise<BodyWeightEntry[]> {
-  const { rows } = await db.query<{ weight_kg: number | string; measured_on: Date | string }>(
-    `SELECT weight_kg, measured_on
-       FROM body_weights WHERE user_id = $1
-      ORDER BY measured_on ASC
-      LIMIT 400`,
-    [userId],
-  );
-
-  return rows.map((row) => ({
-    weightKg: typeof row.weight_kg === 'number' ? row.weight_kg : Number.parseFloat(row.weight_kg),
-    measuredOn: toDateOnly(row.measured_on),
-  }));
-}
-
-/**
- * Records a weigh-in.
- *
- * One reading per day: stepping on the scale twice replaces the entry instead
- * of producing a sawtooth that says nothing about a trend.
- */
-export async function recordBodyWeight(
-  db: Database,
-  userId: number,
-  weightKg: number,
-  measuredOn: string,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO body_weights (user_id, weight_kg, measured_on)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id, measured_on) DO UPDATE SET weight_kg = EXCLUDED.weight_kg`,
-    [userId, weightKg, measuredOn],
-  );
-}
-
-export async function deleteBodyWeight(
-  db: Database,
-  userId: number,
-  measuredOn: string,
-): Promise<void> {
-  await db.query('DELETE FROM body_weights WHERE user_id = $1 AND measured_on = $2', [
-    userId,
-    measuredOn,
-  ]);
 }
 
 function emptyToNull(value: string | null): string | null {
@@ -235,7 +156,3 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function toDateOnly(value: Date | string): string {
-  const iso = value instanceof Date ? value.toISOString() : String(value);
-  return iso.slice(0, 10);
-}
