@@ -1,4 +1,4 @@
-# Spec: Gimnasio — Entrenador web desde Excel
+# Spec: Barra — Entrenador web desde Excel
 
 > **Revisión 2 — persistencia en PostgreSQL.** La versión 1 guardaba todo en
 > `localStorage` y parseaba el Excel en el navegador. Ahora la fuente de verdad es

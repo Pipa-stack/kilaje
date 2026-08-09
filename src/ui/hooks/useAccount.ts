@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type Account } from '../../api/client';
+import { clearProgram } from '../../storage/storage';
+import { clearOutbox } from '../../storage/outbox';
 
 export interface AccountState {
   account: Account | null;
@@ -85,6 +87,14 @@ export function useAccount(): AccountState {
       // Even if the request fails the local session is over; the cookie is
       // cleared server-side on the next successful call.
     }
+
+    // Wipe what this device holds. The cached program and the queued writes
+    // belong to the account that produced them: leaving them would show one
+    // person's workout to the next one on the same phone, and would replay
+    // their pending writes under the new session.
+    clearProgram();
+    clearOutbox();
+
     setAccount(null);
   }, []);
 

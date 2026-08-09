@@ -1,4 +1,4 @@
-# Plan técnico — Gimnasio
+# Plan técnico — Barra
 
 Fuente de verdad: [`SPEC.md`](../SPEC.md).
 

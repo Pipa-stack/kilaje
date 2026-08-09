@@ -21,10 +21,10 @@ import {
   type Week,
 } from '../domain/types';
 
-export const STORAGE_KEY = 'gimnasio.program.v1';
+export const STORAGE_KEY = 'barra.program.v1';
 
 /** Where the UI selection is remembered, so a reload lands on the same day. */
-export const SELECTION_KEY = 'gimnasio.selection.v1';
+export const SELECTION_KEY = 'barra.selection.v1';
 
 export interface Selection {
   weekNumber: number;
@@ -37,45 +37,12 @@ function storage(): Storage | null {
     const candidate = globalThis.localStorage;
     if (!candidate) return null;
     // Access alone can throw in locked-down browsers; a probe confirms writes.
-    const probe = '__gimnasio_probe__';
+    const probe = '__barra_probe__';
     candidate.setItem(probe, '1');
     candidate.removeItem(probe);
     return candidate;
   } catch {
     return null;
-  }
-}
-
-/** True when the program can actually be persisted on this device. */
-export function isStorageAvailable(): boolean {
-  return storage() !== null;
-}
-
-/** Reads the saved program, or `null` when there is nothing usable stored. */
-export function loadProgram(): Program | null {
-  const store = storage();
-  if (!store) return null;
-
-  try {
-    const raw = store.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return normalizeProgram(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
-/** Persists the program. Returns false when the write did not happen. */
-export function saveProgram(program: Program): boolean {
-  const store = storage();
-  if (!store) return false;
-
-  try {
-    store.setItem(STORAGE_KEY, JSON.stringify(program));
-    return true;
-  } catch {
-    // Quota exceeded, most likely. The in-memory state stays correct.
-    return false;
   }
 }
 
@@ -88,7 +55,16 @@ export interface CachedProgram extends Program {
 
 /** Stores the program currently on screen for offline use. */
 export function cacheProgram(program: CachedProgram): boolean {
-  return saveProgram(program);
+  const store = storage();
+  if (!store) return false;
+
+  try {
+    store.setItem(STORAGE_KEY, JSON.stringify(program));
+    return true;
+  } catch {
+    // Quota exceeded, most likely. The in-memory state stays correct.
+    return false;
+  }
 }
 
 /**
@@ -125,6 +101,14 @@ export function loadCachedProgram(): CachedProgram | null {
   }
 }
 
+/**
+ * Wipes everything this device holds about the training.
+ *
+ * Called on sign-out: the cache and the pending-writes queue belong to the
+ * account that produced them, and leaving them behind would show one person's
+ * workout to the next one on the same phone — and worse, replay their queued
+ * writes under the new session.
+ */
 export function clearProgram(): void {
   const store = storage();
   if (!store) return;

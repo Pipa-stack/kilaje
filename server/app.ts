@@ -19,9 +19,16 @@ export interface AppOptions {
   db: Database;
   /** Absolute path to the Vite build. Omitted in tests. */
   staticDir?: string;
+  /**
+   * Throttling on the login and import endpoints. On by default, and only
+   * turned off by the browser-test harness, which drives one long-lived app
+   * through more sign-ins than a real client ever would. The limiter itself
+   * is covered by `tests/rateLimit.test.ts`.
+   */
+  rateLimits?: boolean;
 }
 
-export function createApp({ db, staticDir }: AppOptions): Express {
+export function createApp({ db, staticDir, rateLimits = true }: AppOptions): Express {
   const app = express();
 
   // Behind Railway's proxy; needed for correct protocol detection.
@@ -48,8 +55,8 @@ export function createApp({ db, staticDir }: AppOptions): Express {
   });
 
   app.use('/api', attachUser(db));
-  app.use('/api/auth', createAuthRouter(db));
-  app.use('/api', requireUser, createApiRouter(db));
+  app.use('/api/auth', createAuthRouter(db, rateLimits));
+  app.use('/api', requireUser, createApiRouter(db, rateLimits));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Endpoint no encontrado.' });
@@ -102,6 +109,9 @@ function securityHeaders(
       'frame-ancestors \'none\'',
     ].join('; '),
   );
+  // Once a browser has seen this, it refuses to talk to the app over plain
+  // HTTP at all, which closes the downgrade window on a hostile network.
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Frame-Options', 'DENY');

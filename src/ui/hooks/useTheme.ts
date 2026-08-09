@@ -13,7 +13,7 @@ import { readThemeChoice, saveThemeChoice, type ThemeChoice } from '../../storag
 export type { ThemeChoice };
 
 /** The theme actually in effect once "system" is resolved. */
-export function resolveTheme(choice: ThemeChoice): 'light' | 'dark' {
+function resolveTheme(choice: ThemeChoice): 'light' | 'dark' {
   if (choice !== 'system') return choice;
   return globalThis.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }

@@ -11,7 +11,7 @@
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
-export const THEME_KEY = 'gimnasio.theme.v1';
+export const THEME_KEY = 'barra.theme.v1';
 
 export function readThemeChoice(): ThemeChoice {
   try {

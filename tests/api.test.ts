@@ -30,7 +30,6 @@ let agent: ReturnType<typeof request.agent>;
 
 beforeAll(async () => {
   db = await createTestDatabase();
-  app = createApp({ db });
 }, 60_000);
 
 afterAll(async () => {
@@ -39,6 +38,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.truncate();
+  // A fresh app per test, so one test's login attempts do not spend the
+  // rate-limit window of the next one. The database is shared; only the
+  // in-memory counters are reset.
+  app = createApp({ db });
   agent = request.agent(app);
   await agent
     .post('/api/auth/register')

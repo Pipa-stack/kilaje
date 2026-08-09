@@ -7,7 +7,7 @@
  */
 (function () {
   try {
-    var stored = localStorage.getItem('gimnasio.theme.v1');
+    var stored = localStorage.getItem('barra.theme.v1');
     var light =
       stored === 'light' ||
       (stored !== 'dark' && window.matchMedia('(prefers-color-scheme: light)').matches);

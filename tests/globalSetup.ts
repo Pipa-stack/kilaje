@@ -23,7 +23,9 @@ declare module 'vitest' {
 
 export default async function setup(project: TestProject) {
   const db = await createTestDatabase();
-  const app = createApp({ db });
+  // Throttling off: this one app serves every browser test, which signs in far
+  // more often than a real client. The limiter has its own suite.
+  const app = createApp({ db, rateLimits: false });
 
   // Test-only hook so each test can start from an empty database. It is added
   // here, in the harness, and never exists in the production application.

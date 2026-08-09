@@ -98,7 +98,6 @@ export interface ProgramState {
   updateNotes: (notes: string) => void;
   toggleCompleted: () => void;
   resetDay: () => void;
-  reload: () => Promise<void>;
 }
 
 export function useProgram(): ProgramState {
@@ -362,7 +361,6 @@ export function useProgram(): ProgramState {
     importFile,
     selectProgram,
     deleteProgram,
-    reload: load,
     dismissError: useCallback(() => setError(null), []),
 
     selectWeek: useCallback(

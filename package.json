@@ -1,9 +1,9 @@
 {
-  "name": "gimnasio",
+  "name": "barra",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "App de entrenamiento que convierte una plantilla Excel en una interfaz simple y usable en el gimnasio.",
+  "description": "Convierte una plantilla Excel de entrenamiento en una app simple y usable en el gimnasio.",
   "engines": {
     "node": ">=20"
   },

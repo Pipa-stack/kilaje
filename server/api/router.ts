@@ -30,6 +30,7 @@ import {
 import { deleteSetBody, idParam, sanitizeFileName, saveSetBody, sessionPatchBody } from './schemas';
 import { currentUserId } from './authRouter';
 import { loadHistory } from '../repositories/history';
+import { createImportLimiter } from './rateLimit';
 
 /** Wraps an async handler so rejections reach the error middleware. */
 function handle(
@@ -40,8 +41,11 @@ function handle(
   };
 }
 
-export function createApiRouter(db: Database): Router {
+export function createApiRouter(db: Database, rateLimits = true): Router {
   const router = Router();
+  const importLimiter = rateLimits
+    ? createImportLimiter()
+    : (_req: Request, _res: Response, next: NextFunction): void => next();
 
   router.get(
     '/programs',
@@ -85,6 +89,7 @@ export function createApiRouter(db: Database): Router {
    */
   router.post(
     '/programs',
+    importLimiter,
     handle(async (req, res) => {
       const body = req.body;
       if (!Buffer.isBuffer(body) || body.byteLength === 0) {

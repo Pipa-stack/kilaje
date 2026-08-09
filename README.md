@@ -1,4 +1,4 @@
-# Gimnasio — gym-excel-app
+# Barra
 
 Convierte una plantilla Excel de entrenamiento en una app web simple, mobile-first y
 usable **durante** el entrenamiento, con los datos guardados en PostgreSQL.
@@ -11,7 +11,7 @@ No copia la hoja de cálculo: la reemplaza por tarjetas de ejercicio con inputs 
 para peso, reps y RIR, y calcula volumen, 1RM y progresión con las mismas fórmulas que
 el Excel original.
 
-**En producción:** <https://gym-excel-app-production.up.railway.app>
+**En producción:** <https://barra.up.railway.app>
 
 Al abrir la app aparece el programa ya almacenado. No hace falta subir el Excel cada vez.
 
@@ -45,7 +45,7 @@ discos disponibles lo dice (`+0.5 sin cuadrar`) en vez de redondearlo a escondid
 
 - **Color:** hierro fundido pintado, con un matiz verde-gris en cada paso, para que las
   superficies se lean como material y no como ausencia de luz. Un solo acento: **amarillo
-  de competición**, el más legible con mala luz de gimnasio. El rojo queda reservado para
+  de competición**, el más legible con mala luz de barra. El rojo queda reservado para
   esfuerzo y fallo, nunca para decorar.
 - **Tipografía:** **Barlow Condensed** para cifras y titulares, **Barlow** para texto.
   Contraste por anchura, no por familia. Autoalojadas en `public/fonts/` (subconjunto
@@ -136,7 +136,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      276 tests
+tests/                      285 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -233,8 +233,8 @@ demasiado grande, `422` el `.xlsx` no es la plantilla, `500` error interno (sin 
 Necesitas Node 20+ y un PostgreSQL accesible.
 
 ```bash
-git clone https://github.com/Pipa-stack/gym-excel-app.git
-cd gym-excel-app
+git clone https://github.com/Pipa-stack/barra.git
+cd barra
 npm install
 cp .env.example .env          # y edita DATABASE_URL
 npm run db:migrate            # crea el esquema
@@ -279,7 +279,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 276 tests |
+| `npm test` | Los 285 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -367,7 +367,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 276 tests, contra PGlite
+npm test                      # 285 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 
@@ -412,6 +412,14 @@ es que el fichero de verdad no coincida con nuestra lectura de él.
   un mensaje del driver revelaría el esquema.
 - Credenciales solo por variables de entorno. Un test prohíbe cadenas de conexión
   literales en el código.
+- **Límite de intentos** en acceso y registro (10 por ventana de 15 min) y en importación
+  (20 por hora). El de login cuenta **por cuenta, no por IP**: el relleno de credenciales
+  rota direcciones, y detrás del proxy de Railway la IP no es estable. Así se protege la
+  cuenta atacada sin que nadie pueda dejar fuera a los demás desde una IP compartida.
+- **HSTS** además de la CSP, para cerrar la ventana de degradación a HTTP.
+- Al cerrar sesión se borran del dispositivo la caché y la cola de cambios: si no, el
+  siguiente en usar ese móvil vería el entrenamiento del anterior, y sus escrituras
+  pendientes se reenviarían con la sesión nueva.
 - `npm audit`: 0 vulnerabilidades. SheetJS se instala desde el CDN oficial del proveedor
   (`cdn.sheetjs.com`), porque la última versión en npm (`0.18.5`) arrastra dos advisories
   sin parchear.
@@ -420,7 +428,7 @@ es que el fichero de verdad no coincida con nuestra lectura de él.
 
 ## GitHub y CI
 
-Repositorio: <https://github.com/Pipa-stack/gym-excel-app> (rama `main`).
+Repositorio: <https://github.com/Pipa-stack/barra> (rama `main`).
 
 `.github/workflows/ci.yml` se ejecuta en cada push y PR con dos jobs:
 
@@ -437,11 +445,11 @@ contenedor efímero solo accesible desde ese job. No hay ningún secreto real en
 
 ## Railway
 
-Dos servicios en el proyecto `gym-excel-app`:
+Dos servicios en el proyecto `barra`:
 
 | Servicio | Qué es |
 |---|---|
-| `gym-excel-app` | La aplicación (Express + build de React) |
+| `barra` | La aplicación (Express + build de React) |
 | `Postgres` | PostgreSQL 18 con volumen persistente |
 
 Configuración en [`railway.json`](railway.json) y [`nixpacks.toml`](nixpacks.toml). La app
@@ -449,7 +457,7 @@ recibe `DATABASE_URL` como variable de referencia (`${{Postgres.DATABASE_URL}}`)
 la contraseña nunca se copia a ningún sitio. Las migraciones corren al arrancar.
 
 ```bash
-railway link                  # al proyecto gym-excel-app
+railway link                  # al proyecto barra
 railway up                    # desplegar
 railway logs                  # ver el arranque
 ```

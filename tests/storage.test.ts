@@ -6,12 +6,9 @@ import {
   cacheProgram,
   clearProgram,
   loadCachedProgram,
-  isStorageAvailable,
-  loadProgram,
   loadSelection,
   mergeProgram,
   normalizeProgram,
-  saveProgram,
   saveSelection,
 } from '../src/storage/storage';
 import { emptySets, type Program, type SetEntry } from '../src/domain/types';
@@ -56,38 +53,43 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
   };
 }
 
+/** The cache always carries the database identity; that is what makes it usable. */
+function makeCached(overrides: Partial<Program> = {}) {
+  return { ...makeProgram(overrides), id: 1, name: 'ejemplo', version: 1 };
+}
+
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe('save and load', () => {
   it('round-trips a program unchanged', () => {
-    const program = makeProgram();
-    expect(saveProgram(program)).toBe(true);
-    expect(loadProgram()).toEqual(program);
+    const program = makeCached();
+    expect(cacheProgram(program)).toBe(true);
+    expect(loadCachedProgram()).toEqual(program);
   });
 
   it('returns null when nothing has been saved', () => {
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
   });
 
   it('preserves logged sets across a reload', () => {
-    const program = makeProgram();
+    const program = makeCached();
     program.weeks[0]!.days[0]!.exercises[0]!.currentWeek[0] = set(82.5, 4, 1);
     program.weeks[0]!.days[0]!.notes = 'buen día';
     program.weeks[0]!.days[0]!.completed = true;
-    saveProgram(program);
+    cacheProgram(program);
 
-    const reloaded = loadProgram();
+    const reloaded = loadCachedProgram();
     expect(reloaded?.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0]).toEqual(set(82.5, 4, 1));
     expect(reloaded?.weeks[0]?.days[0]?.notes).toBe('buen día');
     expect(reloaded?.weeks[0]?.days[0]?.completed).toBe(true);
   });
 
-  it('clears everything on request', () => {
-    saveProgram(makeProgram());
+  it('clears everything on request, which is what sign-out relies on', () => {
+    cacheProgram(makeCached());
     saveSelection({ weekNumber: 1, dayNumber: 1 });
     clearProgram();
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
     expect(loadSelection()).toBeNull();
   });
 });
@@ -120,7 +122,7 @@ describe('offline cache', () => {
   it('rejects a cache without database identity', () => {
     // Written by the older localStorage-only build: it cannot be reconciled
     // with the API, so showing it as if it could would be a lie.
-    saveProgram(makeProgram());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(makeProgram()));
     expect(loadCachedProgram()).toBeNull();
   });
 
@@ -133,39 +135,39 @@ describe('offline cache', () => {
 describe('tolerating bad stored data', () => {
   it('ignores unparseable JSON instead of throwing', () => {
     localStorage.setItem(STORAGE_KEY, '{not json');
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
   });
 
   it('ignores JSON of the wrong shape', () => {
     localStorage.setItem(STORAGE_KEY, '"just a string"');
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
     localStorage.setItem(STORAGE_KEY, '{"weeks":"nope"}');
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
     localStorage.setItem(STORAGE_KEY, '{"weeks":[]}');
-    expect(loadProgram()).toBeNull();
+    expect(loadCachedProgram()).toBeNull();
   });
 
   it('drops malformed weeks, days and exercises but keeps the rest', () => {
-    const program = makeProgram();
-    const raw = JSON.parse(JSON.stringify(program));
+    const program = makeCached();
+    const raw = JSON.parse(JSON.stringify({ ...program, id: 1, name: 'x', version: 1 }));
     raw.weeks.push({ number: 'two' }, null);
     raw.weeks[0].days.push({ number: null });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(raw));
 
-    const loaded = loadProgram();
+    const loaded = loadCachedProgram();
     expect(loaded?.weeks).toHaveLength(1);
     expect(loaded?.weeks[0]?.days).toHaveLength(1);
   });
 
   it('repairs missing and non-numeric set values', () => {
-    const raw = JSON.parse(JSON.stringify(makeProgram()));
+    const raw = JSON.parse(JSON.stringify(makeCached()));
     raw.weeks[0].days[0].exercises[0].currentWeek = [
       { weight: '82.5', reps: 4, rir: null },
       { weight: Number.NaN, reps: 8, rir: 2 },
     ];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(raw));
 
-    const sets = loadProgram()?.weeks[0]?.days[0]?.exercises[0]?.currentWeek;
+    const sets = loadCachedProgram()?.weeks[0]?.days[0]?.exercises[0]?.currentWeek;
     expect(sets).toHaveLength(4); // padded back to the template's four slots
     expect(sets?.[0]).toEqual(set(null, 4, null)); // the string weight is dropped
     expect(sets?.[1]).toEqual(set(null, 8, 2)); // NaN is not a value
@@ -176,7 +178,7 @@ describe('tolerating bad stored data', () => {
       STORAGE_KEY,
       '{"weeks":[{"number":1,"days":[{"number":1,"exercises":[{"number":1}]}]}],"__proto__":{"polluted":true}}',
     );
-    loadProgram();
+    loadCachedProgram();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
@@ -193,9 +195,8 @@ describe('when storage is unavailable', () => {
       throw new DOMException('QuotaExceededError');
     });
 
-    expect(isStorageAvailable()).toBe(false);
-    expect(saveProgram(makeProgram())).toBe(false);
-    expect(loadProgram()).toBeNull();
+    expect(cacheProgram(makeCached())).toBe(false);
+    expect(loadCachedProgram()).toBeNull();
     expect(() => clearProgram()).not.toThrow();
     expect(() => saveSelection({ weekNumber: 1, dayNumber: 1 })).not.toThrow();
   });

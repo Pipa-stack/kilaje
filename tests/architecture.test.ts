@@ -140,3 +140,21 @@ describe('server boundaries', () => {
     expect(offenders.map((file) => relative(SRC, file))).toEqual([]);
   });
 });
+
+describe('duplicated constants', () => {
+  /**
+   * `public/theme.js` runs before the bundle to avoid a flash of the wrong
+   * theme, so it cannot import anything. That makes the storage key exist in
+   * two places, and a silent drift between them would leave the preference
+   * saved under one name and read under another.
+   */
+  it('keeps the theme key identical in the pre-paint script and in storage', () => {
+    const script = readFileSync(resolve(process.cwd(), 'public/theme.js'), 'utf8');
+    const module = readFileSync(resolve(SRC, 'storage/theme.ts'), 'utf8');
+
+    const keyIn = (source: string) => /'([a-z0-9.]+\.theme\.v\d+)'/.exec(source)?.[1];
+
+    expect(keyIn(script)).toBeDefined();
+    expect(keyIn(script)).toBe(keyIn(module));
+  });
+});

@@ -26,7 +26,6 @@ let app: express.Express;
 
 beforeAll(async () => {
   db = await createTestDatabase();
-  app = createApp({ db });
 }, 60_000);
 
 afterAll(async () => {
@@ -35,6 +34,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.truncate();
+  // A fresh app per test, so one test's login attempts do not spend the
+  // rate-limit window of the next one. The database is shared; only the
+  // in-memory counters are reset.
+  app = createApp({ db });
 });
 
 const PASSWORD = 'una-contrasena-larga';
@@ -95,7 +98,7 @@ describe('registration', () => {
     expect(response.status).toBe(201);
     // Stored lower-cased, so case cannot split one person into two accounts.
     expect(response.body.user.email).toBe('ana@ejemplo.com');
-    expect(response.headers['set-cookie']?.[0]).toMatch(/gimnasio_session=/);
+    expect(response.headers['set-cookie']?.[0]).toMatch(/barra_session=/);
     expect(response.headers['set-cookie']?.[0]).toMatch(/HttpOnly/i);
     expect(response.headers['set-cookie']?.[0]).toMatch(/SameSite=Lax/i);
   }, 20_000);
@@ -194,7 +197,7 @@ describe('login and logout', () => {
       .expect(201);
 
     const setCookie = response.headers['set-cookie'] as unknown as string[];
-    const token = /gimnasio_session=([^;]+)/.exec(setCookie[0] ?? '')?.[1];
+    const token = /barra_session=([^;]+)/.exec(setCookie[0] ?? '')?.[1];
     expect(token).toBeTruthy();
 
     const { rows } = await db.query<{ token_hash: string }>('SELECT token_hash FROM sessions');
@@ -203,7 +206,7 @@ describe('login and logout', () => {
   }, 30_000);
 
   it('ignores a made-up cookie', async () => {
-    await request(app).get('/api/auth/me').set('Cookie', 'gimnasio_session=inventado').expect(401);
+    await request(app).get('/api/auth/me').set('Cookie', 'barra_session=inventado').expect(401);
   });
 });
 

@@ -30,6 +30,7 @@ import {
   findUserById,
 } from '../repositories/users';
 import { hashToken } from '../repositories/sessionTokens';
+import { createAuthLimiter } from './rateLimit';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -60,6 +61,9 @@ const passwordChange = z
       .max(MAX_PASSWORD_LENGTH),
   })
   .strict();
+
+/** Used when throttling is switched off; changes nothing about the route. */
+const passThrough = (_req: Request, _res: Response, next: NextFunction): void => next();
 
 function handle(
   fn: (req: Request, res: Response) => Promise<void>,
@@ -109,8 +113,9 @@ export function currentUserId(req: Request): number {
   return req.userId;
 }
 
-export function createAuthRouter(db: Database): Router {
+export function createAuthRouter(db: Database, rateLimits = true): Router {
   const router = Router();
+  const authLimiter = rateLimits ? createAuthLimiter() : passThrough;
 
   /**
    * Registers an account.
@@ -121,6 +126,7 @@ export function createAuthRouter(db: Database): Router {
    */
   router.post(
     '/register',
+    authLimiter,
     handle(async (req, res) => {
       const { email, password } = credentials.parse(req.body);
 
@@ -144,6 +150,7 @@ export function createAuthRouter(db: Database): Router {
 
   router.post(
     '/login',
+    authLimiter,
     handle(async (req, res) => {
       const { email, password } = credentials.parse(req.body);
       const user = await authenticate(db, email, password);
@@ -179,6 +186,7 @@ export function createAuthRouter(db: Database): Router {
    */
   router.post(
     '/password',
+    authLimiter,
     handle(async (req, res) => {
       if (req.userId === undefined) {
         res.status(401).json({ error: 'Necesitas iniciar sesión.' });

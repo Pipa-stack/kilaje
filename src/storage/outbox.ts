@@ -24,7 +24,7 @@ export interface PendingEntry {
   queuedAt: number;
 }
 
-const STORAGE_KEY = 'gimnasio.outbox.v1';
+const STORAGE_KEY = 'barra.outbox.v1';
 
 /** Stops a long offline session from filling the browser's quota. */
 export const MAX_PENDING = 500;
