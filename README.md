@@ -24,10 +24,37 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
 | **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión. Se cambia de día deslizando o con los botones |
 | **Progreso** | Dos vistas: **Esta semana** (volumen por sesión y tabla de ejercicios) e **Histórico** (evolución de cada ejercicio a lo largo de todos tus programas) |
-| **Perfil** | Récords personales, totales de por vida, tu nombre, tema, importar, programas y cuenta |
+| **Perfil** | Constancia, reparto del volumen, récords personales, totales de por vida, tu nombre, tema, importar, programas y cuenta |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
 color: la palabra lo dice.
+
+### El perfil
+
+Responde cuatro preguntas y para. Todo sale de las series ya registradas: **no hay ni un
+campo que rellenar** para que la pantalla valga la pena abrirla.
+
+| Bloque | Qué responde |
+|---|---|
+| **En total** | Sesiones, volumen, ejercicios y series de toda tu vida en la app |
+| **Constancia** | Sesiones por semana de las últimas 12, más la racha actual |
+| **Reparto del volumen** | A dónde va el trabajo, por tipo de sesión (PUSH, PULL, LEG…) |
+| **Récords personales** | Mejor 1RM estimado de cada ejercicio, de todos tus programas |
+
+Tres decisiones que no son obvias:
+
+- **Las semanas sin entrenar se dibujan vacías, no se saltan.** Una gráfica que esconde lo
+  que fallaste describe un hábito que no tienes.
+- **Un récord que lleva más de ocho semanas sin batirse lo dice con palabras**
+  (`sin batir en 11 semanas`), en tono neutro. Es información, no un fallo, y el rojo está
+  reservado para esfuerzo y fallo.
+- **Una sola tinta en las barras.** Inventar cinco colores en una app de un solo acento
+  sería ruido; la etiqueta ya identifica cada barra. La gráfica semanal lleva además su
+  equivalente en texto para lector de pantalla.
+
+La semana empieza en lunes y las semanas se generan **en SQL**, no en JavaScript:
+`date_trunc('week', …)` devuelve el lunes en la zona horaria de la base de datos, y un
+lunes calculado en el cliente sería otro instante en cualquier servidor que no fuese UTC.
 
 ### Cálculo de discos
 
@@ -91,6 +118,18 @@ PostgreSQL manda, pero el gimnasio suele estar en un sótano:
 - La cabecera dice cuántos cambios están esperando.
 - Sin conexión la app **no te manda al login**: no se puede saber si hay sesión, así que
   sigue mostrando el entrenamiento en caché.
+- Al enviar una entrada se borra **esa entrada concreta**, no todas las de su clave. Si
+  corriges el número mientras el envío viaja, la corrección queda en cola en lugar de
+  desaparecer con el envío que la precedía.
+- Solo se reproduce una cola a la vez. El montaje, el evento `online` y el sondeo pueden
+  coincidir, y sin cerrojo se enviaría lo mismo dos veces.
+- **Una entrada caduca a los dos días.** Un móvil que reabres tras una semana reenviaría
+  un peso que ya corregiste desde otro dispositivo.
+
+El aviso de «sin conexión» solo aparece cuando la conexión falla de verdad. Si el servidor
+responde mal —sesión revocada, error 500— se dice eso: las escrituras únicamente se
+encolan ante un fallo de red, así que prometer que se enviarán luego sería mentira, y
+entrenarías una sesión entera creyendo que se guarda.
 
 ## Arquitectura
 
@@ -105,38 +144,54 @@ PostgreSQL (Railway)
 ```
 
 Un solo servicio sirve la API y el build del frontend: un origen, sin CORS, sin proxy y
-sin más piezas de las necesarias. No hay Redis, ni colas, ni autenticación.
+sin más piezas de las necesarias. No hay Redis ni cola de mensajes: las sesiones viven en
+PostgreSQL y la única cola es la del navegador, para lo que no llegó a enviarse.
 
 ```
 src/                        FRONTEND + dominio compartido
   domain/
     types.ts                Modelo normalizado (Program, Week, Day, Exercise, SetEntry)
     calculations.ts         1RM, volumen, progresión, formato — funciones puras
+    plates.ts               Qué discos poner en cada lado de la barra
     mutations.ts            Actualizaciones inmutables del programa
     upload.ts               Límites de subida compartidos con el servidor
   api/client.ts             Cliente tipado de la API
-  storage/storage.ts        Caché offline en localStorage
+  storage/
+    storage.ts              Caché offline en localStorage
+    outbox.ts               Cola de escrituras que no llegaron a enviarse
+    theme.ts                Preferencia de tema (única otra clave del dispositivo)
   ui/
     App.tsx                 Composición y pestañas
     hooks/useProgram.ts     Estado + API + caché offline
-    components/             HomeScreen, DayView, ProgressScreen, SettingsScreen,
-                            BottomNav, RestTimer, ExerciseCard, NumberField…
+    hooks/useAccount.ts     Sesión, entrar y salir
+    components/             HomeScreen, DayView, ProgressScreen, HistoryScreen,
+                            ProfileScreen, SettingsScreen, AuthScreen, BottomNav,
+                            RestTimer, ExerciseCard, NumberField, PlateMath…
 
 server/                     BACKEND
   index.ts                  Arranque: migra, siembra (opcional) y sirve
-  app.ts                    Express: cabeceras, API y estáticos
+  app.ts                    Express: cabeceras, orden de middleware, API y estáticos
   api/
-    router.ts               Endpoints
+    router.ts               Endpoints del programa y manejador de errores
+    authRouter.ts           Registro, acceso, contraseña y recuperación
+    profileRouter.ts        Perfil
     schemas.ts              Validación de entrada (zod)
+    rateLimit.ts            Límite de intentos por cuenta y por IP
+  auth/
+    passwords.ts            scrypt
+    sessions.ts             Cookie y resolución de sesión
+  repositories/             El único sitio con SQL: programs, sessions, history,
+                            users, profile, sessionTokens, passwordResets
+  email/                    Envío por Resend o SMTP, y el correo de recuperación
   db/
     database.ts             Adaptador PostgreSQL (pg) / PGlite
     migrate.ts              Ejecutor de migraciones
-    migrations/001_init.sql Esquema
+    migrations/*.sql        Esquema, en orden y recreable desde cero
     seed.ts                 Importación del libro de referencia
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      306 tests
+tests/                      324 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -216,7 +271,7 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 | `POST` | `/api/auth/password` | Cambia la contraseña y revoca las demás sesiones |
 | `POST` | `/api/auth/forgot` | Pide un enlace de recuperación. Responde igual exista o no la cuenta |
 | `POST` | `/api/auth/reset` | Cambia la contraseña con el enlace y revoca **todas** las sesiones |
-| `GET` | `/api/profile` | Identidad, totales de por vida y récords personales |
+| `GET` | `/api/profile` | Identidad, totales de por vida, constancia semanal, reparto por tipo y récords |
 | `PATCH` | `/api/profile` | Tu nombre |
 | `GET` | `/api/programs/latest` | El último importado (lo que abre la app) |
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
@@ -309,7 +364,7 @@ están registrados. La única señal está en el log.
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 306 tests |
+| `npm test` | Los 324 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -397,17 +452,24 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 306 tests, contra PGlite
+npm test                      # 324 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 
 | Fichero | Cubre |
 |---|---|
 | `calculations.test.ts` | Todas las fórmulas, con los casos límite del Excel |
-| `excelParser.test.ts` | **El fichero real**: días, ejercicios, protocolos, el dato sembrado (82.5 kg × 4), multi-semana, columnas desplazadas, entradas inválidas |
+| `plates.test.ts` | Reparto de discos, pesos que no cuadran, barra sola |
+| `excelParser.test.ts` | **El fichero real**: días, ejercicios, protocolos, el dato sembrado (82.5 kg × 4), multi-semana, columnas desplazadas, entradas inválidas, hojas que mienten sobre su tamaño |
 | `api.test.ts` | Migraciones, importación, versionado, anti-duplicados, guardar/leer/borrar series, sesiones, notas, aislamiento de datos, validación, cabeceras, seed |
+| `auth.test.ts` | Registro, acceso, cookies, revocación, cambio de contraseña |
+| `profile.test.ts` | Recuperación por correo, elección de proveedor de envío, perfil, constancia, reparto, aislamiento entre cuentas |
+| `history.test.ts` | Historial entre programas, emparejado por nombre de ejercicio |
+| `rateLimit.test.ts` | Ventanas, claves y que un contador no bloquee a otra persona |
 | `storage.test.ts` | Caché offline, JSON corrupto, `localStorage` bloqueado, prototype pollution |
+| `outbox.test.ts` | Cola offline: colapso por clave, orden, caducidad, y que una corrección en vuelo no se pierda |
 | `mutations.test.ts` | Edición de series, inmutabilidad, parseo de lo tecleado |
+| `swipe.test.ts` | Cambio de día por gesto |
 | `integration.test.tsx` | El flujo completo en React contra un servidor real por HTTP: importar → entrenar → guardar → recargar → reimportar → offline |
 | `architecture.test.ts` | Los límites entre capas y las reglas de seguridad |
 
@@ -418,6 +480,20 @@ simulado.
 
 Los tests del parser leen el Excel real, no un fixture sintético: el riesgo que importa
 es que el fichero de verdad no coincida con nuestra lectura de él.
+
+Nada de esperas fijas para algo asíncrono. El endpoint de recuperación responde antes de
+enviar el correo, y dormir 50 ms bastaba contra PGlite —que va en el mismo proceso— pero
+no contra un PostgreSQL real por socket: la suite pasaba en local y fallaba en CI. Se
+espera al hecho, con un plazo límite.
+
+### En el navegador
+
+La aplicación se ha conducido en un Chrome real, a 390 px y a 1280 px, contra una base de
+datos desechable para poder hacer las pruebas destructivas de verdad: registro, importar
+el Excel, anotar, notas, completar, cambiar de tema, borrar una serie añadida y recargar,
+cerrar sesión y entrar con otra cuenta. 32 comprobaciones, incluidas las regresiones de
+la auditoría, sin errores de JavaScript y sin desbordamiento horizontal en ninguno de los
+dos anchos.
 
 ---
 
@@ -442,14 +518,31 @@ es que el fichero de verdad no coincida con nuestra lectura de él.
   un mensaje del driver revelaría el esquema.
 - Credenciales solo por variables de entorno. Un test prohíbe cadenas de conexión
   literales en el código.
-- **Límite de intentos** en acceso y registro (10 por ventana de 15 min) y en importación
-  (20 por hora). El de login cuenta **por cuenta, no por IP**: el relleno de credenciales
-  rota direcciones, y detrás del proxy de Railway la IP no es estable. Así se protege la
-  cuenta atacada sin que nadie pueda dejar fuera a los demás desde una IP compartida.
+- **El tamaño que declara la hoja es una petición, no una orden.** El rango viene del
+  elemento `<dimension>` del XML, que lo controla quien sube el fichero y SheetJS repite
+  sin comprobarlo. Un `.xlsx` de 1,5 kB puede declarar el lienzo completo de Excel y pedir
+  diecisiete mil millones de celdas: agota la memoria y bloquea el hilo único de Node para
+  todos. Se recorta a 5.000 × 200, muy por encima de cualquier plantilla real.
+- **Doble límite de intentos.** Uno **por cuenta** (10 por 15 min), porque el relleno de
+  credenciales rota direcciones y detrás del proxy de Railway la IP no es estable; y otro
+  **por IP** (60 por 15 min), porque el primero no ve al que inventa un correo distinto en
+  cada petición — nunca repite clave, y mientras tanto cada intento ejecuta scrypt antes
+  de poder saber que la cuenta no existe.
+- **Un contador por superficie, no uno compartido.** Con uno solo, `/forgot` —que no
+  necesita sesión y siempre responde 204— podía agotar la ventana de un correo ajeno y
+  dejar a esa persona sin poder entrar durante quince minutos, gratis y en bucle.
+- La sesión se comprueba **antes** de leer el cuerpo de la petición, así que nadie sin
+  cuenta puede aparcar 10 MB por conexión en memoria y enterarse después de que hacía
+  falta identificarse.
+- Una cookie de sesión ilegible es simplemente ausencia de sesión. Antes lanzaba una
+  excepción antes de cualquier autenticación y devolvía 500 en todas las rutas de ese
+  navegador; al no ser un 401, el cliente nunca la limpiaba y quedaba atascado.
 - **HSTS** además de la CSP, para cerrar la ventana de degradación a HTTP.
-- Al cerrar sesión se borran del dispositivo la caché y la cola de cambios: si no, el
-  siguiente en usar ese móvil vería el entrenamiento del anterior, y sus escrituras
-  pendientes se reenviarían con la sesión nueva.
+- Al **entrar y al salir** se borran del dispositivo la caché y la cola de cambios. Salir
+  no es la única forma de terminar una sesión: también caduca a los 30 días y se revoca al
+  cambiar la contraseña desde otro sitio, y en esos casos nadie pulsa «cerrar sesión». Sin
+  limpiar también al entrar, el siguiente en usar ese móvil heredaba el entrenamiento del
+  anterior y reenviaba sus escrituras pendientes.
 - `npm audit`: 0 vulnerabilidades. SheetJS se instala desde el CDN oficial del proveedor
   (`cdn.sheetjs.com`), porque la última versión en npm (`0.18.5`) arrastra dos advisories
   sin parchear.
@@ -507,10 +600,21 @@ Para sembrar el libro de referencia en una base de datos vacía basta con dejar
 
 - Solo `.xlsx` / `.xlsm`. El `.xls` antiguo no está soportado.
 - No exporta de vuelta a Excel.
-- **Sin autenticación**: cualquiera con la URL ve y edita los datos. Es adecuado para uso
-  personal; si se comparte, hace falta añadir login.
-- Las ediciones hechas sin conexión se conservan en pantalla y en la caché, pero no se
-  reenvían solas al recuperar la conexión: hay que volver a tocar el campo.
+- **`/api/auth/register` revela si un correo ya tiene cuenta** (409 frente a 201), algo que
+  `/login` y `/forgot` evitan a propósito. Es un límite consciente, no un descuido:
+  mientras registrarse te deje dentro al instante, el éxito y el conflicto no pueden
+  parecerse, y ocultarlo exige verificación por correo *antes* de crear la sesión — una
+  funcionalidad, no un parche. Los dos limitadores de delante son la mitigación entretanto.
+- **Las series que trae el Excel se fechan el día de la importación.** La plantilla no
+  lleva fechas, así que la alternativa sería inventarlas. Por eso, tras importar, la racha
+  es 1 y los récords aparecen con la fecha de hoy.
+- El historial lee como mucho 20.000 series. Son unos trece mesociclos completos; los
+  totales del perfil ya no dependen de ese tope, pero la lista sí.
+- El contador de intentos vive **en memoria del proceso**, así que la ventana es por
+  instancia. Con más de un contenedor habría que moverlo a PostgreSQL o Redis.
 - Un día solo puede tener una sesión por programa. Repetir el mismo plan significa
   importarlo otra vez, lo que crea un programa nuevo con su propio historial.
 - Las hojas `Instrucciones` y `Calentamiento` de la plantilla no se importan.
+- Sin `RESEND_API_KEY` ni `SMTP_*` no sale ningún correo de recuperación. La app arranca
+  igual y lo avisa en el log, pero **la interfaz no lo dice**: el endpoint responde lo
+  mismo haya cuenta o no, para que nadie lo use como comprobador de correos registrados.
