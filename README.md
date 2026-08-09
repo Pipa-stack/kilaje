@@ -268,11 +268,34 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `SEED_WORKBOOK` | No | Ruta alternativa del libro para `npm run db:seed` |
 | `API_PROXY_TARGET` | No | A dónde manda `/api` el servidor de desarrollo |
 | `TEST_DATABASE_URL` | No | Ejecuta los tests contra un PostgreSQL real en lugar de PGlite |
-| `RESEND_API_KEY` | No | Clave de Resend. **Sin ella no se envían correos de recuperación**; el resto de la app funciona igual |
-| `EMAIL_FROM` | No | Remitente. Por defecto `Kilaje <onboarding@resend.dev>` |
+| `SMTP_HOST` `SMTP_USER` `SMTP_PASSWORD` | No | Envío por SMTP. Las tres o ninguna |
+| `SMTP_PORT` | No | `465` por defecto (TLS implícito); cualquier otro puerto usa STARTTLS |
+| `RESEND_API_KEY` | No | Clave de Resend, alternativa a SMTP |
+| `EMAIL_FROM` | No | Remitente. Con SMTP, por defecto `SMTP_USER` |
 | `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://kilaje.up.railway.app` |
 
 Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
+
+#### Correo de recuperación
+
+Sin configurar, la app arranca igual y lo avisa en el log; simplemente no sale
+ningún enlace. Hay dos proveedores y **basta con uno**; si están los dos, gana
+SMTP.
+
+**SMTP** no necesita dominio propio. Con Gmail el mensaje sale de los servidores
+de Google autenticado como la cuenta, así que SPF y DKIM cuadran y llega a
+cualquier destinatario. Requiere verificación en dos pasos y una *contraseña de
+aplicación* — la contraseña normal no sirve. El remitente es la propia
+dirección, que es la única que Gmail acepta de esa cuenta; el límite son unos
+500 correos al día.
+
+**Resend** da un remitente con tu marca, pero exige un dominio verificado por
+DNS. Sin él solo entrega a la dirección dueña de la cuenta de Resend, lo que no
+sirve para recuperar contraseñas ajenas.
+
+Un fallo de envío **no se ve en la interfaz**: el endpoint responde siempre lo
+mismo haya cuenta o no, para que nadie lo use como comprobador de qué correos
+están registrados. La única señal está en el log.
 
 ### Comandos
 

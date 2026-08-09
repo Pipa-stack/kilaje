@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createApp } from './app';
-import { createEmailSender } from './email/sender';
+import { createSenderFromEnv } from './email/sender';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
 import { seedReferenceProgram } from './db/seed';
@@ -42,12 +42,14 @@ async function main(): Promise<void> {
     console.log(`[server] seed: ${result}`);
   }
 
-  const email = createEmailSender(
-    process.env.RESEND_API_KEY,
-    process.env.EMAIL_FROM ?? 'Kilaje <onboarding@resend.dev>',
-  );
+  // Falls back to the Gmail account itself when sending over SMTP, which is
+  // the only From address Gmail will accept from that account anyway.
+  const from = process.env.EMAIL_FROM ?? process.env.SMTP_USER ?? 'Kilaje <onboarding@resend.dev>';
+  const email = createSenderFromEnv(process.env, from);
   if (!email.configured) {
-    console.warn('[server] sin RESEND_API_KEY: la recuperación de contraseña no enviará correos');
+    console.warn(
+      '[server] sin SMTP_* ni RESEND_API_KEY: la recuperación de contraseña no enviará correos',
+    );
   }
 
   const app = createApp({

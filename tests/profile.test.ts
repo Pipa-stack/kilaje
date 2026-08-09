@@ -16,7 +16,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../server/app';
 import { buildResetEmail } from '../server/email/resetEmail';
-import { createEmailSender, type Email, type EmailSender } from '../server/email/sender';
+import {
+  createEmailSender,
+  createSenderFromEnv,
+  type Email,
+  type EmailSender,
+} from '../server/email/sender';
 import { createTestDatabase, type TestDatabase } from './helpers/testDatabase';
 
 const REFERENCE_FILE = resolve(process.cwd(), 'Ejemplo/ejemplo.xlsx');
@@ -201,6 +206,45 @@ describe('the sender without a key', () => {
     const sender = createEmailSender(undefined, 'Kilaje <x@example.com>');
     expect(sender.configured).toBe(false);
     expect(await sender.send({ to: 'a@b.c', subject: 's', text: 't', html: '<p>t</p>' })).toBe(false);
+  });
+});
+
+describe('choosing a provider from the environment', () => {
+  const FROM = 'Kilaje <x@example.com>';
+  const SMTP = {
+    SMTP_HOST: 'smtp.gmail.com',
+    SMTP_USER: 'kilaje@gmail.com',
+    SMTP_PASSWORD: 'abcd efgh ijkl mnop',
+  };
+
+  it('sends nothing when neither provider is configured', () => {
+    expect(createSenderFromEnv({}, FROM).configured).toBe(false);
+  });
+
+  it('uses Resend when only its key is set', () => {
+    expect(createSenderFromEnv({ RESEND_API_KEY: 're_x' }, FROM).configured).toBe(true);
+  });
+
+  it('uses SMTP when it is configured', () => {
+    expect(createSenderFromEnv(SMTP, FROM).configured).toBe(true);
+  });
+
+  it('prefers SMTP over Resend when both are set', () => {
+    // Only SMTP delivers to arbitrary recipients without a verified domain,
+    // so setting it is the deliberate act and it has to win.
+    const sender = createSenderFromEnv({ ...SMTP, RESEND_API_KEY: 're_x' }, FROM);
+    expect(sender.configured).toBe(true);
+    expect(String(sender.send)).toContain('sendMail');
+  });
+
+  it('refuses a half-written SMTP configuration instead of silently ignoring it', () => {
+    // A typo in one variable must not look like "no email configured".
+    const sender = createSenderFromEnv({ SMTP_HOST: 'smtp.gmail.com' }, FROM);
+    expect(sender.configured).toBe(false);
+  });
+
+  it('survives a port that is not a number', () => {
+    expect(createSenderFromEnv({ ...SMTP, SMTP_PORT: 'ochenta' }, FROM).configured).toBe(true);
   });
 });
 
