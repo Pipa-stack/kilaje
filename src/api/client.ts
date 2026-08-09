@@ -273,7 +273,18 @@ export interface Profile {
     totalSets: number;
     programs: number;
   };
-  records: { exercise: string; oneRepMax: number; topWeight: number | null; achievedAt: string }[];
+  records: {
+    exercise: string;
+    oneRepMax: number;
+    topWeight: number | null;
+    achievedAt: string;
+    weeksSince: number;
+  }[];
+  /** Twelve entries, oldest first, gaps filled with zeroes. */
+  weeklyActivity: { weekStart: string; sessions: number; volumeKg: number }[];
+  streakWeeks: number;
+  volumeByType: { type: string; volumeKg: number; sessions: number }[];
+  lastSessionAt: string | null;
 }
 
 export async function fetchProfile(): Promise<Profile> {

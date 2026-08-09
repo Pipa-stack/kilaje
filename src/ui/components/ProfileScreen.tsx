@@ -5,12 +5,16 @@ import { ApiError, type Profile } from '../../api/client';
 import { formatNumber } from '../../domain/calculations';
 import { Icon } from './Icon';
 
+/** A best lift nobody has beaten in this long is a stalled lift. */
+const STALE_WEEKS = 8;
+
 /**
  * The profile.
  *
- * Two things only: what you have lifted, and what to call you. Every number
- * comes from sets already logged — the screen exists to show the training,
- * not to collect fields nobody looks at twice.
+ * Answers four questions and stops: who you are, what you have lifted, whether
+ * you are training consistently, and where the volume is going. Every number
+ * is derived from sets already logged — no field to fill in for the screen to
+ * be worth opening.
  */
 export function ProfileScreen({ email }: { email: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -50,7 +54,8 @@ export function ProfileScreen({ email }: { email: string }) {
     );
   }
 
-  const { identity, stats, records } = profile;
+  const { identity, stats, records, weeklyActivity, streakWeeks, volumeByType, lastSessionAt } =
+    profile;
 
   return (
     <div className="space-y-4">
@@ -65,7 +70,8 @@ export function ProfileScreen({ email }: { email: string }) {
           <h2 className="truncate text-2xl font-bold text-chalk">{identity.displayName}</h2>
           <p className="truncate text-sm text-iron-400">{email}</p>
           <p className="text-xs text-iron-600">
-            Entrenando desde {formatMonth(identity.memberSince)}
+            Desde {formatMonth(identity.memberSince)}
+            {lastSessionAt ? ` · última sesión ${sinceLabel(lastSessionAt)}` : ''}
           </p>
         </div>
       </section>
@@ -88,6 +94,10 @@ export function ProfileScreen({ email }: { email: string }) {
           <Stat label="Series" value={String(stats.totalSets)} note="registradas" />
         </dl>
       </section>
+
+      <Consistency weeks={weeklyActivity} streak={streakWeeks} />
+
+      {volumeByType.length > 0 ? <VolumeSplit entries={volumeByType} /> : null}
 
       <section
         aria-labelledby="records-title"
@@ -119,6 +129,12 @@ export function ProfileScreen({ email }: { email: string }) {
                     {record.topWeight !== null ? `tope ${formatNumber(record.topWeight)} kg · ` : ''}
                     {formatMonth(record.achievedAt)}
                   </span>
+                  {record.weeksSince >= STALE_WEEKS ? (
+                    // Status never rides on colour alone: the words carry it.
+                    <span className="mt-1 inline-block rounded-full bg-effort-500/10 px-2 py-0.5 text-[11px] font-semibold text-effort-300">
+                      sin batir en {record.weeksSince} semanas
+                    </span>
+                  ) : null}
                 </span>
                 <span className="figure shrink-0 text-right text-lg font-bold text-chalk">
                   {formatNumber(record.oneRepMax)}
@@ -144,6 +160,122 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
         <span className="block truncate text-xs text-iron-600">{note}</span>
       </dd>
     </div>
+  );
+}
+
+/**
+ * Sessions per week over the last three months.
+ *
+ * One series, so there is no legend: the heading names it. No number on any
+ * bar either — the shape is the message and a value per bar is noise. Weeks
+ * without training are drawn as empty slots instead of being skipped, because
+ * a chart that hides the weeks you missed reports a habit you do not have.
+ */
+function Consistency({ weeks, streak }: { weeks: Profile['weeklyActivity']; streak: number }) {
+  const peak = Math.max(...weeks.map((week) => week.sessions), 1);
+  const trained = weeks.filter((week) => week.sessions > 0).length;
+  const first = weeks[0];
+
+  return (
+    <section
+      aria-labelledby="consistency-title"
+      className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="consistency-title" className="font-semibold text-chalk">
+          Constancia
+        </h2>
+        <span className="figure shrink-0 text-2xl font-bold text-chalk">
+          {streak}
+          <span className="ml-1 text-xs font-normal text-iron-600">
+            {streak === 1 ? 'semana seguida' : 'semanas seguidas'}
+          </span>
+        </span>
+      </div>
+
+      <p className="mt-0.5 text-xs text-iron-600">
+        Has entrenado {trained} de las últimas {weeks.length} semanas.
+      </p>
+
+      <div aria-hidden="true" className="mt-3 flex h-20 items-end gap-[2px]">
+        {weeks.map((week) => (
+          <span
+            key={week.weekStart}
+            title={`${formatDay(week.weekStart)}: ${week.sessions} ${
+              week.sessions === 1 ? 'sesión' : 'sesiones'
+            }`}
+            className="flex h-full flex-1 items-end rounded-t-[4px] bg-iron-800/60"
+          >
+            <span
+              className="block w-full rounded-t-[4px] bg-signal-500"
+              style={{ height: `${(week.sessions / peak) * 100}%` }}
+            />
+          </span>
+        ))}
+      </div>
+
+      <p className="mt-1 flex justify-between text-xs text-iron-600">
+        <span>{first ? formatDay(first.weekStart) : ''}</span>
+        <span>esta semana</span>
+      </p>
+
+      {/* The chart is decorative; this is the same data, readable aloud. */}
+      <ul className="sr-only">
+        {weeks.map((week) => (
+          <li key={week.weekStart}>
+            Semana del {formatDay(week.weekStart)}: {week.sessions} sesiones
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Where the volume actually went.
+ *
+ * Ranked bars in a single tint, with the name beside each. A categorical
+ * palette would mean inventing five hues for an app built on one accent, and
+ * identity here is carried perfectly well by the label.
+ */
+function VolumeSplit({ entries }: { entries: Profile['volumeByType'] }) {
+  const total = entries.reduce((sum, entry) => sum + entry.volumeKg, 0) || 1;
+
+  return (
+    <section
+      aria-labelledby="split-title"
+      className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
+    >
+      <h2 id="split-title" className="mb-1 font-semibold text-chalk">
+        Reparto del volumen
+      </h2>
+      <p className="mb-3 text-xs text-iron-600">Por tipo de sesión, de todo lo registrado.</p>
+
+      <ul className="space-y-2.5">
+        {entries.map((entry) => (
+          <li key={entry.type}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="truncate text-sm font-medium text-chalk">{entry.type}</span>
+              <span className="figure shrink-0 text-sm text-iron-100">
+                {Math.round((entry.volumeKg / total) * 100)}%
+                <span className="ml-2 text-xs text-iron-600">
+                  {Math.round(entry.volumeKg).toLocaleString('es-ES')} kg
+                </span>
+              </span>
+            </div>
+            <span
+              aria-hidden="true"
+              className="mt-1 block h-2 overflow-hidden rounded-full bg-iron-800"
+            >
+              <span
+                className="block h-full rounded-full bg-signal-500"
+                style={{ width: `${(entry.volumeKg / total) * 100}%` }}
+              />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -210,4 +342,21 @@ function formatMonth(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+}
+
+function formatDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+}
+
+/** "hoy", "hace 3 días", "hace 2 semanas" — a raw date needs arithmetic to read. */
+function sinceLabel(iso: string): string {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000));
+  if (!Number.isFinite(days) || days < 0) return '';
+  if (days === 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 14) return `hace ${days} días`;
+  const weeks = Math.floor(days / 7);
+  return weeks < 9 ? `hace ${weeks} semanas` : `hace ${Math.floor(days / 30)} meses`;
 }

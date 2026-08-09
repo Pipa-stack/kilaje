@@ -34,6 +34,27 @@ export interface PersonalRecord {
   /** Heaviest weight moved for at least one rep. */
   topWeight: number | null;
   achievedAt: string;
+  /**
+   * Whole weeks since this record was set.
+   *
+   * The number is the point: a best lift nobody has beaten in two months is
+   * a stalled lift, and that is worth saying out loud.
+   */
+  weeksSince: number;
+}
+
+export interface WeekActivity {
+  /** Monday of that week, as a date. */
+  weekStart: string;
+  sessions: number;
+  volumeKg: number;
+}
+
+export interface TypeVolume {
+  /** Session type from the spreadsheet: PUSH, PULL, LEG… */
+  type: string;
+  volumeKg: number;
+  sessions: number;
 }
 
 export interface Profile {
@@ -41,10 +62,20 @@ export interface Profile {
   stats: LifetimeStats;
   /** Best lifts, heaviest estimate first. */
   records: PersonalRecord[];
+  /** Exactly {@link ACTIVITY_WEEKS} entries, oldest first, gaps filled with zeroes. */
+  weeklyActivity: WeekActivity[];
+  /** Consecutive weeks up to now with at least one session. */
+  streakWeeks: number;
+  /** Volume per session type, biggest first. */
+  volumeByType: TypeVolume[];
+  lastSessionAt: string | null;
 }
 
 /** How many records to show. Beyond this it stops being a highlight. */
 const MAX_RECORDS = 8;
+
+/** Three months: long enough to show a habit, short enough to still be now. */
+export const ACTIVITY_WEEKS = 12;
 
 export async function getProfile(db: Database, userId: number): Promise<Profile | null> {
   const { rows } = await db.query<{
@@ -56,9 +87,12 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
   const user = rows[0];
   if (!user) return null;
 
-  const [history, sessions] = await Promise.all([
+  const [history, sessions, activity, volumeByType, lastSessionAt] = await Promise.all([
     loadHistory(db, userId),
     countSessions(db, userId),
+    loadWeeklyActivity(db, userId),
+    loadVolumeByType(db, userId),
+    loadLastSession(db, userId),
   ]);
 
   const records = history
@@ -74,6 +108,7 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
         oneRepMax: exercise.bestOneRepMax,
         topWeight: exercise.bestWeight,
         achievedAt: best.performedAt,
+        weeksSince: weeksSince(best.performedAt),
       };
     })
     .sort((a, b) => b.oneRepMax - a.oneRepMax)
@@ -98,7 +133,137 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
       programs: sessions.programs,
     },
     records,
+    weeklyActivity: activity,
+    streakWeeks: countStreak(activity),
+    volumeByType,
+    lastSessionAt,
   };
+}
+
+/**
+ * Sessions and volume for each of the last {@link ACTIVITY_WEEKS} weeks.
+ *
+ * Weeks without training are filled in with zeroes rather than dropped: a
+ * chart that silently skips the weeks you missed reports a habit you do not
+ * have.
+ */
+async function loadWeeklyActivity(db: Database, userId: number): Promise<WeekActivity[]> {
+  // The empty weeks are generated in SQL and joined against, rather than
+  // filled in afterwards: date_trunc gives the Monday in the database's time
+  // zone, and any Monday computed here in JavaScript would be a different
+  // instant on any server that is not UTC — the buckets would never match.
+  const { rows } = await db.query<{
+    week_start: string;
+    sessions: number | string;
+    volume: number | string | null;
+  }>(
+    `WITH span AS (
+        SELECT generate_series(
+                 date_trunc('week', now()) - make_interval(weeks => $2::int),
+                 date_trunc('week', now()),
+                 interval '1 week') AS week_start
+     ),
+     logged AS (
+        SELECT date_trunc('week', ss.performed_at) AS week_start,
+               COUNT(DISTINCT ss.session_id)       AS sessions,
+               SUM(ss.weight * ss.reps)            AS volume
+          FROM session_sets ss
+          JOIN exercises e    ON e.id = ss.exercise_id
+          JOIN workout_days d ON d.id = e.day_id
+          JOIN weeks w        ON w.id = d.week_id
+          JOIN programs p     ON p.id = w.program_id
+         WHERE p.user_id = $1
+         GROUP BY 1
+     )
+     SELECT to_char(span.week_start, 'YYYY-MM-DD') AS week_start,
+            COALESCE(logged.sessions, 0)           AS sessions,
+            COALESCE(logged.volume, 0)             AS volume
+       FROM span
+       LEFT JOIN logged ON logged.week_start = span.week_start
+      ORDER BY span.week_start`,
+    [userId, ACTIVITY_WEEKS - 1],
+  );
+
+  return rows.map((row) => ({
+    weekStart: row.week_start,
+    sessions: Number(row.sessions),
+    volumeKg: numeric(row.volume),
+  }));
+}
+
+/** Volume split by the session type the spreadsheet named. */
+async function loadVolumeByType(db: Database, userId: number): Promise<TypeVolume[]> {
+  const { rows } = await db.query<{
+    type: string | null;
+    volume: number | string | null;
+    sessions: number;
+  }>(
+    `SELECT d.type                        AS type,
+            SUM(ss.weight * ss.reps)      AS volume,
+            COUNT(DISTINCT ss.session_id) AS sessions
+       FROM session_sets ss
+       JOIN exercises e    ON e.id = ss.exercise_id
+       JOIN workout_days d ON d.id = e.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE p.user_id = $1
+      GROUP BY d.type
+      ORDER BY 2 DESC NULLS LAST`,
+    [userId],
+  );
+
+  return rows
+    .map((row) => ({
+      type: row.type?.trim() || 'Sin tipo',
+      volumeKg: numeric(row.volume),
+      sessions: Number(row.sessions),
+    }))
+    .filter((entry) => entry.volumeKg > 0);
+}
+
+async function loadLastSession(db: Database, userId: number): Promise<string | null> {
+  const { rows } = await db.query<{ last: Date | string | null }>(
+    `SELECT MAX(ss.performed_at) AS last
+       FROM session_sets ss
+       JOIN exercises e    ON e.id = ss.exercise_id
+       JOIN workout_days d ON d.id = e.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE p.user_id = $1`,
+    [userId],
+  );
+  const last = rows[0]?.last;
+  return last ? toIso(last) : null;
+}
+
+/**
+ * Consecutive weeks with training, counting back from now.
+ *
+ * The current week not having a session yet does not break a streak — it is
+ * Monday morning, not a failure.
+ */
+function countStreak(weeks: WeekActivity[]): number {
+  let streak = 0;
+  for (let index = weeks.length - 1; index >= 0; index -= 1) {
+    const week = weeks[index];
+    if (!week) break;
+    if (week.sessions > 0) streak += 1;
+    else if (index === weeks.length - 1) continue;
+    else break;
+  }
+  return streak;
+}
+
+function weeksSince(iso: string): number {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / (7 * 24 * 60 * 60 * 1000)));
+}
+
+function numeric(value: number | string | null): number {
+  if (value === null) return 0;
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function countLogged(sets: { weight: number | null; reps: number | null }[]): number {

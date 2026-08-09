@@ -49,7 +49,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await db.truncate();
   sent = [];
-  app = createApp({ db, email: fakeSender(), appUrl: 'https://barra.test' });
+  app = createApp({ db, email: fakeSender(), appUrl: 'https://kilaje.test' });
   agent = request.agent(app);
   await agent
     .post('/api/auth/register')
@@ -175,19 +175,19 @@ describe('the email itself', () => {
   it('carries the link in both plain text and HTML', () => {
     const email = buildResetEmail({
       to: 'ana@ejemplo.com',
-      link: 'https://barra.test/?reset=abc',
+      link: 'https://kilaje.test/?reset=abc',
       minutesValid: 60,
     });
     // Some clients render only one of the two; a blank reset mail is a lockout.
-    expect(email.text).toContain('https://barra.test/?reset=abc');
-    expect(email.html).toContain('https://barra.test/?reset=abc');
+    expect(email.text).toContain('https://kilaje.test/?reset=abc');
+    expect(email.html).toContain('https://kilaje.test/?reset=abc');
     expect(email.text).toContain('60');
   });
 
   it('escapes the link rather than trusting it', () => {
     const email = buildResetEmail({
       to: 'ana@ejemplo.com',
-      link: 'https://barra.test/?reset="><script>alert(1)</script>',
+      link: 'https://kilaje.test/?reset="><script>alert(1)</script>',
       minutesValid: 60,
     });
     expect(email.html).not.toContain('<script>');
@@ -198,7 +198,7 @@ describe('the sender without a key', () => {
   it('reports failure instead of pretending to have sent', async () => {
     // A silent no-op looks exactly like delivery, and password resets would
     // appear to work while nobody ever received one.
-    const sender = createEmailSender(undefined, 'Barra <x@example.com>');
+    const sender = createEmailSender(undefined, 'Kilaje <x@example.com>');
     expect(sender.configured).toBe(false);
     expect(await sender.send({ to: 'a@b.c', subject: 's', text: 't', html: '<p>t</p>' })).toBe(false);
   });
@@ -210,8 +210,21 @@ describe('the profile', () => {
     return body.profile as {
       identity: { displayName: string; email: string; memberSince: string };
       stats: { completedSessions: number; totalVolumeKg: number; distinctExercises: number };
-      records: { exercise: string; oneRepMax: number }[];
+      records: { exercise: string; oneRepMax: number; weeksSince: number }[];
+      weeklyActivity: { weekStart: string; sessions: number; volumeKg: number }[];
+      streakWeeks: number;
+      volumeByType: { type: string; volumeKg: number; sessions: number }[];
+      lastSessionAt: string | null;
     };
+  }
+
+  /** Imports the reference workbook, which carries one logged session. */
+  async function importReference() {
+    await agent
+      .post('/api/programs?filename=ejemplo.xlsx')
+      .set('Content-Type', 'application/octet-stream')
+      .send(readFileSync(REFERENCE_FILE))
+      .expect(201);
   }
 
   it('falls back to the email when there is no name yet', async () => {
@@ -237,11 +250,7 @@ describe('the profile', () => {
   });
 
   it('builds records and totals from what was actually logged', async () => {
-    await agent
-      .post('/api/programs?filename=ejemplo.xlsx')
-      .set('Content-Type', 'application/octet-stream')
-      .send(readFileSync(REFERENCE_FILE))
-      .expect(201);
+    await importReference();
 
     const { stats, records } = await profile();
     // The workbook carried 82.5 kg x 4 on the bench.
@@ -252,11 +261,56 @@ describe('the profile', () => {
   }, 60_000);
 
   it('is empty, not broken, for an account that has logged nothing', async () => {
-    const { stats, records } = await profile();
+    const { stats, records, weeklyActivity, streakWeeks, volumeByType, lastSessionAt } =
+      await profile();
     expect(stats.completedSessions).toBe(0);
     expect(stats.totalVolumeKg).toBe(0);
     expect(records).toEqual([]);
+    // The chart still has an x-axis: twelve empty weeks, not an empty array.
+    expect(weeklyActivity).toHaveLength(12);
+    expect(weeklyActivity.every((week) => week.sessions === 0)).toBe(true);
+    expect(streakWeeks).toBe(0);
+    expect(volumeByType).toEqual([]);
+    expect(lastSessionAt).toBeNull();
   });
+
+  it('reports the weeks you missed instead of skipping them', async () => {
+    await importReference();
+    const { weeklyActivity, streakWeeks, lastSessionAt } = await profile();
+
+    // A chart that drops empty weeks reports a habit nobody has.
+    expect(weeklyActivity).toHaveLength(12);
+    expect(weeklyActivity.filter((week) => week.sessions > 0)).toHaveLength(1);
+    expect(weeklyActivity.at(-1)?.sessions).toBe(1);
+    expect(weeklyActivity.at(-1)?.volumeKg).toBe(330);
+    expect(streakWeeks).toBe(1);
+    expect(lastSessionAt).toBeTruthy();
+
+    // Oldest first, one week apart, no gaps and no duplicates.
+    const starts = weeklyActivity.map((week) => Date.parse(week.weekStart));
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+    for (let index = 1; index < starts.length; index += 1) {
+      expect(starts[index]! - starts[index - 1]!).toBe(7 * 24 * 60 * 60 * 1000);
+    }
+  }, 60_000);
+
+  it('splits the volume by session type, biggest first', async () => {
+    await importReference();
+    const { volumeByType } = await profile();
+
+    expect(volumeByType).toHaveLength(1);
+    expect(volumeByType[0]?.volumeKg).toBe(330);
+    expect(volumeByType[0]?.sessions).toBe(1);
+    // Whatever the workbook called it, the split is named, never blank.
+    expect(volumeByType[0]?.type).toBeTruthy();
+  }, 60_000);
+
+  it('dates each record so a stalled lift can be spotted', async () => {
+    await importReference();
+    const { records } = await profile();
+    // Logged today, so nothing is stale yet — but the number has to be there.
+    expect(records[0]?.weeksSince).toBe(0);
+  }, 60_000);
 });
 
 describe('scope', () => {
