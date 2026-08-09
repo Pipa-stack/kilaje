@@ -397,7 +397,7 @@ describe('signing out', () => {
 
     // The cache is written as soon as a program is on screen.
     await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
-    localStorage.setItem('kilaje.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } }]));
+    localStorage.setItem('kilaje.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: Date.now(), operation: { kind: 'resetSession', dayId: '1' } }]));
 
     const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
     await user.click(tabs.getByRole('button', { name: /Perfil/ }));

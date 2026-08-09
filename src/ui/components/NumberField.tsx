@@ -32,6 +32,9 @@ export function NumberField({
 }: NumberFieldProps) {
   const [draft, setDraft] = useState(() => toDraft(value));
 
+  /** Set while the box holds something real that is outside the allowed range. */
+  const [rejected, setRejected] = useState(false);
+
   // Re-sync when the value changes from outside (import, reset, add set).
   useEffect(() => {
     setDraft((current) => (parseNumericInput(current, { min, max }) === value ? current : toDraft(value)));
@@ -45,18 +48,30 @@ export function NumberField({
         enterKeyHint="next"
         autoComplete="off"
         aria-label={label}
+        aria-invalid={rejected || undefined}
         value={draft}
         placeholder={placeholder}
-        className={`field ${value !== null ? 'field-filled' : ''}`}
+        className={`field ${value !== null ? 'field-filled' : ''} ${rejected ? 'field-rejected' : ''}`}
         onChange={(event) => {
           const next = event.target.value;
           setDraft(next);
           const parsed = parseNumericInput(next, { min, max });
           if (parsed !== undefined) onChange(parsed);
+          // A number that is out of range parses to undefined and is dropped.
+          // Without saying so, the value simply reappears on blur and the user
+          // has no idea why what they typed did not stick.
+          setRejected(parsed === undefined && next.trim() !== '');
         }}
-        onBlur={() => setDraft(toDraft(value))}
+        onBlur={() => {
+          setDraft(toDraft(value));
+          setRejected(false);
+        }}
       />
-      {reference !== null ? (
+      {rejected ? (
+        <span role="status" className="text-center text-xs text-effort-300">
+          Entre {min} y {max}
+        </span>
+      ) : reference !== null ? (
         <span className="text-center text-xs text-iron-600" aria-hidden="true">
           {reference}
         </span>

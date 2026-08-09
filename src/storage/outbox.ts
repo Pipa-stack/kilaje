@@ -39,6 +39,16 @@ const LEGACY_STORAGE_KEY = 'barra.outbox.v1';
 /** Stops a long offline session from filling the browser's quota. */
 export const MAX_PENDING = 500;
 
+/**
+ * How long a queued write is still worth sending.
+ *
+ * A phone left in a bag for a fortnight still holds what was typed into it,
+ * and replaying that on reopening would write a stale weight over whatever was
+ * logged from another device since. Two days is longer than any gym session
+ * and far shorter than the window in which the value stops being current.
+ */
+export const MAX_PENDING_AGE_MS = 2 * 24 * 60 * 60 * 1000;
+
 /** What makes two writes "the same write". */
 export function operationKey(operation: PendingOperation): string {
   switch (operation.kind) {
@@ -72,7 +82,11 @@ export function readOutbox(): PendingEntry[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isPendingEntry);
+
+    const oldest = Date.now() - MAX_PENDING_AGE_MS;
+    // A write nobody has managed to send in two days is not a pending write,
+    // it is an old opinion about a number somebody may have corrected since.
+    return parsed.filter(isPendingEntry).filter((entry) => entry.queuedAt >= oldest);
   } catch {
     return [];
   }

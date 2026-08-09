@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type Profile } from '../../api/client';
@@ -20,11 +20,26 @@ export function ProfileScreen({ email }: { email: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** False once unmounted, so a slow request cannot set state afterwards. */
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   const reload = () => {
+    setError(null);
     api
       .fetchProfile()
-      .then(setProfile)
+      .then((loaded) => {
+        if (!alive.current) return;
+        setProfile(loaded);
+        setError(null);
+      })
       .catch((cause: unknown) => {
+        if (!alive.current) return;
         setError(
           cause instanceof ApiError && cause.isOffline
             ? 'El perfil necesita conexión.'
@@ -35,14 +50,23 @@ export function ProfileScreen({ email }: { email: string }) {
 
   useEffect(reload, []);
 
-  if (error) {
+  // Only when there is nothing to show. A refresh that fails after the profile
+  // has loaded — saving a name, a passing hiccup — used to replace records,
+  // streak and volume with a bare error line that nothing could dismiss.
+  if (error && !profile) {
     return (
-      <p
-        role="status"
-        className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-8 text-center text-sm text-iron-400"
-      >
-        {error}
-      </p>
+      <div className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-8 text-center">
+        <p role="status" className="text-sm text-iron-400">
+          {error}
+        </p>
+        <button
+          type="button"
+          onClick={reload}
+          className="mt-3 min-h-11 rounded-xl border border-iron-700 px-4 text-sm font-semibold text-iron-100 hover:bg-iron-850"
+        >
+          Reintentar
+        </button>
+      </div>
     );
   }
 
@@ -59,6 +83,20 @@ export function ProfileScreen({ email }: { email: string }) {
 
   return (
     <div className="space-y-4">
+      {error ? (
+        // The profile below is still the last good one; say so rather than
+        // replacing it, and leave a way back.
+        <p
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-xl border border-effort-500/30 bg-effort-500/10 px-3 py-2 text-sm text-effort-300"
+        >
+          {error}
+          <button type="button" onClick={reload} className="shrink-0 font-semibold underline">
+            Reintentar
+          </button>
+        </p>
+      ) : null}
+
       <section className="flex items-center gap-4 rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <span
           aria-hidden="true"
@@ -97,7 +135,9 @@ export function ProfileScreen({ email }: { email: string }) {
 
       <Consistency weeks={weeklyActivity} streak={streakWeeks} />
 
-      {volumeByType.length > 0 ? <VolumeSplit entries={volumeByType} /> : null}
+      {volumeByType.some((entry) => entry.volumeKg > 0) ? (
+        <VolumeSplit entries={volumeByType.filter((entry) => entry.volumeKg > 0)} />
+      ) : null}
 
       <section
         aria-labelledby="records-title"

@@ -87,9 +87,10 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
   const user = rows[0];
   if (!user) return null;
 
-  const [history, sessions, activity, volumeByType, lastSessionAt] = await Promise.all([
+  const [history, sessions, totals, activity, volumeByType, lastSessionAt] = await Promise.all([
     loadHistory(db, userId),
     countSessions(db, userId),
+    loadTotals(db, userId),
     loadWeeklyActivity(db, userId),
     loadVolumeByType(db, userId),
     loadLastSession(db, userId),
@@ -123,13 +124,9 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
     stats: {
       completedSessions: sessions.completed,
       startedSessions: sessions.started,
-      totalVolumeKg: history.reduce((total, exercise) => total + exercise.totalVolume, 0),
-      distinctExercises: history.length,
-      totalSets: history.reduce(
-        (total, exercise) =>
-          total + exercise.entries.reduce((sets, entry) => sets + countLogged(entry.sets), 0),
-        0,
-      ),
+      totalVolumeKg: totals.volumeKg,
+      distinctExercises: totals.exercises,
+      totalSets: totals.sets,
       programs: sessions.programs,
     },
     records,
@@ -137,6 +134,44 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
     streakWeeks: countStreak(activity),
     volumeByType,
     lastSessionAt,
+  };
+}
+
+/**
+ * The lifetime figures, counted by the database.
+ *
+ * Derived from {@link loadHistory} before, which reads at most 20 000 rows and
+ * says nothing when it stops. Past that the totals labelled "en total" would
+ * quietly start shrinking — the one place where being approximately right is
+ * worse than not showing a number. Pure aggregation, so nothing about the
+ * domain is restated here; the estimated 1RM still comes from the one
+ * implementation in `calculations.ts`.
+ */
+async function loadTotals(
+  db: Database,
+  userId: number,
+): Promise<{ volumeKg: number; exercises: number; sets: number }> {
+  const { rows } = await db.query<{
+    volume: number | string | null;
+    exercises: number | string;
+    sets: number | string;
+  }>(
+    `SELECT COALESCE(SUM(ss.weight * ss.reps), 0) AS volume,
+            COUNT(DISTINCT e.name)                AS exercises,
+            COUNT(*)                              AS sets
+       FROM session_sets ss
+       JOIN exercises e    ON e.id = ss.exercise_id
+       JOIN workout_days d ON d.id = e.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE p.user_id = $1 AND e.name <> ''`,
+    [userId],
+  );
+
+  return {
+    volumeKg: numeric(rows[0]?.volume ?? 0),
+    exercises: Number(rows[0]?.exercises ?? 0),
+    sets: Number(rows[0]?.sets ?? 0),
   };
 }
 
@@ -212,13 +247,14 @@ async function loadVolumeByType(db: Database, userId: number): Promise<TypeVolum
     [userId],
   );
 
-  return rows
-    .map((row) => ({
-      type: row.type?.trim() || 'Sin tipo',
-      volumeKg: numeric(row.volume),
-      sessions: Number(row.sessions),
-    }))
-    .filter((entry) => entry.volumeKg > 0);
+  // A day of pull-ups and dips logs reps with no weight, so its volume in kg
+  // is zero — but it happened, and dropping the row erased the sessions along
+  // with it. The bar chart skips zero-volume entries; the count does not.
+  return rows.map((row) => ({
+    type: row.type?.trim() || 'Sin tipo',
+    volumeKg: numeric(row.volume),
+    sessions: Number(row.sessions),
+  }));
 }
 
 async function loadLastSession(db: Database, userId: number): Promise<string | null> {
@@ -264,10 +300,6 @@ function numeric(value: number | string | null): number {
   if (value === null) return 0;
   const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function countLogged(sets: { weight: number | null; reps: number | null }[]): number {
-  return sets.filter((set) => set.weight !== null || set.reps !== null).length;
 }
 
 async function countSessions(

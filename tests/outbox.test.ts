@@ -170,8 +170,8 @@ describe('surviving bad storage', () => {
     localStorage.setItem(
       'kilaje.outbox.v1',
       JSON.stringify([
-        { key: 'ok', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } },
-        { key: 'malo', queuedAt: 1, operation: { kind: 'inventado', dayId: '1' } },
+        { key: 'ok', queuedAt: Date.now(), operation: { kind: 'resetSession', dayId: '1' } },
+        { key: 'malo', queuedAt: Date.now(), operation: { kind: 'inventado', dayId: '1' } },
         'ni siquiera un objeto',
       ]),
     );
@@ -180,5 +180,25 @@ describe('surviving bad storage', () => {
 
   it('starts empty when there is nothing stored', () => {
     expect(readOutbox()).toEqual([]);
+  });
+});
+
+describe('entries that have gone stale', () => {
+  it('drops a write nobody managed to send in two days', () => {
+    // The phone was in a bag all weekend while the same set was corrected from
+    // another device. Replaying now would write the old weight over the new.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    enqueue(setOn(0, 80));
+    clock.mockRestore();
+
+    expect(readOutbox()).toEqual([]);
+  });
+
+  it('keeps a write queued earlier today', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 60 * 60 * 1000);
+    enqueue(setOn(0, 80));
+    clock.mockRestore();
+
+    expect(readOutbox()).toHaveLength(1);
   });
 });

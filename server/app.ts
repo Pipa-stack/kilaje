@@ -43,16 +43,6 @@ export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: A
 
   app.use(securityHeaders);
 
-  // Workbook uploads arrive as raw bytes. The limit is enforced here as well
-  // as in the handler so oversized bodies are rejected before buffering.
-  app.use(
-    '/api/programs',
-    express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
-  );
-  app.use(express.json({ limit: '64kb' }));
-
-  // Identify the caller for every API request, then gate everything that is
-  // not a login or a health probe.
   // Railway probes this; it must not require a session.
   app.get('/api/health', (_req, res) => {
     ping(db)
@@ -60,7 +50,22 @@ export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: A
       .catch(() => res.status(503).json({ status: 'sin base de datos' }));
   });
 
+  // Identify the caller before anything reads a body, so an unauthenticated
+  // request is answered without buffering what it sent.
   app.use('/api', attachUser(db));
+
+  app.use(express.json({ limit: '64kb' }));
+
+  // Workbook uploads arrive as raw bytes, and 10 MB of them is the largest
+  // thing this server will hold in memory for one request. `requireUser` runs
+  // first on purpose: without it, anyone at all could park 10 MB per
+  // connection in the heap and only then be told to log in.
+  app.use(
+    '/api/programs',
+    requireUser,
+    express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
+  );
+
   app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl }));
   app.use('/api/profile', requireUser, createProfileRouter(db));
   app.use('/api', requireUser, createApiRouter(db, rateLimits));

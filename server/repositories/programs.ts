@@ -87,6 +87,33 @@ export async function importProgram(
     if (program) return { program, created: false };
   }
 
+  // The lookup above and the insert below are two statements, so two uploads
+  // of the same file at once — a double tap, a retried request — can both find
+  // nothing and both try to insert. The unique index stops the duplicate; this
+  // turns the loser's error into the answer it was asking for.
+  try {
+    return await insertProgram(db, parsed, sourceHash, userId);
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+
+    const raced = await findProgramIdByHash(db, sourceHash, userId);
+    const program = raced === null ? null : await getProgram(db, raced, userId);
+    if (!program) throw error;
+    return { program, created: false };
+  }
+}
+
+/** Postgres reports a unique index violation as SQLSTATE 23505. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23505';
+}
+
+async function insertProgram(
+  db: Database,
+  parsed: Program,
+  sourceHash: string,
+  userId: number | null,
+): Promise<ImportResult> {
   const programId = await db.transaction(async (tx) => {
     const { rows: versionRows } = await tx.query<{ next: number }>(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next
@@ -324,7 +351,8 @@ interface ContentRow {
   week_id: number;
   week_number: number;
   sheet_name: string;
-  day_id: number;
+  /** Null when the week has no days: the join that reads it is a LEFT JOIN. */
+  day_id: number | null;
   day_number: number;
   day_type: string | null;
   notes: string | null;
@@ -362,7 +390,7 @@ export async function getProgram(
             e.id AS exercise_id, e.position, e.external_key, e.name,
             e.video_url, e.protocol, e.comments
        FROM weeks w
-       JOIN workout_days d          ON d.week_id = w.id
+       LEFT JOIN workout_days d     ON d.week_id = w.id
        LEFT JOIN workout_sessions s ON s.day_id = d.id
        LEFT JOIN exercises e        ON e.day_id = d.id
       WHERE w.program_id = $1
@@ -443,6 +471,11 @@ function assembleWeeks(
       week = { number: row.week_number, sheetName: row.sheet_name, days: [] };
       weeks.set(row.week_id, week);
     }
+
+    // LEFT JOIN: a week with no days still produces one row, and it is a real
+    // week — listPrograms counts it, so hiding it here made the list and the
+    // detail disagree about how long the program is.
+    if (row.day_id === null) continue;
 
     let day = days.get(row.day_id);
     if (!day) {

@@ -182,6 +182,14 @@ export function createAuthRouter(
         res.status(201).json({ user: { id: user.id, email: user.email } });
       } catch (error) {
         if (error instanceof EmailTakenError) {
+          // This does tell the caller that the address has an account, which
+          // `/login` and `/forgot` go out of their way to hide. It is a
+          // deliberate limit, not an oversight: as long as registering signs
+          // you straight in, success and conflict cannot look alike — hiding
+          // it needs an email-verification step before the session exists,
+          // which is a feature, not a patch. Until then the two limiters in
+          // front are the mitigation: an address at a time, an address at a
+          // time, and never faster than the per-IP window allows.
           res.status(409).json({ error: error.message });
           return;
         }

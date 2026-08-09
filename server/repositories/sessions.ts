@@ -96,6 +96,9 @@ export async function saveSet(
       'DELETE FROM session_sets WHERE session_id = $1 AND exercise_id = $2 AND set_index = $3',
       [sessionId, exerciseId, setIndex],
     );
+    // Clearing a set is a change to the session like any other; returning
+    // early left `updated_at` claiming the day had not been touched.
+    await touchSession(db, sessionId);
     return;
   }
 
@@ -153,9 +156,17 @@ export async function updateSession(
 
   if (patch.completed !== undefined) {
     await db.query(
+      // `completed_at` records when the day was finished, so it is only
+      // stamped on the transition. Re-sending `completed: true` — a replayed
+      // queue entry, a double tap — used to overwrite it with the current
+      // time and lose the moment the session actually ended.
       `UPDATE workout_sessions
           SET completed = $2,
-              completed_at = CASE WHEN $2 THEN now() ELSE NULL END,
+              completed_at = CASE
+                WHEN NOT $2 THEN NULL
+                WHEN completed_at IS NULL THEN now()
+                ELSE completed_at
+              END,
               updated_at = now()
         WHERE id = $1`,
       [sessionId, patch.completed],

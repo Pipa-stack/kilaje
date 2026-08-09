@@ -359,6 +359,7 @@ export function useProgram(): ProgramState {
     return () => {
       window.removeEventListener('pagehide', onHide);
       document.removeEventListener('visibilitychange', onHide);
+      if (notesTimer.current) clearTimeout(notesTimer.current);
       flushNotes();
     };
   }, [flushNotes]);
@@ -472,6 +473,11 @@ export function useProgram(): ProgramState {
         mutate(
           (current, dayId) => setDayNotes(current, dayId, notes),
           (_next, dayId) => {
+            // One pending note, not one per day: typing in another day's notes
+            // within the debounce window used to overwrite the first, which
+            // then never reached the server and was lost on the next reload.
+            if (pendingNotes.current && pendingNotes.current.dayId !== dayId) flushNotes();
+
             // Notes are debounced separately; nothing to send right now.
             pendingNotes.current = { dayId, notes };
             if (notesTimer.current) clearTimeout(notesTimer.current);
