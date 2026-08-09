@@ -41,7 +41,7 @@ export function DayView({
   const progress = dayProgress(day);
 
   return (
-    <div className="space-y-4">
+    <div key={day.id} className="day-enter space-y-4">
       <section
         aria-label="Resumen del día"
         className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
@@ -167,6 +167,10 @@ export function DayView({
             <Icon name="chevronRight" size={18} />
           </button>
         </div>
+
+        <p className="text-center text-xs text-iron-600">
+          También puedes deslizar a los lados para cambiar de día.
+        </p>
 
         <button
           type="button"

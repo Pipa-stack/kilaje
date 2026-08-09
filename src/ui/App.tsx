@@ -11,6 +11,7 @@ import { RestTimer } from './components/RestTimer';
 import { SettingsScreen } from './components/SettingsScreen';
 import { useAccount } from './hooks/useAccount';
 import { useProgram } from './hooks/useProgram';
+import { useSwipe } from './hooks/useSwipe';
 import { useTheme } from './hooks/useTheme';
 
 export default function App() {
@@ -58,6 +59,15 @@ interface SignedInProps {
 function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
   const state = useProgram();
 
+  // Swiping left goes forward, the way pages turn. Declared before any early
+  // return, because hooks must run in the same order on every render. The
+  // prev/next buttons stay: a gesture is invisible and unreachable by keyboard.
+  const swipeArea = useSwipe<HTMLDivElement>({
+    enabled: tab === 'day',
+    onSwipeLeft: () => state.goToAdjacentDay(1),
+    onSwipeRight: () => state.goToAdjacentDay(-1),
+  });
+
   if (state.loading) {
     return (
       <main className="flex min-h-dvh items-center justify-center px-4">
@@ -86,6 +96,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
     state.selectDay(dayNumber);
     setTab('day');
   };
+
 
   return (
     <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-24 pt-4">
@@ -136,7 +147,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
         {program.weeks.length > 1 && tab !== 'settings' ? (
           <nav aria-label="Semanas">
-            <ul className="flex gap-2 overflow-x-auto pb-1">
+            <ul data-no-swipe className="flex gap-2 overflow-x-auto pb-1">
               {program.weeks.map((candidate) => (
                 <li key={candidate.number}>
                   <button
@@ -159,7 +170,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
         {tab === 'day' ? (
           <nav aria-label="Días de la semana">
-            <ul className="flex gap-2 overflow-x-auto pb-1">
+            <ul data-no-swipe className="flex gap-2 overflow-x-auto pb-1">
               {week.days.map((candidate) => (
                 <li key={candidate.id}>
                   <button
@@ -193,7 +204,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
         ) : null}
 
         {tab === 'day' ? (
-          <div className="space-y-4">
+          <div ref={swipeArea} className="space-y-4">
             <RestTimer />
             <DayView
               key={day.id}

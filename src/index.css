@@ -187,6 +187,27 @@
   }
 }
 
+@layer components {
+  /*
+   * The day content slides in when it changes, so a swipe is felt rather than
+   * guessed. Killed wholesale by the reduced-motion block below.
+   */
+  .day-enter {
+    animation: day-enter 180ms ease-out;
+  }
+}
+
+@keyframes day-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

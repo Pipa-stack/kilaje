@@ -22,7 +22,7 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 | Sección | Qué hay |
 |---|---|
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
-| **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión |
+| **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión. Se cambia de día deslizando o con los botones |
 | **Progreso** | Dos vistas: **Esta semana** (volumen por sesión y tabla de ejercicios) e **Histórico** (evolución de cada ejercicio a lo largo de todos tus programas) |
 | **Ajustes** | Tema (sistema/claro/oscuro), importar otro Excel, cambiar entre programas, borrarlos, y tu cuenta |
 
@@ -136,7 +136,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      269 tests
+tests/                      276 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -279,7 +279,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 269 tests |
+| `npm test` | Los 276 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -367,7 +367,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 269 tests, contra PGlite
+npm test                      # 276 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 
