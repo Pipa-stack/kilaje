@@ -62,11 +62,28 @@ beforeEach(async () => {
     .expect(201);
 }, 30_000);
 
+/**
+ * Waits for something the endpoint finishes after it has already answered.
+ *
+ * A fixed sleep races the database: it is long enough against PGlite, which
+ * runs in-process, and too short against a real PostgreSQL over a socket.
+ */
+async function waitFor(done: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!done() && Date.now() < deadline) {
+    await new Promise((resume) => setTimeout(resume, 10));
+  }
+}
+
 /** Runs the whole flow and returns the token from the emailed link. */
 async function requestReset(email = 'ana@ejemplo.com'): Promise<string | null> {
+  const before = sent.length;
   await request(app).post('/api/auth/forgot').send({ email }).expect(204);
-  // The endpoint answers before sending, so give the send a tick to land.
-  await new Promise((done) => setTimeout(done, 50));
+
+  // The endpoint answers before it sends, on purpose, so the message lands
+  // after the response has gone out.
+  await waitFor(() => sent.length > before);
+
   const link = sent.at(-1)?.text.match(/https:\/\/\S+/)?.[0];
   return link ? new URL(link).searchParams.get('reset') : null;
 }
@@ -97,8 +114,15 @@ describe('asking for a reset', () => {
 
   it('sends nothing for an address that has no account', async () => {
     await request(app).post('/api/auth/forgot').send({ email: 'nadie@ejemplo.com' }).expect(204);
-    await new Promise((done) => setTimeout(done, 50));
-    expect(sent).toHaveLength(0);
+
+    // Proving a negative needs a deadline, and a fixed sleep is the wrong one:
+    // too long here and the suite crawls, too short and it passes for an
+    // address that simply had not been reached yet. A second request that does
+    // have an account gives an ordering to wait on instead.
+    await requestReset('ana@ejemplo.com');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to).toBe('ana@ejemplo.com');
   }, 30_000);
 
   it('invalidates the previous link when asked again', async () => {
