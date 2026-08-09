@@ -193,3 +193,46 @@ export async function login(email: string, password: string): Promise<Account> {
 export async function logout(): Promise<void> {
   await callApi<void>('/auth/logout', { method: 'POST' });
 }
+
+/* ------------------------------------------------------------------ */
+/* History                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface HistoryEntry {
+  programId: number;
+  programName: string;
+  weekNumber: number;
+  dayNumber: number;
+  dayType: string | null;
+  performedAt: string;
+  sets: { weight: number | null; reps: number | null; rir: number | null }[];
+  volume: number;
+  topWeight: number | null;
+  oneRepMax: number | null;
+}
+
+export interface ExerciseHistory {
+  name: string;
+  sessions: number;
+  programs: number;
+  totalVolume: number;
+  bestOneRepMax: number | null;
+  bestWeight: number | null;
+  firstTrainedAt: string | null;
+  lastTrainedAt: string | null;
+  entries: HistoryEntry[];
+}
+
+/** Everything ever logged, grouped by exercise name, across all programs. */
+export async function fetchHistory(): Promise<ExerciseHistory[]> {
+  const { exercises } = await callApi<{ exercises: ExerciseHistory[] }>('/history');
+  return exercises;
+}
+
+/** Changes the password. Every other session is revoked server-side. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await callApi<void>('/auth/password', json({ currentPassword, newPassword }));
+}

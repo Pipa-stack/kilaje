@@ -23,7 +23,7 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 |---|---|
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
 | **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión |
-| **Progreso** | Volumen por sesión, comparación con la semana anterior y tabla de ejercicios entrenados con su volumen, tope y 1RM |
+| **Progreso** | Dos vistas: **Esta semana** (volumen por sesión y tabla de ejercicios) e **Histórico** (evolución de cada ejercicio a lo largo de todos tus programas) |
 | **Ajustes** | Tema (sistema/claro/oscuro), importar otro Excel, cambiar entre programas, borrarlos, y tu cuenta |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
@@ -136,7 +136,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      255 tests
+tests/                      269 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -212,6 +212,8 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 |---|---|---|
 | `GET` | `/api/health` | Comprueba que la base de datos responde |
 | `GET` | `/api/programs` | Lista los programas, el más reciente primero |
+| `GET` | `/api/history` | Todo lo registrado, agrupado por nombre de ejercicio |
+| `POST` | `/api/auth/password` | Cambia la contraseña y revoca las demás sesiones |
 | `GET` | `/api/programs/latest` | El último importado (lo que abre la app) |
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
 | `POST` | `/api/programs` | Importa un `.xlsx` (bytes en crudo, `?filename=`) |
@@ -277,7 +279,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 255 tests |
+| `npm test` | Los 269 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -365,7 +367,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 255 tests, contra PGlite
+npm test                      # 269 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 

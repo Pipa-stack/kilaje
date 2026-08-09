@@ -1,4 +1,8 @@
-import type { ProgramSummary } from '../../api/client';
+import { useState } from 'react';
+
+import * as api from '../../api/client';
+import { ApiError, type ProgramSummary } from '../../api/client';
+import { MIN_PASSWORD_LENGTH } from '../../domain/upload';
 import type { ThemeChoice } from '../hooks/useTheme';
 import { Dropzone } from './Dropzone';
 
@@ -170,15 +174,132 @@ export function SettingsScreen({
           Tu cuenta
         </h2>
         <p className="mb-3 break-all text-sm text-iron-400">{email}</p>
+
+        <PasswordForm />
+
         <button
           type="button"
           onClick={() => void onSignOut()}
-          className="min-h-11 w-full rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
+          className="mt-3 min-h-11 w-full rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
         >
           Cerrar sesión
         </button>
       </section>
     </div>
+  );
+}
+
+/**
+ * Changing the password.
+ *
+ * The current one is required, so a session left open on a shared phone
+ * cannot be used to lock the owner out. On success the server also revokes
+ * every other session, which is the point of changing it.
+ */
+function PasswordForm() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+          setDone(false);
+        }}
+        className="min-h-11 w-full rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
+      >
+        {done ? 'Contraseña cambiada' : 'Cambiar contraseña'}
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError(null);
+        api
+          .changePassword(current, next)
+          .then(() => {
+            setOpen(false);
+            setDone(true);
+            setCurrent('');
+            setNext('');
+          })
+          .catch((cause: unknown) => {
+            setError(
+              cause instanceof ApiError ? cause.message : 'No se ha podido cambiar la contraseña.',
+            );
+          })
+          .finally(() => setBusy(false));
+      }}
+    >
+      <label className="block">
+        <span className="eyebrow mb-1 block">Contraseña actual</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          required
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+          className="w-full rounded-xl border border-iron-700 bg-iron-850 px-3 py-2.5 text-chalk focus:border-signal-400 focus:outline-none"
+        />
+      </label>
+
+      <label className="block">
+        <span className="eyebrow mb-1 block">Contraseña nueva</span>
+        <input
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={MIN_PASSWORD_LENGTH}
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+          className="w-full rounded-xl border border-iron-700 bg-iron-850 px-3 py-2.5 text-chalk focus:border-signal-400 focus:outline-none"
+        />
+      </label>
+
+      <p className="text-xs text-iron-600">
+        Mínimo {MIN_PASSWORD_LENGTH} caracteres. Se cerrarán las sesiones abiertas en otros
+        dispositivos.
+      </p>
+
+      <div role="alert" aria-live="polite">
+        {error ? (
+          <p className="rounded-xl border border-effort-500/40 bg-effort-500/10 px-3 py-2 text-sm text-effort-300">
+            {error}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy}
+          className="min-h-11 flex-1 rounded-xl bg-signal-500 text-sm font-bold text-iron-950 hover:bg-signal-400 disabled:opacity-60"
+        >
+          {busy ? 'Guardando…' : 'Guardar'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+          }}
+          className="min-h-11 rounded-xl px-4 text-sm font-semibold text-iron-400 hover:bg-iron-850"
+        >
+          Cancelar
+        </button>
+      </div>
+    </form>
   );
 }
 

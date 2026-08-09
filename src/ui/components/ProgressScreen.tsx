@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   bestEstimated1RM,
   exerciseProgress,
@@ -6,14 +8,52 @@ import {
   weekSummary,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { HistoryScreen } from './HistoryScreen';
 import { Icon } from './Icon';
 
 interface ProgressScreenProps {
   week: Week;
 }
 
-/** What the week actually produced: volume per session and per exercise. */
+type View = 'week' | 'history';
+
+/**
+ * Two questions, two views: how this week is going, and whether the numbers
+ * are moving across programs.
+ */
 export function ProgressScreen({ week }: ProgressScreenProps) {
+  const [view, setView] = useState<View>('week');
+
+  return (
+    <div className="space-y-4">
+      <div role="group" aria-label="Periodo" className="flex gap-2">
+        {([
+          { id: 'week' as const, label: 'Esta semana' },
+          { id: 'history' as const, label: 'Histórico' },
+        ]).map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => setView(option.id)}
+            aria-pressed={view === option.id}
+            className={`min-h-11 flex-1 rounded-xl border text-sm font-semibold transition-colors ${
+              view === option.id
+                ? 'border-signal-500 bg-signal-500/10 text-signal-300'
+                : 'border-iron-700 text-iron-400 hover:bg-iron-850'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'week' ? <WeekProgress week={week} /> : <HistoryScreen />}
+    </div>
+  );
+}
+
+/** What the week actually produced: volume per session and per exercise. */
+function WeekProgress({ week }: ProgressScreenProps) {
   const summary = weekSummary(week);
   const days = volumeByDay(week);
   const exercises = exerciseProgress(week);

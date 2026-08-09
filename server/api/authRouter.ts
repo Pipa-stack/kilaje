@@ -21,12 +21,15 @@ import { MAX_PASSWORD_LENGTH } from '../auth/passwords';
 import { MIN_PASSWORD_LENGTH } from '../../src/domain/upload';
 import {
   EmailTakenError,
+  WrongPasswordError,
   authenticate,
+  changePassword,
   claimOrphanPrograms,
   countUsers,
   createUser,
   findUserById,
 } from '../repositories/users';
+import { hashToken } from '../repositories/sessionTokens';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -42,6 +45,16 @@ const credentials = z
   .object({
     email: z.string().trim().email('Introduce un correo válido').max(254),
     password: z
+      .string()
+      .min(MIN_PASSWORD_LENGTH, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
+      .max(MAX_PASSWORD_LENGTH),
+  })
+  .strict();
+
+const passwordChange = z
+  .object({
+    currentPassword: z.string().min(1).max(MAX_PASSWORD_LENGTH),
+    newPassword: z
       .string()
       .min(MIN_PASSWORD_LENGTH, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
       .max(MAX_PASSWORD_LENGTH),
@@ -155,6 +168,46 @@ export function createAuthRouter(db: Database): Router {
       if (token) await destroySession(db, token);
       clearSessionCookie(req, res);
       res.status(204).end();
+    }),
+  );
+
+  /**
+   * Changes the password.
+   *
+   * Requires the current one, so a session left open on a shared phone
+   * cannot be used to lock the owner out.
+   */
+  router.post(
+    '/password',
+    handle(async (req, res) => {
+      if (req.userId === undefined) {
+        res.status(401).json({ error: 'Necesitas iniciar sesión.' });
+        return;
+      }
+
+      const { currentPassword, newPassword } = passwordChange.parse(req.body);
+      if (currentPassword === newPassword) {
+        res.status(400).json({ error: 'La contraseña nueva es igual que la actual.' });
+        return;
+      }
+
+      const token = readSessionCookie(req);
+      try {
+        await changePassword(
+          db,
+          req.userId,
+          currentPassword,
+          newPassword,
+          token ? hashToken(token) : null,
+        );
+        res.status(204).end();
+      } catch (error) {
+        if (error instanceof WrongPasswordError) {
+          res.status(403).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
     }),
   );
 

@@ -75,6 +75,49 @@ export async function authenticate(
   return { id: row.id, email: row.email, createdAt: toIso(row.created_at) };
 }
 
+/** Raised when the current password does not match. */
+export class WrongPasswordError extends Error {
+  constructor() {
+    super('La contraseña actual no es correcta.');
+    this.name = 'WrongPasswordError';
+  }
+}
+
+/**
+ * Changes a password.
+ *
+ * Every other session is revoked: if the reason for changing it is that
+ * somebody else got in, leaving their session alive would defeat the point.
+ * The caller's own session is spared so they are not logged out mid-workout.
+ */
+export async function changePassword(
+  db: Database,
+  userId: number,
+  currentPassword: string,
+  newPassword: string,
+  keepTokenHash: string | null,
+): Promise<void> {
+  const { rows } = await db.query<{ password_hash: string }>(
+    'SELECT password_hash FROM users WHERE id = $1',
+    [userId],
+  );
+
+  const stored = rows[0]?.password_hash;
+  if (!stored || !(await verifyPassword(currentPassword, stored))) {
+    throw new WrongPasswordError();
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await db.transaction(async (tx) => {
+    await tx.query('UPDATE users SET password_hash = $2 WHERE id = $1', [userId, passwordHash]);
+    await tx.query(
+      'DELETE FROM sessions WHERE user_id = $1 AND token_hash IS DISTINCT FROM $2',
+      [userId, keepTokenHash],
+    );
+  });
+}
+
 export async function findUserById(db: Database, id: number): Promise<User | null> {
   const { rows } = await db.query<{ id: number; email: string; created_at: Date | string }>(
     'SELECT id, email, created_at FROM users WHERE id = $1',

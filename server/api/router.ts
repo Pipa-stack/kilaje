@@ -29,6 +29,7 @@ import {
 } from '../repositories/sessions';
 import { deleteSetBody, idParam, sanitizeFileName, saveSetBody, sessionPatchBody } from './schemas';
 import { currentUserId } from './authRouter';
+import { loadHistory } from '../repositories/history';
 
 /** Wraps an async handler so rejections reach the error middleware. */
 function handle(
@@ -122,6 +123,19 @@ export function createApiRouter(db: Database): Router {
         return;
       }
       res.status(204).end();
+    }),
+  );
+
+  /**
+   * Everything ever logged, grouped by exercise name.
+   *
+   * Spans programs on purpose: a mesocycle is one import, and progress is
+   * the thing that runs across them.
+   */
+  router.get(
+    '/history',
+    handle(async (req, res) => {
+      res.json({ exercises: await loadHistory(db, currentUserId(req)) });
     }),
   );
 
