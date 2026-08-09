@@ -24,7 +24,7 @@ export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-8 px-4 py-12">
       <header className="space-y-2">
         <h1 className="font-condensed text-5xl font-bold uppercase leading-none tracking-tight text-chalk">
-          Barra
+          Kilaje
         </h1>
         <p className="text-iron-400">
           Tu plantilla de Excel, convertida en algo que se puede usar con una mano entre serie

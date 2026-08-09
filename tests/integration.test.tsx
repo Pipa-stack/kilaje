@@ -35,8 +35,8 @@ function installFetch(): void {
     const response = await realFetch(url as RequestInfo, { ...init, headers });
 
     const setCookie = response.headers.get('set-cookie');
-    const token = setCookie ? /barra_session=([^;]*)/.exec(setCookie)?.[1] : undefined;
-    if (token) sessionCookie = token === '' ? '' : `barra_session=${token}`;
+    const token = setCookie ? /kilaje_session=([^;]*)/.exec(setCookie)?.[1] : undefined;
+    if (token) sessionCookie = token === '' ? '' : `kilaje_session=${token}`;
 
     return response;
   }) as typeof fetch;
@@ -60,7 +60,7 @@ beforeEach(async () => {
  * captured here and replayed on every later request by `installFetch`.
  */
 async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await screen.findByRole('heading', { name: 'Barra' }, WAIT);
+  await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
   // The screen opens on "Entrar"; switch it to registration.
   await user.click(screen.getByRole('button', { name: 'Crear una cuenta' }));
   await user.type(screen.getByLabelText('Correo'), 'test@ejemplo.com');
@@ -266,21 +266,21 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     const user = userEvent.setup();
     render(<App />);
     await signIn(user);
-    await screen.findByRole('heading', { name: 'Barra' }, WAIT);
+    await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
 
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
     const bogus = new File(['no soy un excel'], 'notas.txt', { type: 'text/plain' });
     fireEvent.drop(dropzone, { dataTransfer: { files: [bogus] } });
 
     expect(await screen.findByText(/Sube un archivo \.xlsx/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Barra' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Kilaje' })).toBeInTheDocument();
   }, 30_000);
 
   it("surfaces the server's rejection of a non-template .xlsx", async () => {
     const user = userEvent.setup();
     render(<App />);
     await signIn(user);
-    await screen.findByRole('heading', { name: 'Barra' }, WAIT);
+    await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
 
     const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
     const notATemplate = new File(['contenido cualquiera'], 'presupuesto.xlsx', {
@@ -396,8 +396,8 @@ describe('signing out', () => {
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
     // The cache is written as soon as a program is on screen.
-    await waitFor(() => expect(localStorage.getItem('barra.program.v1')).not.toBeNull(), WAIT);
-    localStorage.setItem('barra.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } }]));
+    await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
+    localStorage.setItem('kilaje.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } }]));
 
     const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
     await user.click(tabs.getByRole('button', { name: /Perfil/ }));
@@ -407,9 +407,9 @@ describe('signing out', () => {
     // the next person on this phone must not see their workout, and their
     // queued writes must not replay under a new session.
     await screen.findByRole('button', { name: 'Entrar' }, WAIT);
-    expect(localStorage.getItem('barra.program.v1')).toBeNull();
-    expect(localStorage.getItem('barra.outbox.v1')).toBeNull();
-    expect(localStorage.getItem('barra.selection.v1')).toBeNull();
+    expect(localStorage.getItem('kilaje.program.v1')).toBeNull();
+    expect(localStorage.getItem('kilaje.outbox.v1')).toBeNull();
+    expect(localStorage.getItem('kilaje.selection.v1')).toBeNull();
   }, 90_000);
 });
 
@@ -421,7 +421,7 @@ describe('offline behaviour', () => {
     await importFile(user, referenceFile());
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
-    await waitFor(() => expect(localStorage.getItem('barra.program.v1')).not.toBeNull(), WAIT);
+    await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
     app.unmount();
 
     const working = globalThis.fetch;

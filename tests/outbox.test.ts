@@ -128,13 +128,13 @@ describe('operationKey', () => {
 
 describe('surviving bad storage', () => {
   it('ignores unparseable contents', () => {
-    localStorage.setItem('barra.outbox.v1', '{no json');
+    localStorage.setItem('kilaje.outbox.v1', '{no json');
     expect(readOutbox()).toEqual([]);
   });
 
   it('drops entries of the wrong shape', () => {
     localStorage.setItem(
-      'barra.outbox.v1',
+      'kilaje.outbox.v1',
       JSON.stringify([
         { key: 'ok', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } },
         { key: 'malo', queuedAt: 1, operation: { kind: 'inventado', dayId: '1' } },

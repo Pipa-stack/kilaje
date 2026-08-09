@@ -135,7 +135,7 @@ export function currentUserId(req: Request): number {
 export interface AuthRouterOptions {
   rateLimits?: boolean;
   email?: EmailSender;
-  /** Absolute origin used to build the reset link, e.g. https://barra.up.railway.app */
+  /** Absolute origin used to build the reset link, e.g. https://kilaje.up.railway.app */
   appUrl?: string;
 }
 

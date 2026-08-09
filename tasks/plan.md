@@ -1,4 +1,4 @@
-# Plan técnico — Barra
+# Plan técnico — Kilaje
 
 Fuente de verdad: [`SPEC.md`](../SPEC.md).
 

@@ -1,4 +1,4 @@
-# Barra
+# Kilaje
 
 Convierte una plantilla Excel de entrenamiento en una app web simple, mobile-first y
 usable **durante** el entrenamiento, con los datos guardados en PostgreSQL.
@@ -11,7 +11,7 @@ No copia la hoja de cálculo: la reemplaza por tarjetas de ejercicio con inputs 
 para peso, reps y RIR, y calcula volumen, 1RM y progresión con las mismas fórmulas que
 el Excel original.
 
-**En producción:** <https://barra.up.railway.app>
+**En producción:** <https://kilaje.up.railway.app>
 
 Al abrir la app aparece el programa ya almacenado. No hace falta subir el Excel cada vez.
 
@@ -237,8 +237,8 @@ demasiado grande, `422` el `.xlsx` no es la plantilla, `500` error interno (sin 
 Necesitas Node 20+ y un PostgreSQL accesible.
 
 ```bash
-git clone https://github.com/Pipa-stack/barra.git
-cd barra
+git clone https://github.com/Pipa-stack/kilaje.git
+cd kilaje
 npm install
 cp .env.example .env          # y edita DATABASE_URL
 npm run db:migrate            # crea el esquema
@@ -269,8 +269,8 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `API_PROXY_TARGET` | No | A dónde manda `/api` el servidor de desarrollo |
 | `TEST_DATABASE_URL` | No | Ejecuta los tests contra un PostgreSQL real en lugar de PGlite |
 | `RESEND_API_KEY` | No | Clave de Resend. **Sin ella no se envían correos de recuperación**; el resto de la app funciona igual |
-| `EMAIL_FROM` | No | Remitente. Por defecto `Barra <onboarding@resend.dev>` |
-| `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://barra.up.railway.app` |
+| `EMAIL_FROM` | No | Remitente. Por defecto `Kilaje <onboarding@resend.dev>` |
+| `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://kilaje.up.railway.app` |
 
 Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 
@@ -435,7 +435,7 @@ es que el fichero de verdad no coincida con nuestra lectura de él.
 
 ## GitHub y CI
 
-Repositorio: <https://github.com/Pipa-stack/barra> (rama `main`).
+Repositorio: <https://github.com/Pipa-stack/kilaje> (rama `main`).
 
 `.github/workflows/ci.yml` se ejecuta en cada push y PR con dos jobs:
 
@@ -452,11 +452,11 @@ contenedor efímero solo accesible desde ese job. No hay ningún secreto real en
 
 ## Railway
 
-Dos servicios en el proyecto `barra`:
+Dos servicios en el proyecto `kilaje`:
 
 | Servicio | Qué es |
 |---|---|
-| `barra` | La aplicación (Express + build de React) |
+| `kilaje` | La aplicación (Express + build de React) |
 | `Postgres` | PostgreSQL 18 con volumen persistente |
 
 Configuración en [`railway.json`](railway.json) y [`nixpacks.toml`](nixpacks.toml). La app
@@ -464,7 +464,7 @@ recibe `DATABASE_URL` como variable de referencia (`${{Postgres.DATABASE_URL}}`)
 la contraseña nunca se copia a ningún sitio. Las migraciones corren al arrancar.
 
 ```bash
-railway link                  # al proyecto barra
+railway link                  # al proyecto kilaje
 railway up                    # desplegar
 railway logs                  # ver el arranque
 ```

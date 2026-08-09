@@ -1,4 +1,4 @@
-# Tareas — Barra
+# Tareas — Kilaje
 
 - [x] **T1 · Scaffold**
   - Acceptance: Vite + React + TS strict + Tailwind 4 + Vitest arrancan.

@@ -16,10 +16,10 @@ export interface ResetEmailInput {
 }
 
 export function buildResetEmail({ to, link, minutesValid }: ResetEmailInput): Email {
-  const subject = 'Restablecer tu contraseña de Barra';
+  const subject = 'Restablecer tu contraseña de Kilaje';
 
   const text = [
-    'Has pedido restablecer la contraseña de tu cuenta de Barra.',
+    'Has pedido restablecer la contraseña de tu cuenta de Kilaje.',
     '',
     `Abre este enlace para elegir una nueva (caduca en ${minutesValid} minutos y solo sirve una vez):`,
     link,
@@ -30,7 +30,7 @@ export function buildResetEmail({ to, link, minutesValid }: ResetEmailInput): Em
   const html = `
     <div style="font-family: system-ui, sans-serif; line-height: 1.5; color: #171b19; max-width: 480px">
       <h1 style="font-size: 20px; margin: 0 0 16px">Restablecer tu contraseña</h1>
-      <p style="margin: 0 0 16px">Has pedido restablecer la contraseña de tu cuenta de Barra.</p>
+      <p style="margin: 0 0 16px">Has pedido restablecer la contraseña de tu cuenta de Kilaje.</p>
       <p style="margin: 0 0 24px">
         <a href="${escapeHtml(link)}"
            style="display: inline-block; background: #f2c200; color: #0e100f; font-weight: 700;

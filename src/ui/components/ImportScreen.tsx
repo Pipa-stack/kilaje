@@ -18,7 +18,7 @@ export function ImportScreen({ onFile, importing, error, onDismissError }: Impor
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-8 px-4 py-12">
       <header className="space-y-3 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-chalk">Barra</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-chalk">Kilaje</h1>
         <p className="text-balance text-iron-400">
           Tu plantilla de Excel, convertida en algo que se puede usar con una mano entre serie
           y serie.

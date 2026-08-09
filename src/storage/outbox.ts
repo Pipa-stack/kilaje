@@ -24,7 +24,17 @@ export interface PendingEntry {
   queuedAt: number;
 }
 
-const STORAGE_KEY = 'barra.outbox.v1';
+const STORAGE_KEY = 'kilaje.outbox.v1';
+
+/**
+ * The key this queue used while the app was called Barra.
+ *
+ * The cached program was renamed without ceremony because it is a copy of what
+ * the server already has. This queue is not: it holds writes that exist
+ * nowhere else. A phone that was offline across the rename would silently lose
+ * the sets logged on it, so the old key is adopted once and then removed.
+ */
+const LEGACY_STORAGE_KEY = 'barra.outbox.v1';
 
 /** Stops a long offline session from filling the browser's quota. */
 export const MAX_PENDING = 500;
@@ -58,7 +68,7 @@ export function readOutbox(): PendingEntry[] {
   if (!store) return [];
 
   try {
-    const raw = store.getItem(STORAGE_KEY);
+    const raw = store.getItem(STORAGE_KEY) ?? adoptLegacy(store);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -66,6 +76,15 @@ export function readOutbox(): PendingEntry[] {
   } catch {
     return [];
   }
+}
+
+/** Moves a pre-rename queue onto the current key, once. */
+function adoptLegacy(store: Storage): string | null {
+  const raw = store.getItem(LEGACY_STORAGE_KEY);
+  if (raw === null) return null;
+  store.setItem(STORAGE_KEY, raw);
+  store.removeItem(LEGACY_STORAGE_KEY);
+  return raw;
 }
 
 function writeOutbox(entries: PendingEntry[]): void {
@@ -112,6 +131,9 @@ export function clearOutbox(): void {
   if (!store) return;
   try {
     store.removeItem(STORAGE_KEY);
+    // Signing out must not leave a queue behind for the next person on this
+    // phone, and that includes one written under the old name.
+    store.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     /* nothing sensible to do */
   }

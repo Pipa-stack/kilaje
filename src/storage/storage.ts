@@ -21,10 +21,10 @@ import {
   type Week,
 } from '../domain/types';
 
-export const STORAGE_KEY = 'barra.program.v1';
+export const STORAGE_KEY = 'kilaje.program.v1';
 
 /** Where the UI selection is remembered, so a reload lands on the same day. */
-export const SELECTION_KEY = 'barra.selection.v1';
+export const SELECTION_KEY = 'kilaje.selection.v1';
 
 export interface Selection {
   weekNumber: number;
@@ -37,7 +37,7 @@ function storage(): Storage | null {
     const candidate = globalThis.localStorage;
     if (!candidate) return null;
     // Access alone can throw in locked-down browsers; a probe confirms writes.
-    const probe = '__barra_probe__';
+    const probe = '__kilaje_probe__';
     candidate.setItem(probe, '1');
     candidate.removeItem(probe);
     return candidate;

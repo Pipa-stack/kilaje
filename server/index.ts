@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 
   const email = createEmailSender(
     process.env.RESEND_API_KEY,
-    process.env.EMAIL_FROM ?? 'Barra <onboarding@resend.dev>',
+    process.env.EMAIL_FROM ?? 'Kilaje <onboarding@resend.dev>',
   );
   if (!email.configured) {
     console.warn('[server] sin RESEND_API_KEY: la recuperación de contraseña no enviará correos');

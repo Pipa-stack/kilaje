@@ -15,7 +15,7 @@ import {
   insertSession,
 } from '../repositories/sessionTokens';
 
-export const SESSION_COOKIE = 'barra_session';
+export const SESSION_COOKIE = 'kilaje_session';
 
 export function createSession(db: Database, userId: number): Promise<string> {
   return insertSession(db, userId);
