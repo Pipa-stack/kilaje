@@ -170,8 +170,10 @@ export function ProfileScreen({ email }: { email: string }) {
                     {formatMonth(record.achievedAt)}
                   </span>
                   {record.weeksSince >= STALE_WEEKS ? (
-                    // Status never rides on colour alone: the words carry it.
-                    <span className="mt-1 inline-block rounded-full bg-effort-500/10 px-2 py-0.5 text-[11px] font-semibold text-effort-300">
+                    // Neutral on purpose: red is reserved for effort and
+                    // failure, and a lift you have not beaten yet is neither.
+                    // The words carry the status, so no colour needs to.
+                    <span className="mt-1 inline-block rounded-full border border-iron-700 px-2 py-0.5 text-[11px] font-semibold text-iron-400">
                       sin batir en {record.weeksSince} semanas
                     </span>
                   ) : null}
