@@ -32,7 +32,11 @@ export const saveSetBody = z
   .object({
     exerciseId: z.number().int().positive(),
     setIndex: z.number().int().min(0).max(49),
-    weight: optionalNumber(100_000, false),
+    // The column is NUMERIC(7,2), so 99999.99 is the largest value it can
+    // hold. Accepting 100000 here — as the CHECK constraint nominally allows —
+    // gets past validation and then dies in the driver with a numeric overflow
+    // and a 500. Nine tonnes is already far past any barbell.
+    weight: optionalNumber(99_999, false),
     reps: optionalNumber(999, true),
     rir: optionalNumber(10, true),
   })

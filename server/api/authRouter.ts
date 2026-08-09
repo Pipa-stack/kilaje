@@ -35,7 +35,7 @@ import { hashToken } from '../repositories/sessionTokens';
 import { RESET_TTL_MINUTES, consumeResetToken, createResetToken } from '../repositories/passwordResets';
 import { buildResetEmail } from '../email/resetEmail';
 import type { EmailSender } from '../email/sender';
-import { createAuthLimiter } from './rateLimit';
+import { createAuthIpLimiter, createAuthLimiter } from './rateLimit';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -144,7 +144,19 @@ export function createAuthRouter(
   { rateLimits = true, email, appUrl = '' }: AuthRouterOptions = {},
 ): Router {
   const router = Router();
-  const authLimiter = rateLimits ? createAuthLimiter() : passThrough;
+
+  // One counter per surface, not one shared by all of them. Sharing let
+  // `/forgot` — which anyone can call, needs no session and always answers
+  // 204 — burn the window for an address and lock its owner out of `/login`
+  // for fifteen minutes, for free and on repeat.
+  const loginLimiter = rateLimits ? createAuthLimiter() : passThrough;
+  const registerLimiter = rateLimits ? createAuthLimiter() : passThrough;
+  const forgotLimiter = rateLimits ? createAuthLimiter() : passThrough;
+  const passwordLimiter = rateLimits ? createAuthLimiter() : passThrough;
+
+  // Counts every unauthenticated attempt from one address whatever account it
+  // names, which is the only thing that sees an attacker rotating emails.
+  const ipLimiter = rateLimits ? createAuthIpLimiter() : passThrough;
 
   /**
    * Registers an account.
@@ -155,7 +167,8 @@ export function createAuthRouter(
    */
   router.post(
     '/register',
-    authLimiter,
+    ipLimiter,
+    registerLimiter,
     handle(async (req, res) => {
       const { email, password } = credentials.parse(req.body);
 
@@ -179,7 +192,8 @@ export function createAuthRouter(
 
   router.post(
     '/login',
-    authLimiter,
+    ipLimiter,
+    loginLimiter,
     handle(async (req, res) => {
       const { email, password } = credentials.parse(req.body);
       const user = await authenticate(db, email, password);
@@ -215,7 +229,7 @@ export function createAuthRouter(
    */
   router.post(
     '/password',
-    authLimiter,
+    passwordLimiter,
     handle(async (req, res) => {
       if (req.userId === undefined) {
         res.status(401).json({ error: 'Necesitas iniciar sesión.' });
@@ -257,24 +271,33 @@ export function createAuthRouter(
    */
   router.post(
     '/forgot',
-    authLimiter,
+    ipLimiter,
+    forgotLimiter,
     handle(async (req, res) => {
       const { email: address } = forgotBody.parse(req.body);
       res.status(204).end();
 
       // Everything past this point is best-effort and must not change the
-      // answer, so it runs after the response has gone out.
-      const user = await findUserByEmail(db, address);
-      if (!user) return;
+      // answer, so it runs after the response has gone out. It also has to
+      // catch its own failures: the response is already closed, so letting one
+      // reach the error handler would try to write a 500 onto a finished
+      // response — Express destroys the socket and the real error is never
+      // logged, hiding a broken mail provider completely.
+      try {
+        const user = await findUserByEmail(db, address);
+        if (!user) return;
 
-      const token = await createResetToken(db, user.id);
-      const link = `${appUrl}/?reset=${encodeURIComponent(token)}`;
+        const token = await createResetToken(db, user.id);
+        const link = `${appUrl}/?reset=${encodeURIComponent(token)}`;
 
-      if (!email?.configured) {
-        console.warn('[auth] reset solicitado pero el correo no está configurado');
-        return;
+        if (!email?.configured) {
+          console.warn('[auth] reset solicitado pero el correo no está configurado');
+          return;
+        }
+        await email.send(buildResetEmail({ to: user.email, link, minutesValid: RESET_TTL_MINUTES }));
+      } catch (cause) {
+        console.error('[auth] fallo al preparar el reset:', cause);
       }
-      await email.send(buildResetEmail({ to: user.email, link, minutesValid: RESET_TTL_MINUTES }));
     }),
   );
 
@@ -286,7 +309,8 @@ export function createAuthRouter(
    */
   router.post(
     '/reset',
-    authLimiter,
+    ipLimiter,
+    forgotLimiter,
     handle(async (req, res) => {
       const { token, newPassword } = resetBody.parse(req.body);
 

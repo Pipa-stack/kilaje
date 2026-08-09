@@ -34,7 +34,7 @@ import {
 import {
   enqueue,
   readOutbox,
-  removeEntry,
+  removeSent,
   type PendingOperation,
 } from '../../storage/outbox';
 
@@ -114,6 +114,9 @@ export function useProgram(): ProgramState {
   const latest = useRef<StoredProgram | null>(null);
   latest.current = program;
 
+  /** Guards against two replays of the queue running at once. */
+  const flushing = useRef(false);
+
   // Cache every version of the program we hold, so a reload while offline
   // still has something to show.
   useEffect(() => {
@@ -133,6 +136,16 @@ export function useProgram(): ProgramState {
     }
     setError(cause instanceof Error ? cause.message : 'No se ha podido guardar el cambio.');
   }, []);
+
+  /** Sends one write, queueing it for replay if the connection is gone. */
+  const send = useCallback(
+    (operation: PendingOperation) => {
+      performOperation(operation)
+        .then(() => setOffline(false))
+        .catch((cause: unknown) => reportFailure(cause, operation));
+    },
+    [reportFailure],
+  );
 
   /**
    * Applies a change locally first, then sends it.
@@ -156,13 +169,9 @@ export function useProgram(): ProgramState {
       setProgram(next);
 
       const operation = describe(next, target.id);
-      if (!operation) return;
-
-      performOperation(operation)
-        .then(() => setOffline(false))
-        .catch((cause: unknown) => reportFailure(cause, operation));
+      if (operation) send(operation);
     },
-    [reportFailure, selection],
+    [selection, send],
   );
 
   const load = useCallback(async () => {
@@ -173,12 +182,19 @@ export function useProgram(): ProgramState {
       setPrograms(list);
       setOffline(false);
     } catch (cause) {
-      // Offline: show the cached program rather than an empty app.
       const cached = loadCachedProgram();
-      if (cached) {
+      if (!cached) {
+        setError(cause instanceof Error ? cause.message : 'No se ha podido cargar el entrenamiento.');
+      } else if (cause instanceof ApiError && cause.isOffline) {
+        // Genuinely offline: show the cached program rather than an empty app.
         setProgram(cached);
         setOffline(true);
       } else {
+        // The server answered, it just answered badly — a revoked session, a
+        // 500. Writes are only queued when the failure is `isOffline`, so the
+        // offline banner would promise a sync that never happens and the user
+        // would train a whole session believing it was being saved.
+        setProgram(cached);
         setError(cause instanceof Error ? cause.message : 'No se ha podido cargar el entrenamiento.');
       }
     } finally {
@@ -199,19 +215,29 @@ export function useProgram(): ProgramState {
    * value is invalid) is dropped rather than retried forever.
    */
   const flushOutbox = useCallback(async () => {
-    for (const entry of readOutbox()) {
-      try {
-        await performOperation(entry.operation);
-        setPendingWrites(removeEntry(entry.key).length);
-      } catch (cause) {
-        if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
-          setPendingWrites(removeEntry(entry.key).length);
-          continue;
+    // Three things start a flush — mount, the `online` event and a 20 s poll —
+    // and a slow connection is exactly when they overlap. Without this guard
+    // two flushes send the same entry twice and race each other's removals.
+    if (flushing.current) return;
+    flushing.current = true;
+
+    try {
+      for (const entry of readOutbox()) {
+        try {
+          await performOperation(entry.operation);
+          setPendingWrites(removeSent(entry).length);
+        } catch (cause) {
+          if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
+            setPendingWrites(removeSent(entry).length);
+            continue;
+          }
+          return;
         }
-        return;
       }
+      setOffline(false);
+    } finally {
+      flushing.current = false;
     }
-    setOffline(false);
   }, []);
 
   // Retry when the browser says the network is back, and once on load for a
@@ -417,16 +443,28 @@ export function useProgram(): ProgramState {
         mutate(
           (current, dayId) => removeSetFrom(current, dayId, exerciseId, setIndex),
           (next, dayId) => {
-            // Removing a slot above the template shifts the ones after it, so
-            // the whole exercise is re-sent to keep indexes truthful.
-            if (setIndex >= TEMPLATE_SET_COUNT) {
-              void resendSets(next, dayId, exerciseId).catch(() => undefined);
+            const exercise = Number(exerciseId);
+
+            // A template slot is emptied in place: the row stays, the values go.
+            if (setIndex < TEMPLATE_SET_COUNT) {
+              return { kind: 'deleteSet', dayId, exerciseId: exercise, setIndex };
             }
-            return { kind: 'deleteSet', dayId, exerciseId: Number(exerciseId), setIndex };
+
+            // An extra slot really disappears, so everything after it moves
+            // down one index. Rewrite those, then delete what is now the
+            // trailing index — deleting `setIndex` instead would leave the old
+            // last set orphaned on the server, where the next reload finds it
+            // and shows a duplicated set that also inflates the volume.
+            const remaining = findExercise(next, dayId, exerciseId)?.currentWeek ?? [];
+            for (let index = setIndex; index < remaining.length; index += 1) {
+              const set = remaining[index];
+              if (set) send({ kind: 'set', dayId, exerciseId: exercise, setIndex: index, ...set });
+            }
+            return { kind: 'deleteSet', dayId, exerciseId: exercise, setIndex: remaining.length };
           },
         );
       },
-      [mutate],
+      [mutate, send],
     ),
 
     updateNotes: useCallback(
@@ -495,19 +533,6 @@ function findSet(program: Program | null, dayId: string, exerciseId: string, ind
 }
 
 /** Re-sends every set of an exercise after indexes have shifted. */
-async function resendSets(
-  program: Program | null,
-  dayId: string,
-  exerciseId: string,
-): Promise<void> {
-  const exercise = findExercise(program, dayId, exerciseId);
-  if (!exercise) return;
-
-  for (const [index, set] of exercise.currentWeek.entries()) {
-    await api.saveSet(dayId, { exerciseId: Number(exerciseId), setIndex: index, ...set });
-  }
-}
-
 function validateFile(file: File): void {
   const name = file.name.toLowerCase();
   if (!ACCEPTED_EXTENSIONS.some((extension) => name.endsWith(extension))) {

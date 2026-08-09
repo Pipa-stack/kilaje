@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   MAX_PENDING,
@@ -6,7 +6,7 @@ import {
   enqueue,
   operationKey,
   readOutbox,
-  removeEntry,
+  removeSent,
   type PendingOperation,
 } from '../src/storage/outbox';
 
@@ -95,9 +95,43 @@ describe('queueing', () => {
 
   it('removes an entry once it has been sent', () => {
     enqueue(setOn(0, 80));
-    const key = readOutbox()[0]!.key;
-    expect(removeEntry(key)).toHaveLength(0);
+    expect(removeSent(readOutbox()[0]!)).toHaveLength(0);
     expect(readOutbox()).toHaveLength(0);
+  });
+
+  it('keeps a correction queued while the value it replaced was in flight', () => {
+    // Offline: 80 kg is queued. A flush picks it up and starts sending it.
+    enqueue(setOn(0, 80));
+    const inFlight = readOutbox()[0]!;
+
+    // Mid-send the user corrects it to 100, and that write fails too, so it is
+    // queued under the same key. Then the 80 finally lands.
+    enqueue(setOn(0, 100));
+    const left = removeSent(inFlight);
+
+    // Removing by key alone would drop the 100 here: the queue would be empty,
+    // the server would hold 80 and the screen would show 100 forever.
+    expect(left).toHaveLength(1);
+    expect(left[0]?.operation).toMatchObject({ weight: 100 });
+  });
+
+  it('gives every entry a distinct position even within the same millisecond', () => {
+    // Two writes can land in the same millisecond, and a device clock can jump
+    // backwards. Either would make two entries indistinguishable to removeSent,
+    // so the position is derived from the queue, not read off the clock.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      enqueue(setOn(0, 80));
+      enqueue(setOn(1, 90));
+      clock.mockReturnValue(500); // the clock goes backwards
+      enqueue(setOn(2, 70));
+    } finally {
+      clock.mockRestore();
+    }
+
+    const stamps = readOutbox().map((entry) => entry.queuedAt);
+    expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
+    expect(new Set(stamps).size).toBe(stamps.length);
   });
 
   it('preserves order, oldest first', () => {

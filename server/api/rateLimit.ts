@@ -59,6 +59,20 @@ export function rateLimit({ max, windowMs, message, keyBy }: RateLimitOptions) {
       for (const [ip, window] of windows) {
         if (window.resetAt <= now) windows.delete(ip);
       }
+
+      // An attacker inventing a fresh key per request — a new email each time —
+      // produces entries that are all still live, so the sweep above frees
+      // nothing and the map grows until the heap does. Past this point, evict
+      // the oldest regardless: dropping a counter only forgives requests, and
+      // the per-IP limiter in front is what actually holds the line.
+      if (windows.size > 10_000) {
+        const excess = windows.size - 10_000;
+        let dropped = 0;
+        for (const key of windows.keys()) {
+          windows.delete(key);
+          if (++dropped >= excess) break;
+        }
+      }
     }
 
     const current = windows.get(key);
@@ -110,6 +124,27 @@ export function createAuthLimiter() {
       // changing a password from an existing session.
       return email.trim().toLowerCase() || `ip:${req.ip ?? 'desconocido'}`;
     },
+  });
+}
+
+/**
+ * A ceiling on how much unauthenticated work one address can ask for.
+ *
+ * The per-account limiter above cannot see this attack: every request carries
+ * a different invented email, so no key ever repeats and the window never
+ * fills. Meanwhile each `/login` runs scrypt (N=2^15) before it can know the
+ * account does not exist — deliberately, so a missing account is not
+ * detectable by timing — and a hundred concurrent requests ask for gigabytes.
+ *
+ * Deliberately loose. It is not there to stop a person getting their own
+ * password wrong; it is there so one address cannot conscript the whole
+ * container.
+ */
+export function createAuthIpLimiter() {
+  return rateLimit({
+    max: 60,
+    windowMs: 15 * 60 * 1000,
+    message: 'Demasiadas peticiones desde esta conexión. Espera unos minutos.',
   });
 }
 

@@ -105,13 +105,20 @@ function writeOutbox(entries: PendingEntry[]): void {
  */
 export function enqueue(operation: PendingOperation): PendingEntry[] {
   const key = operationKey(operation);
-  let entries = readOutbox().filter((entry) => entry.key !== key);
+  const existing = readOutbox();
+
+  // Strictly increasing, never merely "now": two writes in the same
+  // millisecond — or any backwards jump of the device clock — would otherwise
+  // produce two entries that removeSent cannot tell apart.
+  const queuedAt = Math.max(Date.now(), ...existing.map((entry) => entry.queuedAt + 1), 0);
+
+  let entries = existing.filter((entry) => entry.key !== key);
 
   if (operation.kind === 'resetSession') {
     entries = entries.filter((entry) => entry.operation.dayId !== operation.dayId);
   }
 
-  entries.push({ key, operation, queuedAt: Date.now() });
+  entries.push({ key, operation, queuedAt });
 
   // Oldest first, so a runaway queue drops history rather than recent work.
   if (entries.length > MAX_PENDING) entries = entries.slice(-MAX_PENDING);
@@ -120,8 +127,19 @@ export function enqueue(operation: PendingOperation): PendingEntry[] {
   return entries;
 }
 
-export function removeEntry(key: string): PendingEntry[] {
-  const entries = readOutbox().filter((entry) => entry.key !== key);
+/**
+ * Drops the entry that was just sent, and only that one.
+ *
+ * Removing by key alone loses data: a send takes time, and if the user
+ * corrects the same field while it is in flight, {@link enqueue} replaces the
+ * entry. Deleting by key would then throw away the correction that was never
+ * sent — the queue ends up empty, the server holds the old value, and the
+ * screen shows the new one with nothing left to reconcile them.
+ */
+export function removeSent(sent: PendingEntry): PendingEntry[] {
+  const entries = readOutbox().filter(
+    (entry) => entry.key !== sent.key || entry.queuedAt > sent.queuedAt,
+  );
   writeOutbox(entries);
   return entries;
 }

@@ -194,6 +194,15 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
  * Internal errors are logged server-side but never returned: a stack trace or
  * a driver message can disclose schema and connection details.
  */
+/** Identifies the errors `express.json` / `express.raw` throw, by their type tag. */
+function isBodyError(error: unknown, type: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { type?: unknown }).type === type
+  );
+}
+
 export function apiErrorHandler(
   error: unknown,
   _req: Request,
@@ -218,6 +227,20 @@ export function apiErrorHandler(
 
   if (error instanceof NotFoundError) {
     res.status(404).json({ error: error.message });
+    return;
+  }
+
+  // Body parsers reject before any handler runs, so these never reach the
+  // checks inside the routes. Without them a file over the limit and a
+  // truncated JSON body both answer 500, which tells the client the server
+  // broke when in fact it refused a bad request.
+  if (isBodyError(error, 'entity.too.large')) {
+    res.status(413).json({ error: 'El archivo supera el límite de 10 MB.' });
+    return;
+  }
+
+  if (isBodyError(error, 'entity.parse.failed')) {
+    res.status(400).json({ error: 'Datos inválidos.' });
     return;
   }
 

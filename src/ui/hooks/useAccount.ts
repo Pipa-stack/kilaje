@@ -64,9 +64,18 @@ export function useAccount(): AccountState {
       setBusy(true);
       setError(null);
       try {
-        setAccount(
-          mode === 'register' ? await api.register(email, password) : await api.login(email, password),
-        );
+        const account =
+          mode === 'register' ? await api.register(email, password) : await api.login(email, password);
+
+        // Signing out is not the only way a session ends: it expires after 30
+        // days, and changing the password from another device revokes it here
+        // without this phone ever running signOut. Whoever signs in next would
+        // otherwise inherit the previous account's cached program and replay
+        // their queued writes. Clear on the way in as well as on the way out.
+        clearProgram();
+        clearOutbox();
+
+        setAccount(account);
       } catch (cause) {
         setError(
           cause instanceof ApiError

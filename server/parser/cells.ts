@@ -22,12 +22,35 @@ const EMPTY_CELL: Cell = { value: null, link: null, formula: null };
 /** A worksheet as a dense 0-indexed `grid[row][col]` of {@link Cell}. */
 export type Grid = Cell[][];
 
+/**
+ * How much of a sheet is ever read, whatever its declared size.
+ *
+ * The grid is dense, and the range comes from the `<dimension>` element of the
+ * sheet XML — a number the uploader controls, which SheetJS reports verbatim
+ * without checking it against the cells that actually exist. A 1.5 kB file can
+ * declare the full Excel canvas (1048576 x 16384) and ask this loop for
+ * seventeen thousand million cells, which exhausts the heap and blocks the
+ * single Node thread for everyone.
+ *
+ * So the declared range is a request, not an instruction. These bounds are far
+ * beyond any real training template: the reference workbook is under 200 rows.
+ */
+const MAX_ROWS = 5_000;
+const MAX_COLS = 200;
+
 /** Reads a worksheet into a dense grid, so the parser never re-derives addresses. */
 export function toGrid(sheet: XLSX.WorkSheet): Grid {
   const ref = sheet['!ref'];
   if (!ref) return [];
 
-  const range = XLSX.utils.decode_range(ref);
+  const declared = XLSX.utils.decode_range(ref);
+  const range = {
+    s: declared.s,
+    e: {
+      r: Math.min(declared.e.r, declared.s.r + MAX_ROWS - 1),
+      c: Math.min(declared.e.c, declared.s.c + MAX_COLS - 1),
+    },
+  };
   const grid: Grid = [];
 
   for (let row = range.s.r; row <= range.e.r; row += 1) {

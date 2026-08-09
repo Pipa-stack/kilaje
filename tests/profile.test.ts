@@ -357,6 +357,44 @@ describe('the profile', () => {
   }, 60_000);
 });
 
+describe('failures that used to answer 500', () => {
+  it('rejects a malformed session cookie as unauthenticated, not as a crash', async () => {
+    // decodeURIComponent throws on a stray %. It runs before any auth, on every
+    // /api route, so a truncated cookie used to break the app for that browser
+    // — and a 500 is not a 401, so the client never cleared the cookie either.
+    await request(app)
+      .get('/api/programs')
+      .set('Cookie', 'kilaje_session=%E0%A4%A')
+      .expect(401);
+  });
+
+  it('answers 400 for a truncated JSON body', async () => {
+    await agent
+      .patch('/api/profile')
+      .set('Content-Type', 'application/json')
+      .send('{"displayName": ')
+      .expect(400);
+  });
+
+  it('refuses a weight the column cannot store', async () => {
+    // NUMERIC(7,2) tops out at 99999.99. Accepting 100000 got past validation
+    // and died in the driver as a numeric overflow.
+    const { body } = await agent
+      .post('/api/programs?filename=ejemplo.xlsx')
+      .set('Content-Type', 'application/octet-stream')
+      .send(readFileSync(REFERENCE_FILE))
+      .expect(201);
+
+    const dayId = String(body.program.weeks[0].days[0].id);
+    const exerciseId = body.program.weeks[0].days[0].exercises[0].id;
+
+    await agent
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 0, weight: 100000, reps: 1, rir: 0 })
+      .expect(400);
+  }, 60_000);
+});
+
 describe('scope', () => {
   it('never mixes accounts', async () => {
     await agent.patch('/api/profile').send({ displayName: 'Ana' }).expect(204);

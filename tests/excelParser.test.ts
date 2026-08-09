@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { MAX_FILE_BYTES, TemplateError, parseWorkbook, sanitizeUrl } from '../server/parser/excelParser';
-import { normalize, toNumber } from '../server/parser/cells';
+import { normalize, toGrid, toNumber } from '../server/parser/cells';
 import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
 import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 
@@ -270,5 +270,31 @@ describe('cell helpers', () => {
     expect(toNumber('n/a')).toBeNull();
     expect(toNumber(null)).toBeNull();
     expect(toNumber(true)).toBeNull();
+  });
+});
+
+describe('a sheet that lies about its own size', () => {
+  it('reads a bounded window instead of the range the file declares', () => {
+    // `!ref` comes from the <dimension> element of the sheet XML, which the
+    // uploader controls and SheetJS reports verbatim. Declaring the full Excel
+    // canvas asks the dense grid for ~17 thousand million cells: the heap dies
+    // and the single Node thread stops serving everyone. A tiny file is enough.
+    const sheet: XLSX.WorkSheet = { '!ref': 'A1:XFD1048576', A1: { t: 's', v: 'hola' } };
+
+    const started = Date.now();
+    const grid = toGrid(sheet);
+    const elapsed = Date.now() - started;
+
+    expect(grid.length).toBeLessThanOrEqual(5_000);
+    expect(grid[0]?.length).toBeLessThanOrEqual(200);
+    expect(grid[0]?.[0]?.value).toBe('hola');
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
+  it('still reads a sheet smaller than the cap in full', () => {
+    const sheet: XLSX.WorkSheet = { '!ref': 'A1:B2', B2: { t: 'n', v: 42 } };
+    const grid = toGrid(sheet);
+    expect(grid).toHaveLength(2);
+    expect(grid[1]?.[1]?.value).toBe(42);
   });
 });

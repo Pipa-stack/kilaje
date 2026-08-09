@@ -172,7 +172,7 @@ async function loadWeeklyActivity(db: Database, userId: number): Promise<WeekAct
           JOIN workout_days d ON d.id = e.day_id
           JOIN weeks w        ON w.id = d.week_id
           JOIN programs p     ON p.id = w.program_id
-         WHERE p.user_id = $1
+         WHERE p.user_id = $1 AND e.name <> ''
          GROUP BY 1
      )
      SELECT to_char(span.week_start, 'YYYY-MM-DD') AS week_start,
@@ -206,7 +206,7 @@ async function loadVolumeByType(db: Database, userId: number): Promise<TypeVolum
        JOIN workout_days d ON d.id = e.day_id
        JOIN weeks w        ON w.id = d.week_id
        JOIN programs p     ON p.id = w.program_id
-      WHERE p.user_id = $1
+      WHERE p.user_id = $1 AND e.name <> ''
       GROUP BY d.type
       ORDER BY 2 DESC NULLS LAST`,
     [userId],
@@ -229,7 +229,7 @@ async function loadLastSession(db: Database, userId: number): Promise<string | n
        JOIN workout_days d ON d.id = e.day_id
        JOIN weeks w        ON w.id = d.week_id
        JOIN programs p     ON p.id = w.program_id
-      WHERE p.user_id = $1`,
+      WHERE p.user_id = $1 AND e.name <> ''`,
     [userId],
   );
   const last = rows[0]?.last;

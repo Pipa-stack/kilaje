@@ -43,7 +43,20 @@ export function readSessionCookie(req: Request): string | null {
     const separator = part.indexOf('=');
     if (separator === -1) continue;
     if (part.slice(0, separator).trim() !== SESSION_COOKIE) continue;
-    const value = decodeURIComponent(part.slice(separator + 1).trim());
+
+    const raw = part.slice(separator + 1).trim();
+    let value: string;
+    try {
+      value = decodeURIComponent(raw);
+    } catch {
+      // A stray `%` throws URIError. This runs before any authentication, on
+      // every /api request, so letting it escape turns a truncated or tampered
+      // cookie into a 500 on every route — and because it is not a 401 the app
+      // never clears the cookie, leaving that browser stuck. An undecodable
+      // cookie is simply not a session.
+      return null;
+    }
+
     return value === '' ? null : value;
   }
   return null;
