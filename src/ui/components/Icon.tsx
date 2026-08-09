@@ -19,6 +19,7 @@ export type IconName =
   | 'check'
   | 'clock'
   | 'plus'
+  | 'user'
   | 'close';
 
 interface IconProps {
@@ -71,6 +72,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   plus: <path d="M12 5.5v13M5.5 12h13" />,
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.75" />
+      <path d="M4.75 20c0-3.4 3.25-5.5 7.25-5.5s7.25 2.1 7.25 5.5" />
+    </>
+  ),
   close: <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />,
 };
 

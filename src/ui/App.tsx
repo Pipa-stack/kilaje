@@ -6,7 +6,9 @@ import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
 import { Icon } from './components/Icon';
 import { ImportScreen } from './components/ImportScreen';
+import { ProfileScreen } from './components/ProfileScreen';
 import { ProgressScreen } from './components/ProgressScreen';
+import { ResetPasswordScreen } from './components/ResetPasswordScreen';
 import { RestTimer } from './components/RestTimer';
 import { SettingsScreen } from './components/SettingsScreen';
 import { useAccount } from './hooks/useAccount';
@@ -14,10 +16,30 @@ import { useProgram } from './hooks/useProgram';
 import { useSwipe } from './hooks/useSwipe';
 import { useTheme } from './hooks/useTheme';
 
+/** The token an emailed reset link carries, if this is one. */
+function readResetToken(): string {
+  return new URLSearchParams(window.location.search).get('reset') ?? '';
+}
+
 export default function App() {
   const auth = useAccount();
   const theme = useTheme();
   const [tab, setTab] = useState<Tab>('home');
+  const [resetToken, setResetToken] = useState(readResetToken);
+
+  // A reset link outranks everything: the person following it cannot sign in,
+  // which is the whole reason they are here.
+  if (resetToken) {
+    return (
+      <ResetPasswordScreen
+        token={resetToken}
+        onDone={() => {
+          window.history.replaceState(null, '', window.location.pathname);
+          setResetToken('');
+        }}
+      />
+    );
+  }
 
   // Nothing loads the training data until we know who is asking.
   if (auth.checking) {
@@ -225,7 +247,9 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
         {tab === 'progress' ? <ProgressScreen week={week} /> : null}
 
         {tab === 'settings' ? (
-          <SettingsScreen
+          <div className="space-y-4">
+            <ProfileScreen email={email} />
+            <SettingsScreen
             programs={state.programs}
             currentProgramId={program.id}
             currentProgramName={program.name}
@@ -239,13 +263,14 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
               await state.selectProgram(programId);
               setTab('home');
             }}
-            onDeleteProgram={async (programId) => {
-              await state.deleteProgram(programId);
-            }}
-            email={email}
-            theme={theme}
-            onSignOut={onSignOut}
-          />
+              onDeleteProgram={async (programId) => {
+                await state.deleteProgram(programId);
+              }}
+              email={email}
+              theme={theme}
+              onSignOut={onSignOut}
+            />
+          </div>
         ) : null}
       </main>
 

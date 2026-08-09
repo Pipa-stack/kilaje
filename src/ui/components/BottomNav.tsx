@@ -13,7 +13,7 @@ const ICONS: Record<Tab, IconName> = {
   home: 'home',
   day: 'dumbbell',
   progress: 'chart',
-  settings: 'sliders',
+  settings: 'user',
 };
 
 /**
@@ -27,7 +27,7 @@ export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
     { id: 'home', label: 'Inicio' },
     { id: 'day', label: dayLabel },
     { id: 'progress', label: 'Progreso' },
-    { id: 'settings', label: 'Ajustes' },
+    { id: 'settings', label: 'Perfil' },
   ];
 
   return (

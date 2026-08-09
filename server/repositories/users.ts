@@ -118,6 +118,36 @@ export async function changePassword(
   });
 }
 
+/** Looks up an account by address. Used only where enumeration is guarded. */
+export async function findUserByEmail(db: Database, email: string): Promise<User | null> {
+  const { rows } = await db.query<{ id: number; email: string; created_at: Date | string }>(
+    'SELECT id, email, created_at FROM users WHERE email = $1',
+    [normalizeEmail(email)],
+  );
+  const row = rows[0];
+  return row ? { id: row.id, email: row.email, createdAt: toIso(row.created_at) } : null;
+}
+
+/**
+ * Sets a password without asking for the old one.
+ *
+ * Only reachable after a reset token has been spent, so the proof of identity
+ * happened before this call. Every session is revoked — including any the
+ * attacker opened, which is the point of resetting.
+ */
+export async function setPassword(
+  db: Database,
+  userId: number,
+  newPassword: string,
+): Promise<void> {
+  const passwordHash = await hashPassword(newPassword);
+
+  await db.transaction(async (tx) => {
+    await tx.query('UPDATE users SET password_hash = $2 WHERE id = $1', [userId, passwordHash]);
+    await tx.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+  });
+}
+
 export async function findUserById(db: Database, id: number): Promise<User | null> {
   const { rows } = await db.query<{ id: number; email: string; created_at: Date | string }>(
     'SELECT id, email, created_at FROM users WHERE id = $1',

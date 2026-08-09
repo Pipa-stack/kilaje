@@ -24,7 +24,7 @@ Cuatro secciones, con navegación inferior al alcance del pulgar:
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
 | **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión. Se cambia de día deslizando o con los botones |
 | **Progreso** | Dos vistas: **Esta semana** (volumen por sesión y tabla de ejercicios) e **Histórico** (evolución de cada ejercicio a lo largo de todos tus programas) |
-| **Ajustes** | Tema (sistema/claro/oscuro), importar otro Excel, cambiar entre programas, borrarlos, y tu cuenta |
+| **Perfil** | Récords personales, totales de por vida, peso corporal con su tendencia, tus datos, tema, importar, programas y cuenta |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
 color: la palabra lo dice.
@@ -136,7 +136,7 @@ server/                     BACKEND
   parser/                   xlsx → modelo normalizado (solo servidor)
   scripts/                  CLIs de migración y seed
 
-tests/                      285 tests
+tests/                      316 tests
 ```
 
 **Reglas de arquitectura, comprobadas por `tests/architecture.test.ts`:** solo
@@ -214,6 +214,11 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 | `GET` | `/api/programs` | Lista los programas, el más reciente primero |
 | `GET` | `/api/history` | Todo lo registrado, agrupado por nombre de ejercicio |
 | `POST` | `/api/auth/password` | Cambia la contraseña y revoca las demás sesiones |
+| `POST` | `/api/auth/forgot` | Pide un enlace de recuperación. Responde igual exista o no la cuenta |
+| `POST` | `/api/auth/reset` | Cambia la contraseña con el enlace y revoca **todas** las sesiones |
+| `GET` | `/api/profile` | Identidad, totales, récords y peso corporal |
+| `PATCH` | `/api/profile` | Nombre, gimnasio y unidad |
+| `PUT` | `/api/profile/weight` | Registra el peso del día |
 | `GET` | `/api/programs/latest` | El último importado (lo que abre la app) |
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
 | `POST` | `/api/programs` | Importa un `.xlsx` (bytes en crudo, `?filename=`) |
@@ -264,6 +269,9 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `SEED_WORKBOOK` | No | Ruta alternativa del libro para `npm run db:seed` |
 | `API_PROXY_TARGET` | No | A dónde manda `/api` el servidor de desarrollo |
 | `TEST_DATABASE_URL` | No | Ejecuta los tests contra un PostgreSQL real en lugar de PGlite |
+| `RESEND_API_KEY` | No | Clave de Resend. **Sin ella no se envían correos de recuperación**; el resto de la app funciona igual |
+| `EMAIL_FROM` | No | Remitente. Por defecto `Barra <onboarding@resend.dev>` |
+| `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://barra.up.railway.app` |
 
 Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 
@@ -279,7 +287,7 @@ Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 | `npm run db:seed` | Importa el libro de referencia (`--force` para repetir) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm test` | Los 285 tests |
+| `npm test` | Los 316 tests |
 | `npm run test:coverage` | Cobertura de `domain/`, `parser/` y `storage/` |
 
 ---
@@ -367,7 +375,7 @@ PostgreSQL es la fuente de verdad. `localStorage` se mantiene como **caché offl
 ## Tests
 
 ```bash
-npm test                      # 285 tests, contra PGlite
+npm test                      # 316 tests, contra PGlite
 TEST_DATABASE_URL=... npm test # los mismos, contra un PostgreSQL real
 ```
 

@@ -66,7 +66,9 @@ describe('migrations', () => {
         WHERE table_schema = current_schema() ORDER BY table_name`,
     );
     expect(rows.map((row) => row.table_name)).toEqual([
+      'body_weights',
       'exercises',
+      'password_resets',
       'programs',
       'reference_sets',
       'schema_migrations',

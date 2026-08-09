@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createApp } from './app';
+import { createEmailSender } from './email/sender';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
 import { seedReferenceProgram } from './db/seed';
@@ -41,7 +42,20 @@ async function main(): Promise<void> {
     console.log(`[server] seed: ${result}`);
   }
 
-  const app = createApp({ db, staticDir: join(ROOT, 'dist') });
+  const email = createEmailSender(
+    process.env.RESEND_API_KEY,
+    process.env.EMAIL_FROM ?? 'Barra <onboarding@resend.dev>',
+  );
+  if (!email.configured) {
+    console.warn('[server] sin RESEND_API_KEY: la recuperación de contraseña no enviará correos');
+  }
+
+  const app = createApp({
+    db,
+    staticDir: join(ROOT, 'dist'),
+    email,
+    appUrl: process.env.APP_URL ?? '',
+  });
 
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`[server] escuchando en http://0.0.0.0:${port}`);

@@ -27,9 +27,14 @@ import {
   claimOrphanPrograms,
   countUsers,
   createUser,
+  findUserByEmail,
   findUserById,
+  setPassword,
 } from '../repositories/users';
 import { hashToken } from '../repositories/sessionTokens';
+import { RESET_TTL_MINUTES, consumeResetToken, createResetToken } from '../repositories/passwordResets';
+import { buildResetEmail } from '../email/resetEmail';
+import type { EmailSender } from '../email/sender';
 import { createAuthLimiter } from './rateLimit';
 
 declare global {
@@ -46,6 +51,20 @@ const credentials = z
   .object({
     email: z.string().trim().email('Introduce un correo válido').max(254),
     password: z
+      .string()
+      .min(MIN_PASSWORD_LENGTH, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
+      .max(MAX_PASSWORD_LENGTH),
+  })
+  .strict();
+
+const forgotBody = z
+  .object({ email: z.string().trim().email('Introduce un correo válido').max(254) })
+  .strict();
+
+const resetBody = z
+  .object({
+    token: z.string().min(10).max(200),
+    newPassword: z
       .string()
       .min(MIN_PASSWORD_LENGTH, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
       .max(MAX_PASSWORD_LENGTH),
@@ -113,7 +132,17 @@ export function currentUserId(req: Request): number {
   return req.userId;
 }
 
-export function createAuthRouter(db: Database, rateLimits = true): Router {
+export interface AuthRouterOptions {
+  rateLimits?: boolean;
+  email?: EmailSender;
+  /** Absolute origin used to build the reset link, e.g. https://barra.up.railway.app */
+  appUrl?: string;
+}
+
+export function createAuthRouter(
+  db: Database,
+  { rateLimits = true, email, appUrl = '' }: AuthRouterOptions = {},
+): Router {
   const router = Router();
   const authLimiter = rateLimits ? createAuthLimiter() : passThrough;
 
@@ -216,6 +245,59 @@ export function createAuthRouter(db: Database, rateLimits = true): Router {
         }
         throw error;
       }
+    }),
+  );
+
+  /**
+   * Starts a reset.
+   *
+   * Always answers 204, whether or not the address has an account. Saying
+   * "no such user" here would turn this into a free membership check, and it
+   * is the one endpoint anybody can call without a session.
+   */
+  router.post(
+    '/forgot',
+    authLimiter,
+    handle(async (req, res) => {
+      const { email: address } = forgotBody.parse(req.body);
+      res.status(204).end();
+
+      // Everything past this point is best-effort and must not change the
+      // answer, so it runs after the response has gone out.
+      const user = await findUserByEmail(db, address);
+      if (!user) return;
+
+      const token = await createResetToken(db, user.id);
+      const link = `${appUrl}/?reset=${encodeURIComponent(token)}`;
+
+      if (!email?.configured) {
+        console.warn('[auth] reset solicitado pero el correo no está configurado');
+        return;
+      }
+      await email.send(buildResetEmail({ to: user.email, link, minutesValid: RESET_TTL_MINUTES }));
+    }),
+  );
+
+  /**
+   * Finishes a reset.
+   *
+   * Every session is revoked, including any the attacker may have opened:
+   * that is the whole point of resetting.
+   */
+  router.post(
+    '/reset',
+    authLimiter,
+    handle(async (req, res) => {
+      const { token, newPassword } = resetBody.parse(req.body);
+
+      const userId = await consumeResetToken(db, token);
+      if (userId === null) {
+        res.status(400).json({ error: 'El enlace ya no es válido. Pide otro.' });
+        return;
+      }
+
+      await setPassword(db, userId, newPassword);
+      res.status(204).end();
     }),
   );
 

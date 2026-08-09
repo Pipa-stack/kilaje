@@ -236,3 +236,68 @@ export async function changePassword(
 ): Promise<void> {
   await callApi<void>('/auth/password', json({ currentPassword, newPassword }));
 }
+
+/* ------------------------------------------------------------------ */
+/* Password recovery                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Asks for a reset link.
+ *
+ * Always resolves, whether or not the address has an account: the server
+ * answers the same either way so this cannot be used as a membership check.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await callApi<void>('/auth/forgot', json({ email }));
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await callApi<void>('/auth/reset', json({ token, newPassword }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile                                                             */
+/* ------------------------------------------------------------------ */
+
+export type WeightUnit = 'kg' | 'lb';
+
+export interface Profile {
+  identity: {
+    email: string;
+    displayName: string;
+    gym: string | null;
+    weightUnit: WeightUnit;
+    memberSince: string;
+  };
+  stats: {
+    completedSessions: number;
+    startedSessions: number;
+    totalVolumeKg: number;
+    distinctExercises: number;
+    totalSets: number;
+    programs: number;
+  };
+  records: { exercise: string; oneRepMax: number; topWeight: number | null; achievedAt: string }[];
+  bodyWeights: { weightKg: number; measuredOn: string }[];
+}
+
+export async function fetchProfile(): Promise<Profile> {
+  const { profile } = await callApi<{ profile: Profile }>('/profile');
+  return profile;
+}
+
+export async function updateProfile(patch: {
+  displayName?: string | null;
+  gym?: string | null;
+  weightUnit?: WeightUnit;
+}): Promise<void> {
+  await callApi<void>('/profile', { ...json(patch), method: 'PATCH' });
+}
+
+/** Records today's weigh-in, in kilos. One reading per day replaces the last. */
+export async function recordBodyWeight(weightKg: number, measuredOn?: string): Promise<void> {
+  await callApi<void>('/profile/weight', {
+    ...json({ weightKg, ...(measuredOn ? { measuredOn } : {}) }),
+    method: 'PUT',
+  });
+}

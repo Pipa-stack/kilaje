@@ -14,6 +14,8 @@ import { MAX_FILE_BYTES } from '../src/domain/upload';
 import { ping, type Database } from './db/database';
 import { apiErrorHandler, createApiRouter } from './api/router';
 import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
+import { createProfileRouter } from './api/profileRouter';
+import type { EmailSender } from './email/sender';
 
 export interface AppOptions {
   db: Database;
@@ -26,9 +28,13 @@ export interface AppOptions {
    * is covered by `tests/rateLimit.test.ts`.
    */
   rateLimits?: boolean;
+  /** Absent in tests and where mail is not configured. */
+  email?: EmailSender;
+  /** Origin used to build absolute links in emails. */
+  appUrl?: string;
 }
 
-export function createApp({ db, staticDir, rateLimits = true }: AppOptions): Express {
+export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: AppOptions): Express {
   const app = express();
 
   // Behind Railway's proxy; needed for correct protocol detection.
@@ -55,7 +61,8 @@ export function createApp({ db, staticDir, rateLimits = true }: AppOptions): Exp
   });
 
   app.use('/api', attachUser(db));
-  app.use('/api/auth', createAuthRouter(db, rateLimits));
+  app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl }));
+  app.use('/api/profile', requireUser, createProfileRouter(db));
   app.use('/api', requireUser, createApiRouter(db, rateLimits));
 
   app.use('/api', (_req, res) => {

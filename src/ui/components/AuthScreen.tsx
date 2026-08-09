@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 
+import * as api from '../../api/client';
 import { MIN_PASSWORD_LENGTH } from '../../domain/upload';
 
 interface AuthScreenProps {
@@ -11,6 +12,7 @@ interface AuthScreenProps {
 /** Sign in, or create the account. Nothing else is reachable without one. */
 export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [recovery, setRecovery] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const emailId = useId();
@@ -94,6 +96,35 @@ export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
           {busy ? 'Un momento…' : registering ? 'Crear cuenta' : 'Entrar'}
         </button>
       </form>
+
+      {!registering ? (
+        <div className="text-center">
+          {recovery === 'sent' ? (
+            <p role="status" className="text-sm text-iron-400">
+              Si ese correo tiene cuenta, te llegará un enlace para elegir contraseña nueva.
+              Caduca en una hora.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={recovery === 'sending' || email.trim() === ''}
+              onClick={() => {
+                setRecovery('sending');
+                // The answer is the same whether or not the address exists, so
+                // there is nothing to branch on here either.
+                void api.requestPasswordReset(email).finally(() => setRecovery('sent'));
+              }}
+              className="text-sm font-semibold text-signal-300 underline underline-offset-4 disabled:no-underline disabled:opacity-50"
+            >
+              {recovery === 'sending'
+                ? 'Enviando…'
+                : email.trim() === ''
+                  ? 'Escribe tu correo para recuperarla'
+                  : 'He olvidado la contraseña'}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <p className="text-center text-sm text-iron-400">
         {registering ? '¿Ya tienes cuenta?' : '¿Primera vez?'}{' '}

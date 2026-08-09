@@ -194,7 +194,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     // --- Re-import: a new program, old history preserved -----------------
     await user.click(
       within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('button', {
-        name: /Ajustes/,
+        name: /Perfil/,
       }),
     );
     await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
@@ -298,7 +298,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
 });
 
 describe('the app shell', () => {
-  it('moves between Inicio, Entrenar, Progreso y Ajustes', async () => {
+  it('moves between Inicio, Entrenar, Progreso y Perfil', async () => {
     const user = userEvent.setup();
     render(<App />);
     await signIn(user);
@@ -312,7 +312,7 @@ describe('the app shell', () => {
     expect(await screen.findByRole('heading', { name: 'Volumen por sesión' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Ejercicios entrenados' })).toBeInTheDocument();
 
-    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
     expect(await screen.findByRole('heading', { name: 'Programas guardados' })).toBeInTheDocument();
     expect(screen.getByText('En uso')).toBeInTheDocument();
 
@@ -361,7 +361,7 @@ describe('the app shell', () => {
     expect(screen.queryByRole('timer')).toBeNull();
   }, 90_000);
 
-  it('deletes a program and its history from Ajustes', async () => {
+  it('deletes a program and its history from Perfil', async () => {
     const user = userEvent.setup();
     render(<App />);
     await signIn(user);
@@ -370,12 +370,12 @@ describe('the app shell', () => {
 
     // A second program, so deletion is allowed.
     const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
-    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
     await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
 
     await waitFor(async () => expect(await allPrograms()).toHaveLength(2), WAIT);
 
-    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
       const [firstDelete] = await screen.findAllByRole('button', { name: 'Borrar' }, WAIT);
@@ -400,7 +400,7 @@ describe('signing out', () => {
     localStorage.setItem('barra.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: 1, operation: { kind: 'resetSession', dayId: '1' } }]));
 
     const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
-    await user.click(tabs.getByRole('button', { name: /Ajustes/ }));
+    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
     await user.click(await screen.findByRole('button', { name: 'Cerrar sesión' }, WAIT));
 
     // Back at the login screen, with nothing of the previous account left:
