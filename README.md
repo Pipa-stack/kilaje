@@ -736,10 +736,23 @@ Configuración en [`railway.json`](railway.json) y [`nixpacks.toml`](nixpacks.to
 recibe `DATABASE_URL` como variable de referencia (`${{Postgres.DATABASE_URL}}`), así que
 la contraseña nunca se copia a ningún sitio. Las migraciones corren al arrancar.
 
+El servicio está conectado a `Pipa-stack/kilaje`, rama `main`: **un push despliega**. Se
+conectó con la API pública, porque ni el panel de `update-service` ni el resto del CLI
+cambian el origen de un servicio que ya existe:
+
+```graphql
+mutation { serviceConnect(id: "<serviceId>", input: { repo: "Pipa-stack/kilaje", branch: "main" }) { id } }
+```
+
+Antes de eso los despliegues salían de `railway up` desde local, y el repositorio podía ir
+por delante de la web sin que nada lo indicara — pasó: once días de diferencia sin ninguna
+señal.
+
 ```bash
 railway link                  # al proyecto kilaje
-railway up                    # desplegar
+railway up                    # desplegar a mano (sigue valiendo, p. ej. para probar sin commit)
 railway logs                  # ver el arranque
+railway status                # qué despliegue está vivo
 ```
 
 Para sembrar el libro de referencia en una base de datos vacía basta con dejar
