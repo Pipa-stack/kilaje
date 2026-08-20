@@ -113,6 +113,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
   const { program, week, day } = state;
   const dayIndex = week.days.findIndex((candidate) => candidate.number === day.number);
+  const nextWeekNumber = (program.weeks.at(-1)?.number ?? 0) + 1;
 
   const openDay = (dayNumber: number) => {
     state.selectDay(dayNumber);
@@ -167,7 +168,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
           ) : null}
         </div>
 
-        {program.weeks.length > 1 && tab !== 'settings' ? (
+        {tab !== 'settings' ? (
           <nav aria-label="Semanas">
             <ul data-no-swipe className="flex gap-2 overflow-x-auto pb-1">
               {program.weeks.map((candidate) => (
@@ -186,6 +187,28 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
                   </button>
                 </li>
               ))}
+
+              {/*
+                The workbook only ever contains the weeks whoever built it
+                happened to type out. Without this the plan simply ends, and
+                the only way to keep training was to edit the spreadsheet and
+                import it again.
+              */}
+              <li>
+                <button
+                  type="button"
+                  onClick={() => void state.addWeek()}
+                  disabled={state.addingWeek || state.offline}
+                  title={
+                    state.offline
+                      ? 'Necesitas conexión para empezar una semana nueva.'
+                      : `Copia el plan de la semana ${nextWeekNumber - 1} con los pesos en blanco`
+                  }
+                  className="min-h-11 whitespace-nowrap rounded-xl border border-dashed border-iron-700 px-4 text-sm font-semibold text-iron-400 hover:border-iron-600 hover:bg-iron-850 hover:text-iron-100 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {state.addingWeek ? 'Creando…' : `+ Semana ${nextWeekNumber}`}
+                </button>
+              </li>
             </ul>
           </nav>
         ) : null}

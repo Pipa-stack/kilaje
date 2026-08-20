@@ -276,6 +276,7 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 | `GET` | `/api/programs/latest` | El último importado (lo que abre la app) |
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
 | `POST` | `/api/programs` | Importa un `.xlsx` (bytes en crudo, `?filename=`) |
+| `POST` | `/api/programs/:id/weeks` | Empieza la semana siguiente: clona el plan de la última, con las series en blanco |
 | `DELETE` | `/api/programs/:id` | Borra un programa y todo lo entrenado en él |
 | `PUT` | `/api/days/:dayId/sets` | Guarda una serie (`exerciseId`, `setIndex`, peso, reps, RIR) |
 | `DELETE` | `/api/days/:dayId/sets` | Elimina una serie |
@@ -298,7 +299,27 @@ npm install
 cp .env.example .env          # y edita DATABASE_URL
 npm run db:migrate            # crea el esquema
 npm run db:seed               # opcional: importa Ejemplo/ejemplo.xlsx
+npm run db:seed:demo          # opcional: cuenta de prueba, e imprime sus credenciales
 ```
+
+### La cuenta de prueba
+
+Para no registrar una cuenta nueva cada vez que quieres comprobar algo, hay una fija:
+
+```
+correo:     demo@kilaje.app
+contraseña: entrenamiento-demo
+```
+
+`npm run db:seed:demo` la crea, y con `DEMO_ACCOUNT=true` el servidor la rehace en cada
+arranque: si falta la crea, si la contraseña se ha cambiado la restablece, y si no tiene
+programa le importa el de ejemplo. Es idempotente, así que un redespliegue —o una base de
+datos vacía— nunca la deja inservible. Si la contraseña ya funciona no se toca: cambiarla
+revoca todas las sesiones, y hacerlo en cada arranque te echaría de la app a media serie.
+
+Cualquiera que lea este README puede entrar con esa contraseña. **En un despliegue público
+define `DEMO_PASSWORD`** (y `DEMO_EMAIL` si quieres otra dirección); el arranque avisa en
+el log mientras uses la del repositorio.
 
 Dos procesos en desarrollo:
 
@@ -321,6 +342,9 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `PORT` | No | Puerto del servidor (Railway lo inyecta; 8080 por defecto) |
 | `SEED_REFERENCE_PROGRAM` | No | `true` importa el libro de referencia al arrancar si no hay programas |
 | `SEED_WORKBOOK` | No | Ruta alternativa del libro para `npm run db:seed` |
+| `DEMO_ACCOUNT` | No | `true` recrea la cuenta de prueba en cada arranque |
+| `DEMO_EMAIL` | No | Correo de la cuenta de prueba (`demo@kilaje.app` por defecto) |
+| `DEMO_PASSWORD` | No | Su contraseña. Defínela en cualquier despliegue público |
 | `API_PROXY_TARGET` | No | A dónde manda `/api` el servidor de desarrollo |
 | `TEST_DATABASE_URL` | No | Ejecuta los tests contra un PostgreSQL real en lugar de PGlite |
 | `SMTP_HOST` `SMTP_USER` `SMTP_PASSWORD` | No | Envío por SMTP. Las tres o ninguna |
@@ -413,6 +437,27 @@ Qué se lee de cada hoja `Semana N`:
 
 Si el libro trae varias hojas `Semana N` se importan todas, y la semana anterior de cada
 una se deriva de la previa cuando esas columnas están vacías.
+
+Hay dos plantillas reales en `Ejemplo/` — una con hoja de instrucciones y cinco días, otra
+con siete semanas seguidas y cuatro días — y el parser lee las dos sin saber nada de
+ninguna de ellas. Los tests corren contra ambas, que es lo único que demuestra que sigue
+guiándose por las etiquetas.
+
+**Reps que Excel convirtió en fecha.** Escribir `10-10` en una celda de reps (diez por
+lado) hace que Excel lo guarde como el día 10/10, es decir el número 46305. La celda
+conserva su formato de fecha, así que el parser lo detecta y recupera el número que se
+tecleó primero. Sin esto el volumen y el 1RM de ese ejercicio salían disparados.
+
+### Seguir después de la última semana del Excel
+
+El libro solo tiene las semanas que quien lo hizo se molestó en escribir. Cuando se
+acaban, el botón **+ Semana N** de la barra de semanas crea la siguiente sin salir de la
+app: mismos días, mismos ejercicios, mismos protocolos y vídeos, con las series vacías.
+Lo que se levantó en la semana copiada pasa a ser la referencia «semana anterior» de la
+nueva — lo que la plantilla te obligaba a copiar y pegar a mano.
+
+Las semanas ya entrenadas no se tocan: el plan se clona, la ejecución no. Se para en 52
+semanas por programa.
 
 ### Las fórmulas
 

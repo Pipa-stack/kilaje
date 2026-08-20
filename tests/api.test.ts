@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { migrate, loadMigrations } from '../server/db/migrate';
 import { seedReferenceProgram } from '../server/db/seed';
+import { DEFAULT_DEMO_EMAIL, DEFAULT_DEMO_PASSWORD, seedDemoAccount } from '../server/db/demoAccount';
 import { sanitizeFileName } from '../server/api/schemas';
 import { createTestDatabase, type TestDatabase } from './helpers/testDatabase';
 
@@ -317,6 +318,113 @@ describe('DELETE /api/programs/:id', () => {
   });
 });
 
+describe('POST /api/programs/:id/weeks — continuing past the workbook', () => {
+  it('clones the last week with the plan intact and the sets empty', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    const before = imported.body.program.weeks.at(-1);
+
+    const { body } = await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+    const added = body.program.weeks.at(-1);
+
+    expect(body.program.weeks).toHaveLength(before ? 2 : 1);
+    expect(added.number).toBe(before.number + 1);
+    expect(added.sheetName).toBe(`Semana ${before.number + 1}`);
+
+    // Same session in front of the user...
+    expect(added.days.map((day: { number: number }) => day.number)).toEqual(
+      before.days.map((day: { number: number }) => day.number),
+    );
+    expect(added.days[0].type).toBe(before.days[0].type);
+    expect(added.days[0].exercises.map((exercise: { name: string }) => exercise.name)).toEqual(
+      before.days[0].exercises.map((exercise: { name: string }) => exercise.name),
+    );
+    expect(added.days[0].exercises[0].protocol).toBe(before.days[0].exercises[0].protocol);
+
+    // ...with their own weights still to enter.
+    expect(added.days[0].completed).toBe(false);
+    expect(added.days[0].notes).toBe('');
+    for (const set of added.days[0].exercises[0].currentWeek) {
+      expect(set).toEqual({ weight: null, reps: null, rir: null });
+    }
+  });
+
+  it('turns the week just trained into the reference of the new one', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    const dayId = Number(imported.body.program.weeks[0].days[0].id);
+    const exerciseId = Number(imported.body.program.weeks[0].days[0].exercises[0].id);
+
+    await agent
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 0, weight: 90, reps: 5, rir: 2 })
+      .expect(204);
+
+    const { body } = await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+    const added = body.program.weeks.at(-1);
+
+    expect(added.days[0].exercises[0].previousWeek[0]).toEqual({
+      weight: 90,
+      reps: 5,
+      rir: 2,
+    });
+  });
+
+  it('leaves the weeks already trained untouched', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    const dayId = Number(imported.body.program.weeks[0].days[0].id);
+    const exerciseId = Number(imported.body.program.weeks[0].days[0].exercises[0].id);
+
+    await agent
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 0, weight: 90, reps: 5, rir: 2 })
+      .expect(204);
+
+    const { body } = await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+
+    expect(body.program.weeks[0].days[0].exercises[0].currentWeek[0]).toEqual({
+      weight: 90,
+      reps: 5,
+      rir: 2,
+    });
+    expect(body.program.weeks[0].days[0].id).toBe(imported.body.program.weeks[0].days[0].id);
+  });
+
+  it('keeps stacking weeks, each one referring to the one before it', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+
+    await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+    const { body } = await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+
+    expect(body.program.weeks.map((week: { number: number }) => week.number)).toEqual([1, 2, 3]);
+  });
+
+  it('refuses to touch a program owned by somebody else', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+
+    const stranger = request.agent(app);
+    await stranger
+      .post('/api/auth/register')
+      .send({ email: 'otra@ejemplo.com', password: 'contrasena-de-prueba' })
+      .expect(201);
+
+    await stranger.post(`/api/programs/${programId}/weeks`).expect(404);
+
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM weeks WHERE program_id = $1',
+      [programId],
+    );
+    expect(rows[0]?.count).toBe(1);
+  });
+
+  it('rejects a program that does not exist', async () => {
+    await agent.post('/api/programs/999999/weeks').expect(404);
+  });
+});
+
 describe('GET /api/programs', () => {
   it('returns an empty list on a fresh database', async () => {
     const { body } = await agent.get('/api/programs').expect(200);
@@ -614,6 +722,91 @@ describe('security headers', () => {
     expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(response.headers['x-frame-options']).toBe('DENY');
     expect(response.headers['x-powered-by']).toBeUndefined();
+  });
+});
+
+describe('the demo account', () => {
+  /** Signs in through the real endpoint — the only proof that it works. */
+  function signIn(password: string, email = DEFAULT_DEMO_EMAIL) {
+    return request(app).post('/api/auth/login').send({ email, password });
+  }
+
+  it('creates an account that can sign in, with a program already in it', async () => {
+    const result = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    expect(result.account).toBe('creada');
+    expect(result.program).toBe('importado');
+
+    const login = await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+    expect(login.body.user.email).toBe(DEFAULT_DEMO_EMAIL);
+
+    const visitor = request.agent(app);
+    await visitor
+      .post('/api/auth/login')
+      .send({ email: DEFAULT_DEMO_EMAIL, password: DEFAULT_DEMO_PASSWORD })
+      .expect(200);
+    const { body } = await visitor.get('/api/programs/latest').expect(200);
+    expect(body.program.weeks[0].days).not.toHaveLength(0);
+  });
+
+  it('is safe to run on every boot', async () => {
+    await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    const again = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+
+    expect(again.account).toBe('ya estaba lista');
+    expect(again.program).toBe('ya tenía');
+    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM users WHERE email = $1',
+      [DEFAULT_DEMO_EMAIL],
+    );
+    expect(rows[0]?.count).toBe(1);
+  });
+
+  it('puts the password back when it has been changed', async () => {
+    await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+
+    const session = request.agent(app);
+    await session
+      .post('/api/auth/login')
+      .send({ email: DEFAULT_DEMO_EMAIL, password: DEFAULT_DEMO_PASSWORD })
+      .expect(200);
+    await session
+      .post('/api/auth/password')
+      .send({ currentPassword: DEFAULT_DEMO_PASSWORD, newPassword: 'otra-contrasena-larga' })
+      .expect(204);
+    await signIn(DEFAULT_DEMO_PASSWORD).expect(401);
+
+    const repaired = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    expect(repaired.account).toBe('contraseña restablecida');
+    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+  });
+
+  it('honours the credentials given to it', async () => {
+    const result = await seedDemoAccount(db, {
+      email: 'PRUEBAS@Ejemplo.com',
+      password: 'contrasena-elegida',
+      workbookPath: REFERENCE_FILE,
+    });
+    expect(result.account).toBe('creada');
+
+    // Stored lower-cased, so the address is never split by its capitals.
+    await signIn('contrasena-elegida', 'pruebas@ejemplo.com').expect(200);
+    await signIn(DEFAULT_DEMO_PASSWORD).expect(401);
+  });
+
+  it('adopts a program seeded before there were any accounts', async () => {
+    await db.query('DELETE FROM programs');
+    await seedReferenceProgram(db, REFERENCE_FILE);
+
+    const result = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    expect(result.program).toBe('adoptado');
+  });
+
+  it('still creates a usable account when the workbook is missing', async () => {
+    const result = await seedDemoAccount(db, { workbookPath: '/no/existe.xlsx' });
+    expect(result.program).toBe('sin plantilla que importar');
+    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
   });
 });
 

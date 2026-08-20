@@ -120,6 +120,20 @@ export async function importProgram(file: File): Promise<StoredProgram> {
   return program;
 }
 
+/**
+ * Starts the next week of a program.
+ *
+ * The server clones the last week's plan and leaves the sets empty, so the
+ * plan can carry on past the weeks the workbook contained without re-importing
+ * anything. Returns the program with the new week already in it.
+ */
+export async function addWeek(programId: number): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(`/programs/${programId}/weeks`, {
+    method: 'POST',
+  });
+  return program;
+}
+
 /** Deletes a program and every session logged against it. */
 export async function deleteProgram(programId: number): Promise<void> {
   await callApi<void>(`/programs/${programId}`, { method: 'DELETE' });

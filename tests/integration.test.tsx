@@ -240,6 +240,34 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     expect(await screen.findByRole('heading', { name: /Día 4\s*UPPER/ })).toBeInTheDocument();
   }, 90_000);
 
+  it('starts the next week from inside the app, with the weights to fill in again', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+
+    // The workbook carries a single week; the plan must not end there.
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+    await user.click(screen.getByRole('button', { name: '+ Semana 2' }));
+
+    await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
+    await openDay(user, 1);
+
+    // Same session, blank sheet: the weight the workbook had seeded is gone.
+    const weight = screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`));
+    expect(weight).toHaveValue('');
+    expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
+
+    // What was done in week 1 is now the reference to beat.
+    const card = weight.closest('article');
+    await user.click(within(card!).getByRole('button', { name: 'Ver semana anterior' }));
+    expect(within(card!).getByText('82.5 kg')).toBeInTheDocument();
+
+    const stored = await latestProgram();
+    expect(stored?.weeks.map((week) => week.number)).toEqual([1, 2]);
+    expect(stored?.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0]?.weight).toBe(82.5);
+  }, 90_000);
+
   it('adds a set beyond the template and persists it', async () => {
     const user = userEvent.setup();
     render(<App />);

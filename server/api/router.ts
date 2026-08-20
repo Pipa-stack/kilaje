@@ -27,6 +27,7 @@ import {
   saveSet,
   updateSession,
 } from '../repositories/sessions';
+import { appendWeek, WeekLimitError } from '../repositories/weeks';
 import { deleteSetBody, idParam, sanitizeFileName, saveSetBody, sessionPatchBody } from './schemas';
 import { currentUserId } from './authRouter';
 import { loadHistory } from '../repositories/history';
@@ -114,6 +115,26 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
       );
 
       res.status(created ? 201 : 200).json({ program, created });
+    }),
+  );
+
+  /**
+   * Starts the next week of a program.
+   *
+   * The plan is cloned from the last week and the sets are left empty, so a
+   * mesocycle can run past the weeks the workbook happened to contain without
+   * anyone having to edit the spreadsheet and upload it again.
+   */
+  router.post(
+    '/programs/:programId/weeks',
+    handle(async (req, res) => {
+      const programId = idParam.parse(req.params.programId);
+      const program = await appendWeek(db, programId, currentUserId(req));
+      if (!program) {
+        res.status(404).json({ error: 'El programa no existe.' });
+        return;
+      }
+      res.status(201).json({ program });
     }),
   );
 
@@ -222,6 +243,11 @@ export function apiErrorHandler(
 
   if (error instanceof TemplateError) {
     res.status(422).json({ error: error.message });
+    return;
+  }
+
+  if (error instanceof WeekLimitError) {
+    res.status(409).json({ error: error.message });
     return;
   }
 

@@ -79,6 +79,8 @@ export interface ProgramState {
   day: Day | null;
   loading: boolean;
   importing: boolean;
+  /** True while the next week is being created on the server. */
+  addingWeek: boolean;
   error: string | null;
   /** True when the API is unreachable and the cached program is being shown. */
   offline: boolean;
@@ -86,6 +88,8 @@ export interface ProgramState {
   pendingWrites: number;
 
   importFile: (file: File) => Promise<void>;
+  /** Appends a week cloned from the last one, then opens it. */
+  addWeek: () => Promise<void>;
   selectProgram: (programId: number) => Promise<void>;
   deleteProgram: (programId: number) => Promise<void>;
   dismissError: () => void;
@@ -106,6 +110,7 @@ export function useProgram(): ProgramState {
   const [selection, setSelection] = useState<Selection | null>(() => loadSelection());
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [addingWeek, setAddingWeek] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingWrites, setPendingWrites] = useState(() => readOutbox().length);
@@ -297,6 +302,40 @@ export function useProgram(): ProgramState {
     [openProgram],
   );
 
+  /**
+   * Starts the next week and moves to it.
+   *
+   * Structural, so it never goes through the offline outbox: replaying a week
+   * creation after the fact would race the reload that already has one.
+   */
+  const addWeek = useCallback(async () => {
+    const current = latest.current;
+    if (!current || addingWeek) return;
+
+    setAddingWeek(true);
+    setError(null);
+    try {
+      const next = await api.addWeek(current.id);
+      setProgram(next);
+      latest.current = next;
+
+      const added = next.weeks.at(-1);
+      const firstDay = added?.days[0];
+      if (added && firstDay) select({ weekNumber: added.number, dayNumber: firstDay.number });
+
+      setPrograms(await api.fetchPrograms());
+      setOffline(false);
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError
+          ? cause.message
+          : 'No se ha podido crear la semana siguiente.',
+      );
+    } finally {
+      setAddingWeek(false);
+    }
+  }, [addingWeek, select]);
+
   const selectProgram = useCallback(
     async (programId: number) => {
       setError(null);
@@ -381,11 +420,13 @@ export function useProgram(): ProgramState {
     day,
     loading,
     importing,
+    addingWeek,
     error,
     offline,
     pendingWrites,
 
     importFile,
+    addWeek,
     selectProgram,
     deleteProgram,
     dismissError: useCallback(() => setError(null), []),
