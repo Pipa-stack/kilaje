@@ -19,8 +19,20 @@ import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 /** The jsdom test environment has no file-scheme `import.meta.url`. */
 const REFERENCE_FILE = resolve(process.cwd(), 'Ejemplo/ejemplo.xlsx');
 
+/**
+ * A second real template, laid out by a different person: seven `Semana N`
+ * sheets, no instructions sheet, four days a week, and reps typed in ways
+ * Excel autocorrected. Nothing about the parser is tuned to either file, and
+ * this is what proves it.
+ */
+const SECOND_FILE = resolve(process.cwd(), 'Ejemplo/ejemplo 2.xlsx');
+
 function readReference(): Uint8Array {
   return new Uint8Array(readFileSync(REFERENCE_FILE));
+}
+
+function readSecond(): Uint8Array {
+  return new Uint8Array(readFileSync(SECOND_FILE));
 }
 
 describe('parseWorkbook against the real template', () => {
@@ -186,6 +198,59 @@ describe('multi-week workbooks', () => {
     const program = parseWorkbook(withSecondWeek(), 'dos-semanas.xlsx');
     expect(program.weeks[0]?.days[0]?.exercises[0]?.id).toBe('w1:d1:e1');
     expect(program.weeks[1]?.days[0]?.exercises[0]?.id).toBe('w2:d1:e1');
+  });
+});
+
+describe('the second real template', () => {
+  let program: Program;
+
+  beforeAll(() => {
+    program = parseWorkbook(readSecond(), 'ejemplo 2.xlsx');
+  });
+
+  it('parses all seven week sheets without an instructions sheet to anchor on', () => {
+    expect(program.weeks.map((week) => week.number)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('reads the four days of each week and their types', () => {
+    for (const week of program.weeks) {
+      expect(week.days.map((day) => day.number)).toEqual([1, 2, 3, 4]);
+    }
+    expect(program.weeks[0]?.days.map((day) => day.type)).toEqual([
+      'PIERNA (ENFOQUE GLÚTEO)',
+      'PARTE DE ARRIBA 1',
+      'PIERNA COMPLETA',
+      'PARTE DE ARRIBA 2',
+    ]);
+  });
+
+  it('recovers reps Excel autocorrected into dates', () => {
+    // "10-10" — ten per side — was stored as the date 10/10, i.e. 46305.
+    const sets = program.weeks[0]?.days[2]?.exercises[0]?.currentWeek ?? [];
+    expect(sets.slice(0, 3)).toEqual([
+      { weight: 70, reps: 10, rir: null },
+      { weight: 70, reps: 10, rir: null },
+      { weight: 70, reps: 10, rir: null },
+    ]);
+  });
+
+  it('leaves no impossible value anywhere in the file', () => {
+    // A date serial that slipped through would show up here as thousands of
+    // reps, and would poison every volume and 1RM computed from it.
+    const sets = program.weeks
+      .flatMap((week) => week.days)
+      .flatMap((day) => day.exercises)
+      .flatMap((exercise) => [...exercise.currentWeek, ...exercise.previousWeek]);
+
+    expect(sets.filter((set) => set.reps !== null && set.reps > 999)).toEqual([]);
+    expect(sets.filter((set) => set.weight !== null && set.weight > 1000)).toEqual([]);
+  });
+
+  it('carries the work of each week into the next as its reference', () => {
+    const first = program.weeks[0]?.days[0]?.exercises[0];
+    const second = program.weeks[1]?.days[0]?.exercises[0];
+    expect(first?.name).toBe(second?.name);
+    expect(second?.previousWeek[0]).toEqual(first?.currentWeek[0]);
   });
 });
 

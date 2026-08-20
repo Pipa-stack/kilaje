@@ -104,6 +104,9 @@ function readWorkbook(bytes: Uint8Array): XLSX.WorkBook {
       cellHTML: false,
       cellStyles: false,
       cellDates: false,
+      // Keeps each cell's number format, which is the only trace left of a
+      // reps entry Excel autocorrected into a date. See `recoverMangledDate`.
+      cellNF: true,
     });
   } catch {
     throw new TemplateError('No se ha podido leer el archivo. ¿Es un .xlsx válido?');
