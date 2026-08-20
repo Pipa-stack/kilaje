@@ -88,6 +88,28 @@ export function SettingsScreen({
         />
       </section>
 
+      <section aria-labelledby="export-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <h2 id="export-title" className="mb-1 font-semibold text-chalk">
+          Descargar tu entrenamiento
+        </h2>
+        <p className="mb-3 text-sm text-iron-400">
+          Un Excel con todo lo anotado, que esta misma app puede volver a leer. Es tu copia
+          de seguridad: guárdala donde quieras y no depende de que este servicio siga en pie.
+        </p>
+        {/*
+          A plain link, not fetch(): the browser handles the download, the
+          session cookie rides along because it is same-origin, and nothing
+          has to buffer the file in memory to hand it back.
+        */}
+        <a
+          href={`/api/programs/${currentProgramId}/export`}
+          download
+          className="flex min-h-12 w-full items-center justify-center rounded-xl border border-iron-700 px-4 font-semibold text-iron-100 hover:bg-iron-850"
+        >
+          Descargar «{currentProgramName}» en Excel
+        </a>
+      </section>
+
       <section aria-labelledby="programs-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <h2 id="programs-title" className="mb-1 font-semibold text-chalk">
           Programas guardados

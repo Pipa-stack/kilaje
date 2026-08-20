@@ -322,6 +322,19 @@ comprobaciones de tamaño que había medían el archivo **comprimido**:
   Es un filtro, no una prueba: un zip puede mentir sobre esos tamaños, y solo inflar con
   un contador lo cazaría. Lo que sí para es la bomba corriente.
 
+### El viaje de vuelta: tu copia de seguridad
+
+`GET /api/programs/:id/export`, o el botón en Perfil, devuelve el programa como `.xlsx`
+**con la disposición que este mismo parser sabe leer**. Eso es lo que convierte una
+descarga en una copia de seguridad: hay un test que exporta el libro de ejemplo, lo vuelve
+a importar y compara semanas, días, ejercicios, protocolos, las dos columnas de series,
+las notas y el flag de completado. Un archivo que la app no puede releer no es una copia,
+es un recuerdo.
+
+Las copias continuas de Railway (PITR) cuestan dinero; esto no cuesta nada y vive donde tú
+lo dejes. Cubren riesgos distintos: PITR te salva de un `DROP TABLE`, el export te salva de
+que este servicio desaparezca.
+
 ### Funciona sin cobertura, de verdad
 
 Toda la maquinaria offline —el programa en caché, la cola de escrituras, el aviso— solo
@@ -769,7 +782,6 @@ Para sembrar el libro de referencia en una base de datos vacía basta con dejar
 ## Límites conocidos
 
 - Solo `.xlsx` / `.xlsm`. El `.xls` antiguo no está soportado.
-- No exporta de vuelta a Excel.
 - **`/api/auth/register` revela si un correo ya tiene cuenta** (409 frente a 201), algo que
   `/login` y `/forgot` evitan a propósito. Es un límite consciente, no un descuido:
   mientras registrarse te deje dentro al instante, el éxito y el conflicto no pueden

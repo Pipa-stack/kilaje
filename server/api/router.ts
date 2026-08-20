@@ -11,6 +11,7 @@ import { ZodError } from 'zod';
 
 import { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
 import { parseWorkbook } from '../parser/excelParser';
+import { buildWorkbook, exportFileName } from '../parser/excelExporter';
 import type { Database } from '../db/database';
 import {
   deleteProgram,
@@ -275,6 +276,40 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
         return;
       }
       res.json({ program });
+    }),
+  );
+
+  /**
+   * Downloads a program as a workbook.
+   *
+   * The layout is the one the importer reads, so this file is a real backup
+   * rather than a souvenir: it can be uploaded back into this app, or into a
+   * different deployment of it, and produce the same training. Continuous
+   * backups cost money; this costs nothing and lives wherever the user puts it.
+   */
+  router.get(
+    '/programs/:programId/export',
+    readLimiter,
+    handle(async (req, res) => {
+      const programId = idParam.parse(req.params.programId);
+      const program = await getProgram(db, programId, currentUserId(req));
+      if (!program) {
+        res.status(404).json({ error: 'El programa no existe.' });
+        return;
+      }
+
+      const bytes = buildWorkbook(program);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      // RFC 5987 as well as the plain form: the name carries accents.
+      const name = exportFileName(program);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="entrenamiento.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      );
+      res.send(Buffer.from(bytes));
     }),
   );
 

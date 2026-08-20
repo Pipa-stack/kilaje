@@ -19,6 +19,7 @@ import {
   toGrid,
   toNumber,
 } from '../server/parser/cells';
+import { buildWorkbook, exportFileName } from '../server/parser/excelExporter';
 import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
 import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 
@@ -453,5 +454,70 @@ describe('a workbook that unzips to far more than it weighs', () => {
 
   it('lets an ordinary workbook through untouched', () => {
     expect(() => parseWorkbook(readReference(), 'ejemplo.xlsx')).not.toThrow();
+  });
+});
+
+
+describe('exporting back to Excel', () => {
+  /**
+   * The property that makes a download a backup.
+   *
+   * A file the app cannot read back is a souvenir. This asserts the whole
+   * round trip — weeks, days, exercises, protocols, both set blocks, notes and
+   * the completion flag — survives being written out and parsed again.
+   */
+  it('produces a file this same parser reads back into the same program', () => {
+    const original = parseWorkbook(readSecond(), 'ejemplo 2.xlsx');
+    const again = parseWorkbook(buildWorkbook(original), 'copia.xlsx');
+
+    expect(again.weeks.map((week) => week.number)).toEqual(
+      original.weeks.map((week) => week.number),
+    );
+
+    const flatten = (program: Program) =>
+      program.weeks.flatMap((week) =>
+        week.days.flatMap((day) =>
+          day.exercises.map((exercise) => ({
+            week: week.number,
+            day: day.number,
+            name: exercise.name,
+            protocol: exercise.protocol,
+            current: exercise.currentWeek.slice(0, TEMPLATE_SET_COUNT),
+          })),
+        ),
+      );
+
+    expect(flatten(again)).toEqual(flatten(original));
+  });
+
+  it('carries the notes and the completed flag across', () => {
+    const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const day = original.weeks[0]?.days[0];
+    expect(day).toBeDefined();
+    day!.notes = 'hombro algo cargado';
+    day!.completed = true;
+
+    const again = parseWorkbook(buildWorkbook(original), 'copia.xlsx');
+    expect(again.weeks[0]?.days[0]?.notes).toBe('hombro algo cargado');
+    expect(again.weeks[0]?.days[0]?.completed).toBe(true);
+  });
+
+  it('keeps sets added beyond the template’s four slots', () => {
+    const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const exercise = original.weeks[0]?.days[0]?.exercises[0];
+    expect(exercise).toBeDefined();
+    exercise!.currentWeek = [...exercise!.currentWeek, { weight: 60, reps: 12, rir: 1 }];
+
+    const again = parseWorkbook(buildWorkbook(original), 'copia.xlsx');
+    const restored = again.weeks[0]?.days[0]?.exercises[0]?.currentWeek;
+    expect(restored).toHaveLength(5);
+    expect(restored?.[4]).toEqual({ weight: 60, reps: 12, rir: 1 });
+  });
+
+  it('names the file after the plan and the day it was taken', () => {
+    const program = parseWorkbook(readReference(), 'mi entrenamiento.xlsx');
+    expect(exportFileName(program, new Date('2026-08-20T10:00:00Z'))).toBe(
+      'mi entrenamiento — 2026-08-20.xlsx',
+    );
   });
 });
