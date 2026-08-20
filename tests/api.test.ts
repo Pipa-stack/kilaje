@@ -778,6 +778,43 @@ describe('DELETE /api/programs/:id/weeks/:number', () => {
     await agent.delete(`/api/programs/${programId}/weeks/2`).expect(409);
   });
 
+  it('still deletes a week started with last week’s weights', async () => {
+    // Those weights are the app's own suggestion, not training. Counting them
+    // as work made such a week impossible to delete, ever.
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    await agent
+      .post(`/api/programs/${programId}/weeks`)
+      .send({ copyWeights: true })
+      .expect(201);
+
+    const { body } = await agent.delete(`/api/programs/${programId}/weeks/2`).expect(200);
+    expect(body.program.weeks).toHaveLength(1);
+  });
+
+  it('refuses once a rep count turns those weights into a session', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    const { body: created } = await agent
+      .post(`/api/programs/${programId}/weeks`)
+      .send({ copyWeights: true })
+      .expect(201);
+
+    const week2 = created.program.weeks[1];
+    await agent
+      .put(`/api/days/${Number(week2.days[0].id)}/sets`)
+      .send({
+        exerciseId: Number(week2.days[0].exercises[0].id),
+        setIndex: 0,
+        weight: 82.5,
+        reps: 5,
+        rir: null,
+      })
+      .expect(204);
+
+    await agent.delete(`/api/programs/${programId}/weeks/2`).expect(409);
+  });
+
   it('never leaves a program with no weeks at all', async () => {
     const imported = await importReference();
     const { body } = await agent

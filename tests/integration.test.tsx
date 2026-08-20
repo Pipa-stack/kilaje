@@ -328,11 +328,17 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     await user.click(screen.getByRole('button', { name: /Empezar la semana 2 en blanco/ }));
     await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
     await openDay(user, 1);
+    // Weight *and* reps: a bare weight is what "copiar los pesos" pre-fills,
+    // and that must not be what locks a week in place.
     await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`)), '70');
+    await user.type(screen.getByLabelText(new RegExp(`Repeticiones de la serie 1 de ${BENCH}`)), '6');
 
     await waitFor(async () => {
       const stored = await latestProgram();
-      expect(stored?.weeks[1]?.days[0]?.exercises[0]?.currentWeek[0]?.weight).toBe(70);
+      expect(stored?.weeks[1]?.days[0]?.exercises[0]?.currentWeek[0]).toMatchObject({
+        weight: 70,
+        reps: 6,
+      });
     }, WAIT);
 
     await openWeekPanel(user);

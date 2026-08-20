@@ -257,14 +257,28 @@ export async function removeWeek(
   return { outcome: 'eliminada', program: await getProgram(db, programId, userId) };
 }
 
-/** Anything the user put there themselves: a set, a note, a completion. */
+/**
+ * Anything the user put there themselves: a set, a note, a completion.
+ *
+ * A set counts only once it has reps or an RIR. A bare weight is what
+ * `copyWeights` pre-fills, and treating that as training made a week started
+ * with last week's loads impossible to delete for ever — the app's own
+ * suggestion locking the door behind it. Same rule as everywhere else here:
+ * reps are what turn a weight into work.
+ *
+ * The cost is that a weight typed but not yet completed goes with the week.
+ * That is the right side to err on: the alternative refuses to delete weeks
+ * nobody trained, which is precisely the case the button exists for.
+ */
 async function hasLoggedWork(db: Database, weekId: number): Promise<boolean> {
   const { rows } = await db.query<{ present: boolean }>(
     `SELECT EXISTS (
        SELECT 1
          FROM workout_days d
          JOIN workout_sessions s ON s.day_id = d.id
-         LEFT JOIN session_sets ss ON ss.session_id = s.id
+         LEFT JOIN session_sets ss
+                ON ss.session_id = s.id
+               AND (ss.reps IS NOT NULL OR ss.rir IS NOT NULL)
         WHERE d.week_id = $1
           AND (ss.id IS NOT NULL OR s.completed OR s.notes <> '')
      ) AS present`,
