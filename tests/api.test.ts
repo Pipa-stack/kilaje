@@ -725,6 +725,273 @@ describe('security headers', () => {
   });
 });
 
+describe('DELETE /api/programs/:id/weeks/:number', () => {
+  async function programWithTwoWeeks() {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+    return { programId, imported };
+  }
+
+  it('removes a week nobody trained', async () => {
+    const { programId } = await programWithTwoWeeks();
+
+    const { body } = await agent.delete(`/api/programs/${programId}/weeks/2`).expect(200);
+    expect(body.program.weeks.map((week: { number: number }) => week.number)).toEqual([1]);
+
+    // The cascade took the week's days and exercises with it, and nothing else.
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM workout_days',
+    );
+    expect(rows[0]?.count).toBe(5);
+  });
+
+  it('refuses a week with a set logged against it', async () => {
+    const { programId } = await programWithTwoWeeks();
+    const { body: before } = await agent.get(`/api/programs/${programId}`).expect(200);
+    const week2 = before.program.weeks[1];
+
+    await agent
+      .put(`/api/days/${Number(week2.days[0].id)}/sets`)
+      .send({
+        exerciseId: Number(week2.days[0].exercises[0].id),
+        setIndex: 0,
+        weight: 60,
+        reps: 8,
+        rir: 2,
+      })
+      .expect(204);
+
+    const { body } = await agent.delete(`/api/programs/${programId}/weeks/2`).expect(409);
+    expect(body.error).toMatch(/entrenamiento anotado/i);
+
+    const { body: after } = await agent.get(`/api/programs/${programId}`).expect(200);
+    expect(after.program.weeks).toHaveLength(2);
+  });
+
+  it('refuses a week whose session carries only a note', async () => {
+    const { programId } = await programWithTwoWeeks();
+    const { body: before } = await agent.get(`/api/programs/${programId}`).expect(200);
+    const dayId = Number(before.program.weeks[1].days[0].id);
+
+    await agent.patch(`/api/days/${dayId}/session`).send({ notes: 'hombro tocado' }).expect(204);
+    await agent.delete(`/api/programs/${programId}/weeks/2`).expect(409);
+  });
+
+  it('never leaves a program with no weeks at all', async () => {
+    const imported = await importReference();
+    const { body } = await agent
+      .delete(`/api/programs/${imported.body.program.id}/weeks/1`)
+      .expect(409);
+    expect(body.error).toMatch(/única semana/i);
+  });
+
+  it('refuses a week of somebody else\'s program', async () => {
+    const { programId } = await programWithTwoWeeks();
+
+    const stranger = request.agent(app);
+    await stranger
+      .post('/api/auth/register')
+      .send({ email: 'otra@ejemplo.com', password: 'contrasena-de-prueba' })
+      .expect(201);
+
+    await stranger.delete(`/api/programs/${programId}/weeks/2`).expect(404);
+  });
+});
+
+describe('starting a week with last week\'s weights', () => {
+  it('carries the weight but not the reps, so nothing counts as trained', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+
+    const { body } = await agent
+      .post(`/api/programs/${programId}/weeks`)
+      .send({ copyWeights: true })
+      .expect(201);
+
+    const added = body.program.weeks.at(-1);
+    expect(added.days[0].exercises[0].currentWeek[0]).toEqual({
+      weight: 82.5,
+      reps: null,
+      rir: null,
+    });
+  });
+
+  it('leaves the sets empty by default', async () => {
+    const imported = await importReference();
+    const { body } = await agent
+      .post(`/api/programs/${imported.body.program.id}/weeks`)
+      .expect(201);
+
+    expect(body.program.weeks.at(-1).days[0].exercises[0].currentWeek[0]).toEqual({
+      weight: null,
+      reps: null,
+      rir: null,
+    });
+  });
+
+  it('answers the week instead of a 500 when two requests race', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+
+    const [first, second] = await Promise.all([
+      agent.post(`/api/programs/${programId}/weeks`),
+      agent.post(`/api/programs/${programId}/weeks`),
+    ]);
+
+    // Whoever loses the unique index gets the created week back, not a crash.
+    expect([first.status, second.status]).toEqual([201, 201]);
+
+    const { body } = await agent.get(`/api/programs/${programId}`).expect(200);
+    const numbers = body.program.weeks.map((week: { number: number }) => week.number);
+    // One or two weeks may have been created depending on the interleaving;
+    // what must never happen is a duplicate number or an error.
+    expect(new Set(numbers).size).toBe(numbers.length);
+  });
+});
+
+describe('editing the plan', () => {
+  let dayId: number;
+  let exerciseId: number;
+  let programId: number;
+
+  beforeEach(async () => {
+    const { body } = await importReference();
+    programId = body.program.id;
+    dayId = Number(body.program.weeks[0].days[0].id);
+    exerciseId = Number(body.program.weeks[0].days[0].exercises[0].id);
+  });
+
+  it('adds an exercise at the end of the day', async () => {
+    const { body } = await agent
+      .post(`/api/days/${dayId}/exercises`)
+      .send({ name: 'FACE PULL', protocol: '3 SETS X 15 REPS' })
+      .expect(201);
+
+    const exercises = body.program.weeks[0].days[0].exercises;
+    expect(exercises).toHaveLength(8);
+    expect(exercises.at(-1)).toMatchObject({
+      name: 'FACE PULL',
+      protocol: '3 SETS X 15 REPS',
+      currentWeek: [
+        { weight: null, reps: null, rir: null },
+        { weight: null, reps: null, rir: null },
+        { weight: null, reps: null, rir: null },
+        { weight: null, reps: null, rir: null },
+      ],
+    });
+  });
+
+  it('rejects an exercise with no name', async () => {
+    await agent.post(`/api/days/${dayId}/exercises`).send({ name: '   ' }).expect(400);
+  });
+
+  it('renames without touching what was logged', async () => {
+    await agent
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 1, weight: 80, reps: 8, rir: 1 })
+      .expect(204);
+
+    await agent
+      .put(`/api/exercises/${exerciseId}`)
+      .send({
+        name: 'PRESS INCLINADO',
+        protocol: '4 SETS X 6 REPS',
+        comments: null,
+        video: null,
+      })
+      .expect(204);
+
+    const { body } = await agent.get(`/api/programs/${programId}`).expect(200);
+    const exercise = body.program.weeks[0].days[0].exercises[0];
+    expect(exercise.name).toBe('PRESS INCLINADO');
+    expect(exercise.protocol).toBe('4 SETS X 6 REPS');
+    expect(exercise.currentWeek[1]).toEqual({ weight: 80, reps: 8, rir: 1 });
+  });
+
+  it('refuses a video link that is not http(s)', async () => {
+    await agent
+      .put(`/api/exercises/${exerciseId}`)
+      .send({
+        name: 'PRESS',
+        protocol: null,
+        comments: null,
+        video: 'javascript:alert(1)',
+      })
+      .expect(400);
+  });
+
+  it('moves an exercise up and down within its day', async () => {
+    const { body: before } = await agent.get(`/api/programs/${programId}`).expect(200);
+    const [first, second] = before.program.weeks[0].days[0].exercises;
+
+    const { body: moved } = await agent
+      .post(`/api/exercises/${Number(second.id)}/move`)
+      .send({ offset: -1 })
+      .expect(200);
+
+    expect(moved.program.weeks[0].days[0].exercises.map((e: { id: string }) => e.id)).toEqual(
+      expect.arrayContaining([first.id, second.id]),
+    );
+    expect(moved.program.weeks[0].days[0].exercises[0].name).toBe(second.name);
+
+    const { body: back } = await agent
+      .post(`/api/exercises/${Number(second.id)}/move`)
+      .send({ offset: 1 })
+      .expect(200);
+    expect(back.program.weeks[0].days[0].exercises[0].name).toBe(first.name);
+  });
+
+  it('does nothing when moving past the end', async () => {
+    const { body } = await agent
+      .post(`/api/exercises/${exerciseId}/move`)
+      .send({ offset: -1 })
+      .expect(200);
+    expect(body.program.weeks[0].days[0].exercises[0].id).toBe(String(exerciseId));
+  });
+
+  it('rejects an offset that is not one place', async () => {
+    await agent.post(`/api/exercises/${exerciseId}/move`).send({ offset: 3 }).expect(400);
+  });
+
+  it('deletes an exercise and the sets logged against it', async () => {
+    await agent
+      .put(`/api/days/${dayId}/sets`)
+      .send({ exerciseId, setIndex: 0, weight: 80, reps: 8, rir: 1 })
+      .expect(204);
+
+    const { body } = await agent.delete(`/api/exercises/${exerciseId}`).expect(200);
+    expect(body.program.weeks[0].days[0].exercises).toHaveLength(6);
+
+    const { rows } = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM session_sets WHERE exercise_id = $1',
+      [exerciseId],
+    );
+    expect(rows[0]?.count).toBe(0);
+  });
+
+  it('refuses to touch an exercise in somebody else\'s program', async () => {
+    const stranger = request.agent(app);
+    await stranger
+      .post('/api/auth/register')
+      .send({ email: 'otra@ejemplo.com', password: 'contrasena-de-prueba' })
+      .expect(201);
+
+    await stranger.delete(`/api/exercises/${exerciseId}`).expect(404);
+    await stranger.post(`/api/exercises/${exerciseId}/move`).send({ offset: 1 }).expect(404);
+    await stranger
+      .put(`/api/exercises/${exerciseId}`)
+      .send({ name: 'MÍO AHORA', protocol: null, comments: null, video: null })
+      .expect(404);
+    await stranger.post(`/api/days/${dayId}/exercises`).send({ name: 'MÍO' }).expect(404);
+
+    const { body } = await agent.get(`/api/programs/${programId}`).expect(200);
+    expect(body.program.weeks[0].days[0].exercises[0].name).toBe(
+      'PRESS DE BANCA PLANO CON BARRA LIBRE',
+    );
+  });
+});
+
 describe('the demo account', () => {
   /** Signs in through the real endpoint — the only proof that it works. */
   function signIn(password: string, email = DEFAULT_DEMO_EMAIL) {

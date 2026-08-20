@@ -27,11 +27,28 @@ import {
   saveSet,
   updateSession,
 } from '../repositories/sessions';
-import { appendWeek, WeekLimitError } from '../repositories/weeks';
-import { deleteSetBody, idParam, sanitizeFileName, saveSetBody, sessionPatchBody } from './schemas';
+import { appendWeek, removeWeek, WeekLimitError } from '../repositories/weeks';
+import {
+  addExercise,
+  moveExercise,
+  PlanLimitError,
+  removeExercise,
+  updateExercise,
+} from '../repositories/exercises';
+import {
+  appendWeekBody,
+  deleteSetBody,
+  exerciseFieldsBody,
+  idParam,
+  moveExerciseBody,
+  newExerciseBody,
+  sanitizeFileName,
+  saveSetBody,
+  sessionPatchBody,
+} from './schemas';
 import { currentUserId } from './authRouter';
 import { loadHistory } from '../repositories/history';
-import { createImportLimiter } from './rateLimit';
+import { createImportLimiter, createPlanLimiter } from './rateLimit';
 
 /** Wraps an async handler so rejections reach the error middleware. */
 function handle(
@@ -44,9 +61,9 @@ function handle(
 
 export function createApiRouter(db: Database, rateLimits = true): Router {
   const router = Router();
-  const importLimiter = rateLimits
-    ? createImportLimiter()
-    : (_req: Request, _res: Response, next: NextFunction): void => next();
+  const passThrough = (_req: Request, _res: Response, next: NextFunction): void => next();
+  const importLimiter = rateLimits ? createImportLimiter() : passThrough;
+  const planLimiter = rateLimits ? createPlanLimiter() : passThrough;
 
   router.get(
     '/programs',
@@ -127,14 +144,123 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
    */
   router.post(
     '/programs/:programId/weeks',
+    planLimiter,
     handle(async (req, res) => {
       const programId = idParam.parse(req.params.programId);
-      const program = await appendWeek(db, programId, currentUserId(req));
+      const { copyWeights } = appendWeekBody.parse(req.body ?? {});
+      const program = await appendWeek(db, programId, currentUserId(req), { copyWeights });
       if (!program) {
         res.status(404).json({ error: 'El programa no existe.' });
         return;
       }
       res.status(201).json({ program });
+    }),
+  );
+
+  /**
+   * Deletes a week nobody has trained.
+   *
+   * Refuses rather than cascades when there is work logged against it: the
+   * button that created the week is one tap, and one tap must not be able to
+   * erase a session.
+   */
+  router.delete(
+    '/programs/:programId/weeks/:weekNumber',
+    planLimiter,
+    handle(async (req, res) => {
+      const programId = idParam.parse(req.params.programId);
+      const weekNumber = idParam.parse(req.params.weekNumber);
+      const { outcome, program } = await removeWeek(
+        db,
+        programId,
+        weekNumber,
+        currentUserId(req),
+      );
+
+      if (outcome === 'no existe') {
+        res.status(404).json({ error: 'Esa semana no existe.' });
+        return;
+      }
+      if (outcome === 'es la unica') {
+        res.status(409).json({
+          error: 'Es la única semana del programa. Borra el programa entero si es lo que quieres.',
+        });
+        return;
+      }
+      if (outcome === 'tiene trabajo anotado') {
+        res.status(409).json({
+          error: 'Esa semana tiene entrenamiento anotado. Vacía sus días antes de borrarla.',
+        });
+        return;
+      }
+
+      res.json({ program });
+    }),
+  );
+
+  /* ------------------------------------------------------------------ */
+  /* Editing the plan                                                    */
+  /* ------------------------------------------------------------------ */
+
+  router.post(
+    '/days/:dayId/exercises',
+    planLimiter,
+    handle(async (req, res) => {
+      const dayId = idParam.parse(req.params.dayId);
+      const input = newExerciseBody.parse(req.body);
+      const program = await addExercise(db, dayId, currentUserId(req), input);
+      if (!program) {
+        res.status(404).json({ error: 'Ese día no existe.' });
+        return;
+      }
+      res.status(201).json({ program });
+    }),
+  );
+
+  /** Renames an exercise, or changes its protocol, note or video. */
+  router.put(
+    '/exercises/:exerciseId',
+    planLimiter,
+    handle(async (req, res) => {
+      const exerciseId = idParam.parse(req.params.exerciseId);
+      const fields = exerciseFieldsBody.parse(req.body);
+      const updated = await updateExercise(db, exerciseId, currentUserId(req), fields);
+      if (!updated) {
+        res.status(404).json({ error: 'Ese ejercicio no existe.' });
+        return;
+      }
+      res.status(204).end();
+    }),
+  );
+
+  /** Moves an exercise one place up or down within its day. */
+  router.post(
+    '/exercises/:exerciseId/move',
+    planLimiter,
+    handle(async (req, res) => {
+      const exerciseId = idParam.parse(req.params.exerciseId);
+      const { offset } = moveExerciseBody.parse(req.body);
+      const program = await moveExercise(db, exerciseId, currentUserId(req), offset);
+      if (!program) {
+        res.status(404).json({ error: 'Ese ejercicio no existe.' });
+        return;
+      }
+      res.json({ program });
+    }),
+  );
+
+  /** Deletes an exercise and every set logged against it. */
+  router.delete(
+    '/exercises/:exerciseId',
+    planLimiter,
+    handle(async (req, res) => {
+      const exerciseId = idParam.parse(req.params.exerciseId);
+      const program = await removeExercise(db, exerciseId, currentUserId(req));
+      if (!program) {
+        res.status(404).json({ error: 'Ese ejercicio no existe.' });
+        return;
+      }
+      res.json({ program });
     }),
   );
 
@@ -246,7 +372,7 @@ export function apiErrorHandler(
     return;
   }
 
-  if (error instanceof WeekLimitError) {
+  if (error instanceof WeekLimitError || error instanceof PlanLimitError) {
     res.status(409).json({ error: error.message });
     return;
   }

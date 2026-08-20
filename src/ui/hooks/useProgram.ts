@@ -17,7 +17,9 @@ import {
   resetDay as resetDayIn,
   setDayCompleted,
   setDayNotes,
+  setExerciseFields,
   updateSet as updateSetIn,
+  type ExerciseFields,
   type SetPatch,
 } from '../../domain/mutations';
 import { TEMPLATE_SET_COUNT } from '../../domain/types';
@@ -81,6 +83,8 @@ export interface ProgramState {
   importing: boolean;
   /** True while the next week is being created on the server. */
   addingWeek: boolean;
+  /** True while a structural edit to the plan is in flight. */
+  editingPlan: boolean;
   error: string | null;
   /** True when the API is unreachable and the cached program is being shown. */
   offline: boolean;
@@ -89,7 +93,13 @@ export interface ProgramState {
 
   importFile: (file: File) => Promise<void>;
   /** Appends a week cloned from the last one, then opens it. */
-  addWeek: () => Promise<void>;
+  addWeek: (options?: { copyWeights?: boolean }) => Promise<void>;
+  /** Deletes a week. Refused by the server if it has training logged. */
+  deleteWeek: (weekNumber: number) => Promise<void>;
+  addExercise: (name: string) => Promise<void>;
+  updateExercise: (exerciseId: string, fields: ExerciseFields) => void;
+  moveExercise: (exerciseId: string, offset: -1 | 1) => Promise<void>;
+  removeExercise: (exerciseId: string) => Promise<void>;
   selectProgram: (programId: number) => Promise<void>;
   deleteProgram: (programId: number) => Promise<void>;
   dismissError: () => void;
@@ -111,6 +121,7 @@ export function useProgram(): ProgramState {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [addingWeek, setAddingWeek] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingWrites, setPendingWrites] = useState(() => readOutbox().length);
@@ -226,6 +237,8 @@ export function useProgram(): ProgramState {
     if (flushing.current) return;
     flushing.current = true;
 
+    const rejected: PendingOperation[] = [];
+
     try {
       for (const entry of readOutbox()) {
         try {
@@ -233,6 +246,13 @@ export function useProgram(): ProgramState {
           setPendingWrites(removeSent(entry).length);
         } catch (cause) {
           if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
+            // The server refuses this one on its merits — the day was deleted,
+            // the value is out of range — so retrying forever would only block
+            // the queue behind it. Dropping it is right; dropping it in silence
+            // was not: the set was logged in a basement with no signal, exists
+            // nowhere else, and the person had every reason to believe it was
+            // saved. Say what was lost, and where.
+            rejected.push(entry.operation);
             setPendingWrites(removeSent(entry).length);
             continue;
           }
@@ -242,6 +262,7 @@ export function useProgram(): ProgramState {
       setOffline(false);
     } finally {
       flushing.current = false;
+      if (rejected.length > 0) setError(describeRejected(rejected));
     }
   }, []);
 
@@ -308,14 +329,14 @@ export function useProgram(): ProgramState {
    * Structural, so it never goes through the offline outbox: replaying a week
    * creation after the fact would race the reload that already has one.
    */
-  const addWeek = useCallback(async () => {
+  const addWeek = useCallback(async (options: { copyWeights?: boolean } = {}) => {
     const current = latest.current;
     if (!current || addingWeek) return;
 
     setAddingWeek(true);
     setError(null);
     try {
-      const next = await api.addWeek(current.id);
+      const next = await api.addWeek(current.id, options);
       setProgram(next);
       latest.current = next;
 
@@ -335,6 +356,34 @@ export function useProgram(): ProgramState {
       setAddingWeek(false);
     }
   }, [addingWeek, select]);
+
+  /**
+   * Applies a structural change to the plan.
+   *
+   * These come back as a whole program because ids and positions move in ways
+   * the client cannot predict, so there is no optimistic local version to
+   * apply first — the screen waits for the server, which for a once-in-a-while
+   * edit is honest rather than slow.
+   */
+  const editPlan = useCallback(
+    async (change: (program: StoredProgram) => Promise<StoredProgram>) => {
+      const current = latest.current;
+      if (!current || editingPlan) return;
+
+      setEditingPlan(true);
+      setError(null);
+      try {
+        const next = await change(current);
+        latest.current = next;
+        setProgram(next);
+      } catch (cause) {
+        setError(cause instanceof ApiError ? cause.message : 'No se ha podido cambiar el plan.');
+      } finally {
+        setEditingPlan(false);
+      }
+    },
+    [editingPlan],
+  );
 
   const selectProgram = useCallback(
     async (programId: number) => {
@@ -421,6 +470,7 @@ export function useProgram(): ProgramState {
     loading,
     importing,
     addingWeek,
+    editingPlan,
     error,
     offline,
     pendingWrites,
@@ -428,6 +478,74 @@ export function useProgram(): ProgramState {
     importFile,
     addWeek,
     selectProgram,
+
+    deleteWeek: useCallback(
+      async (weekNumber: number) => {
+        const current = latest.current;
+        if (!current) return;
+        await editPlan(async (program) => {
+          const next = await api.removeWeek(program.id, weekNumber);
+          // Standing on the week that just disappeared: fall back to the last
+          // one left rather than leaving the app pointing at nothing.
+          const fallback = next.weeks.at(-1);
+          const firstDay = fallback?.days[0];
+          if (fallback && firstDay) {
+            select({ weekNumber: fallback.number, dayNumber: firstDay.number });
+          }
+          return next;
+        });
+      },
+      [editPlan, select],
+    ),
+
+    addExercise: useCallback(
+      async (name: string) => {
+        const target = resolveDay(resolveWeek(latest.current, selection), selection);
+        if (!target) return;
+        await editPlan((_program) => api.addExercise(target.id, { name }));
+      },
+      [editPlan, selection],
+    ),
+
+    /**
+     * Renames an exercise, or edits its protocol, note or video.
+     *
+     * Applied locally and sent, like a set: the values are already known, so
+     * waiting for a round trip to see your own typing would be silly.
+     */
+    updateExercise: useCallback(
+      (exerciseId: string, fields: ExerciseFields) => {
+        const current = latest.current;
+        const target = resolveDay(resolveWeek(current, selection), selection);
+        if (!current || !target) return;
+
+        const next = setExerciseFields(current, target.id, exerciseId, fields);
+        latest.current = next;
+        setProgram(next);
+
+        api.updateExercise(exerciseId, fields).catch((cause: unknown) => {
+          setError(
+            cause instanceof ApiError ? cause.message : 'No se ha podido guardar el ejercicio.',
+          );
+        });
+      },
+      [selection],
+    ),
+
+    moveExercise: useCallback(
+      async (exerciseId: string, offset: -1 | 1) => {
+        await editPlan(() => api.moveExercise(exerciseId, offset));
+      },
+      [editPlan],
+    ),
+
+    removeExercise: useCallback(
+      async (exerciseId: string) => {
+        await editPlan(() => api.removeExercise(exerciseId));
+      },
+      [editPlan],
+    ),
+
     deleteProgram,
     dismissError: useCallback(() => setError(null), []),
 
@@ -555,6 +673,24 @@ export function useProgram(): ProgramState {
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Names what the server refused, in the user's terms.
+ *
+ * Vague enough to be true — the queue holds ids, not exercise names — and
+ * specific enough to act on: it says which day to go and check.
+ */
+function describeRejected(operations: readonly PendingOperation[]): string {
+  const days = [...new Set(operations.map((operation) => operation.dayId))];
+  const count = operations.length;
+  const what = count === 1 ? 'Un cambio que hiciste' : `${count} cambios que hiciste`;
+  const verb = count === 1 ? 'se ha' : 'se han';
+
+  return (
+    `${what} sin conexión ${verb} rechazado al enviarlo y no ${verb} guardado. ` +
+    `Revisa ${days.length === 1 ? 'el día' : 'los días'} donde estabas entrenando y vuelve a anotarlo.`
+  );
+}
 
 function resolveWeek(program: Program | null, selection: Selection | null): Week | null {
   if (!program || program.weeks.length === 0) return null;

@@ -109,6 +109,35 @@ export function removeSet<T extends Program>(
   });
 }
 
+/** The plan fields of an exercise, as edited from the app. */
+export interface ExerciseFields {
+  name: string;
+  protocol: string | null;
+  comments: string | null;
+  video: string | null;
+}
+
+/**
+ * Rewrites an exercise's plan fields, leaving every logged set alone.
+ *
+ * Editing the plan must never touch the execution: renaming a movement does
+ * not unmake the sets performed under the old name.
+ */
+export function setExerciseFields<T extends Program>(
+  program: T,
+  dayId: string,
+  exerciseId: string,
+  fields: ExerciseFields,
+): T {
+  return mapExercise(program, dayId, exerciseId, (exercise) => ({
+    ...exercise,
+    name: fields.name,
+    protocol: fields.protocol,
+    comments: fields.comments,
+    video: fields.video,
+  }));
+}
+
 export function setDayNotes<T extends Program>(program: T, dayId: string, notes: string): T {
   return mapDay(program, dayId, (day) => ({ ...day, notes }));
 }

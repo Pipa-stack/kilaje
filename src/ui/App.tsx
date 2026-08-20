@@ -8,6 +8,7 @@ import { Icon } from './components/Icon';
 import { ImportScreen } from './components/ImportScreen';
 import { ProfileScreen } from './components/ProfileScreen';
 import { ProgressScreen } from './components/ProgressScreen';
+import { WeekManager } from './components/WeekManager';
 import { ResetPasswordScreen } from './components/ResetPasswordScreen';
 import { RestTimer } from './components/RestTimer';
 import { SettingsScreen } from './components/SettingsScreen';
@@ -113,7 +114,6 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
   const { program, week, day } = state;
   const dayIndex = week.days.findIndex((candidate) => candidate.number === day.number);
-  const nextWeekNumber = (program.weeks.at(-1)?.number ?? 0) + 1;
 
   const openDay = (dayNumber: number) => {
     state.selectDay(dayNumber);
@@ -169,48 +169,15 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
         </div>
 
         {tab !== 'settings' ? (
-          <nav aria-label="Semanas">
-            <ul data-no-swipe className="flex gap-2 overflow-x-auto pb-1">
-              {program.weeks.map((candidate) => (
-                <li key={candidate.number}>
-                  <button
-                    type="button"
-                    onClick={() => state.selectWeek(candidate.number)}
-                    aria-current={candidate.number === week.number ? 'true' : undefined}
-                    className={`min-h-11 whitespace-nowrap rounded-xl px-4 text-sm font-semibold ${
-                      candidate.number === week.number
-                        ? 'bg-iron-700 text-chalk'
-                        : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
-                    }`}
-                  >
-                    Semana {candidate.number}
-                  </button>
-                </li>
-              ))}
-
-              {/*
-                The workbook only ever contains the weeks whoever built it
-                happened to type out. Without this the plan simply ends, and
-                the only way to keep training was to edit the spreadsheet and
-                import it again.
-              */}
-              <li>
-                <button
-                  type="button"
-                  onClick={() => void state.addWeek()}
-                  disabled={state.addingWeek || state.offline}
-                  title={
-                    state.offline
-                      ? 'Necesitas conexión para empezar una semana nueva.'
-                      : `Copia el plan de la semana ${nextWeekNumber - 1} con los pesos en blanco`
-                  }
-                  className="min-h-11 whitespace-nowrap rounded-xl border border-dashed border-iron-700 px-4 text-sm font-semibold text-iron-400 hover:border-iron-600 hover:bg-iron-850 hover:text-iron-100 disabled:pointer-events-none disabled:opacity-40"
-                >
-                  {state.addingWeek ? 'Creando…' : `+ Semana ${nextWeekNumber}`}
-                </button>
-              </li>
-            </ul>
-          </nav>
+          <WeekManager
+            weeks={program.weeks}
+            currentWeek={week}
+            busy={state.addingWeek || state.editingPlan}
+            offline={state.offline}
+            onSelectWeek={state.selectWeek}
+            onAddWeek={({ copyWeights }) => void state.addWeek({ copyWeights })}
+            onDeleteWeek={(weekNumber) => void state.deleteWeek(weekNumber)}
+          />
         ) : null}
 
         {tab === 'day' ? (
@@ -263,11 +230,17 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
               onNotesChange={state.updateNotes}
               onToggleCompleted={state.toggleCompleted}
               onResetDay={state.resetDay}
+              editingPlan={state.editingPlan}
+              offline={state.offline}
+              onUpdateExercise={state.updateExercise}
+              onMoveExercise={(exerciseId, offset) => void state.moveExercise(exerciseId, offset)}
+              onRemoveExercise={(exerciseId) => void state.removeExercise(exerciseId)}
+              onAddExercise={(name) => void state.addExercise(name)}
             />
           </div>
         ) : null}
 
-        {tab === 'progress' ? <ProgressScreen week={week} /> : null}
+        {tab === 'progress' ? <ProgressScreen week={week} weeks={program.weeks} /> : null}
 
         {tab === 'settings' ? (
           <div className="space-y-4">

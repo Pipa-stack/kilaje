@@ -127,9 +127,69 @@ export async function importProgram(file: File): Promise<StoredProgram> {
  * plan can carry on past the weeks the workbook contained without re-importing
  * anything. Returns the program with the new week already in it.
  */
-export async function addWeek(programId: number): Promise<StoredProgram> {
+export async function addWeek(
+  programId: number,
+  options: { copyWeights?: boolean } = {},
+): Promise<StoredProgram> {
   const { program } = await callApi<{ program: StoredProgram }>(`/programs/${programId}/weeks`, {
+    ...json(options),
     method: 'POST',
+  });
+  return program;
+}
+
+/** Deletes a week. The server refuses if anything was logged against it. */
+export async function removeWeek(programId: number, weekNumber: number): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(
+    `/programs/${programId}/weeks/${weekNumber}`,
+    { method: 'DELETE' },
+  );
+  return program;
+}
+
+/* ------------------------------------------------------------------ */
+/* Editing the plan                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface ExerciseFields {
+  name: string;
+  protocol: string | null;
+  comments: string | null;
+  video: string | null;
+}
+
+export async function addExercise(
+  dayId: string,
+  input: { name: string; protocol?: string | null },
+): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(
+    `/days/${dayId}/exercises`,
+    json(input),
+  );
+  return program;
+}
+
+/**
+ * Renames an exercise or changes its protocol, note or video.
+ *
+ * Answers 204: the client already holds the values it just sent, so there is
+ * nothing to apply from the response.
+ */
+export async function updateExercise(exerciseId: string, fields: ExerciseFields): Promise<void> {
+  await callApi<void>(`/exercises/${exerciseId}`, { ...json(fields), method: 'PUT' });
+}
+
+export async function moveExercise(exerciseId: string, offset: -1 | 1): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(
+    `/exercises/${exerciseId}/move`,
+    json({ offset }),
+  );
+  return program;
+}
+
+export async function removeExercise(exerciseId: string): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(`/exercises/${exerciseId}`, {
+    method: 'DELETE',
   });
   return program;
 }

@@ -63,6 +63,70 @@ export const sessionPatchBody = z
     'Indica al menos "notes" o "completed"',
   );
 
+/** How a new week is started. */
+export const appendWeekBody = z
+  .object({
+    /** Carry last week's weights across, with the reps left blank. */
+    copyWeights: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * A video link typed into the app.
+ *
+ * Only absolute http(s) survives, exactly as in the parser: this string ends
+ * up in an `href`, and `javascript:` in a plan is a stored XSS.
+ */
+const videoUrl = z
+  .union([z.string().trim().max(2000), z.null()])
+  .transform((value) => (value === null || value === '' ? null : value))
+  .refine((value) => {
+    if (value === null) return true;
+    try {
+      const { protocol } = new URL(value);
+      return protocol === 'http:' || protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'El enlace del vídeo debe empezar por http:// o https://');
+
+const optionalText = (max: number) =>
+  z
+    .union([z.string().max(max), z.null()])
+    .transform((value) => (value === null || value.trim() === '' ? null : value.trim()));
+
+/**
+ * Every field, not just the ones being changed.
+ *
+ * The editor holds all of them, and requiring them keeps the UPDATE a fixed
+ * statement instead of one assembled from whatever the request contained.
+ */
+export const exerciseFieldsBody = z
+  .object({
+    name: z.string().trim().min(1, 'El ejercicio necesita un nombre').max(200),
+    protocol: optionalText(500),
+    comments: optionalText(500),
+    video: videoUrl,
+  })
+  .strict();
+
+/** A new exercise: same shape, but everything except the name may be omitted. */
+export const newExerciseBody = z
+  .object({
+    name: z.string().trim().min(1, 'El ejercicio necesita un nombre').max(200),
+    protocol: optionalText(500).optional(),
+    comments: optionalText(500).optional(),
+    video: videoUrl.optional(),
+  })
+  .strict();
+
+export const moveExerciseBody = z
+  .object({
+    /** One place up (-1) or down (1). Nothing else moves a list predictably. */
+    offset: z.union([z.literal(-1), z.literal(1)]),
+  })
+  .strict();
+
 /** Characters that must never survive into a filename we echo back. */
 const FORBIDDEN_FILENAME_CHARS = new Set(['<', '>', '"', "'", '`', '&', '\\', '/', ':', '|', '?', '*']);
 

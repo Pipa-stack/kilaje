@@ -8,7 +8,9 @@ import {
   dayVolume,
   epley1RM,
   exerciseProgress,
+  exerciseTrends,
   findNextDay,
+  volumeByWeek,
   volumeByDay,
   weekSummary,
   excelRound,
@@ -392,5 +394,62 @@ describe('formatVolume', () => {
     expect(formatVolume(0)).toBe('0 kg');
     expect(formatVolume(12480)).toBe('12480 kg');
     expect(formatVolume(1234.56)).toBe('1234.6 kg');
+  });
+});
+
+
+describe('across the whole mesocycle', () => {
+  function weekOf(number: number, exercises: Exercise[], completed = false): Week {
+    return {
+      number,
+      sheetName: `Semana ${number}`,
+      days: [{ ...day(exercises), id: `w${number}:d1`, number: 1, completed }],
+    };
+  }
+
+  const bench = (weight: number, reps: number) =>
+    exercise({ name: 'PRESS DE BANCA', currentWeek: [set(weight, reps), ...emptySets(3)] });
+
+  it('reports volume week by week, each against the one before', () => {
+    const weeks = [weekOf(1, [bench(100, 10)], true), weekOf(2, [bench(110, 10)])];
+
+    expect(volumeByWeek(weeks)).toEqual([
+      { number: 1, volume: 1000, completedDays: 1, totalDays: 1, changePercent: null },
+      { number: 2, volume: 1100, completedDays: 0, totalDays: 1, changePercent: 10 },
+    ]);
+  });
+
+  it('follows an exercise across weeks by name, since each week has its own ids', () => {
+    const weeks = [weekOf(1, [bench(100, 10)]), weekOf(2, [bench(110, 8)])];
+    const [trend] = exerciseTrends(weeks);
+
+    expect(trend?.name).toBe('PRESS DE BANCA');
+    expect(trend?.points.map((point) => point.weekNumber)).toEqual([1, 2]);
+    expect(trend?.points.map((point) => point.topWeight)).toEqual([100, 110]);
+    expect(trend?.latestTopWeight).toBe(110);
+    expect(trend?.weightGain).toBe(10);
+  });
+
+  it('skips weeks with nothing logged rather than plotting them as zero', () => {
+    // A block half-trained must not read as a collapse in load.
+    const weeks = [
+      weekOf(1, [bench(100, 10)]),
+      weekOf(2, [exercise({ name: 'PRESS DE BANCA' })]),
+      weekOf(3, [bench(120, 6)]),
+    ];
+    const [trend] = exerciseTrends(weeks);
+
+    expect(trend?.points.map((point) => point.weekNumber)).toEqual([1, 3]);
+    expect(trend?.weightGain).toBe(20);
+  });
+
+  it('has no gain to report from a single week', () => {
+    const [trend] = exerciseTrends([weekOf(1, [bench(100, 10)])]);
+    expect(trend?.weightGain).toBeNull();
+  });
+
+  it('ignores exercises that were never named', () => {
+    const weeks = [weekOf(1, [exercise({ name: '  ', currentWeek: [set(50, 10), ...emptySets(3)] })])];
+    expect(exerciseTrends(weeks)).toEqual([]);
   });
 });

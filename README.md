@@ -277,6 +277,11 @@ Las restricciones `CHECK` de la base de datos son la segunda barrera, no la prim
 | `GET` | `/api/programs/:id` | Un programa completo: semanas, días, ejercicios y series |
 | `POST` | `/api/programs` | Importa un `.xlsx` (bytes en crudo, `?filename=`) |
 | `POST` | `/api/programs/:id/weeks` | Empieza la semana siguiente: clona el plan de la última, con las series en blanco |
+| `DELETE` | `/api/programs/:id/weeks/:n` | Borra una semana. Se niega si tiene entrenamiento anotado |
+| `POST` | `/api/days/:dayId/exercises` | Añade un ejercicio al día |
+| `PUT` | `/api/exercises/:id` | Nombre, protocolo, nota y vídeo de un ejercicio |
+| `POST` | `/api/exercises/:id/move` | Sube o baja un ejercicio dentro de su día |
+| `DELETE` | `/api/exercises/:id` | Quita un ejercicio y las series anotadas en él |
 | `DELETE` | `/api/programs/:id` | Borra un programa y todo lo entrenado en él |
 | `PUT` | `/api/days/:dayId/sets` | Guarda una serie (`exerciseId`, `setIndex`, peso, reps, RIR) |
 | `DELETE` | `/api/days/:dayId/sets` | Elimina una serie |
@@ -301,6 +306,14 @@ npm run db:migrate            # crea el esquema
 npm run db:seed               # opcional: importa Ejemplo/ejemplo.xlsx
 npm run db:seed:demo          # opcional: cuenta de prueba, e imprime sus credenciales
 ```
+
+### Cuando el servidor rechaza algo anotado sin conexión
+
+La cola offline reintenta lo que no pudo enviarse. Si el servidor lo rechaza por lo que es
+—un 4xx: el día ya no existe, el valor está fuera de rango— reintentarlo eternamente solo
+taponaría la cola detrás, así que se descarta. Descartarlo **en silencio** era el problema:
+esa serie se anotó en un sótano sin cobertura, no existe en ningún otro sitio, y la persona
+tenía todos los motivos para creerla guardada. Ahora la app lo dice y señala dónde mirar.
 
 ### La cuenta de prueba
 
@@ -451,13 +464,52 @@ tecleó primero. Sin esto el volumen y el 1RM de ese ejercicio salían disparado
 ### Seguir después de la última semana del Excel
 
 El libro solo tiene las semanas que quien lo hizo se molestó en escribir. Cuando se
-acaban, el botón **+ Semana N** de la barra de semanas crea la siguiente sin salir de la
-app: mismos días, mismos ejercicios, mismos protocolos y vídeos, con las series vacías.
-Lo que se levantó en la semana copiada pasa a ser la referencia «semana anterior» de la
-nueva — lo que la plantilla te obligaba a copiar y pegar a mano.
+acaban, **Gestionar semanas** crea la siguiente sin salir de la app: mismos días, mismos
+ejercicios, mismos protocolos y vídeos. Lo que se levantó en la semana copiada pasa a ser
+la referencia «semana anterior» de la nueva — lo que la plantilla te obligaba a copiar y
+pegar a mano.
+
+Se empieza de dos maneras:
+
+- **En blanco**, con todas las series vacías.
+- **Con los pesos de la semana anterior** ya puestos, para ajustarlos en vez de teclearlos.
+  Se copia el peso y **no** las repeticiones: las reps son lo que convierte una serie en
+  trabajo, así que el volumen, el 1RM y el contador de sesiones siguen a cero hasta que
+  anotes lo que hiciste de verdad. Copiarlas también sería que la app se apuntara un
+  entrenamiento que nadie hizo.
+
+Una semana se puede borrar, pero solo si nadie la ha entrenado: una serie, una nota o el
+día marcado como completado y el servidor se niega en vez de arrastrarlo todo en el
+`CASCADE`. El botón que crea una semana es un toque, y un toque no puede borrar una
+sesión. La última semana que queda tampoco se borra: un programa sin semanas se lee como
+vacío y tira la app a la pantalla de importar.
+
+Crear la misma semana dos veces a la vez —dos pestañas, un reintento— la crea una sola:
+el índice único `(program_id, number)` para la segunda, y la petición que pierde devuelve
+la semana en lugar de un 500.
 
 Las semanas ya entrenadas no se tocan: el plan se clona, la ejecución no. Se para en 52
 semanas por programa.
+
+### Editar el plan, no solo lo levantado
+
+Mientras un programa era una foto de una semana de Excel, tenía sentido que el plan fuera
+de solo lectura. En cuanto las semanas se crean dentro de la app, el plan es algo vivo:
+**Editar el plan de este día** permite renombrar un ejercicio, cambiar su protocolo,
+reordenarlo, quitarlo y añadir el que sí hiciste.
+
+Es un modo aparte, no botones en cada tarjeta: la pantalla de entrenar se usa con una mano
+entre series, y un botón de borrar al lado de un input de peso está a un roce de perder la
+sesión. Quitar un ejercicio se lleva sus series por delante, así que el aviso dice cuántas.
+
+### Cómo va el bloque
+
+`Progreso` tiene tres vistas: **Esta semana** (lo de siempre), **Semanas** —volumen semana
+a semana y el peso tope de cada ejercicio en cada una— y **Histórico**, que cruza
+programas. La del medio solo tiene sentido desde que un mesociclo cabe entero en un
+programa. Los ejercicios se siguen **por nombre**, porque cada semana tiene su propia copia
+del plan y por tanto ids distintos; una semana sin anotar no aparece como cero, sino que no
+aparece.
 
 ### Las fórmulas
 

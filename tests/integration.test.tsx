@@ -240,6 +240,17 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     expect(await screen.findByRole('heading', { name: /Día 4\s*UPPER/ })).toBeInTheDocument();
   }, 90_000);
 
+  /**
+   * Opens the week panel, which is collapsed until asked for.
+   *
+   * Idempotent: the trigger is a toggle, and a second click on an already open
+   * panel would close it again.
+   */
+  async function openWeekPanel(user: ReturnType<typeof userEvent.setup>) {
+    const toggle = await screen.findByRole('button', { name: 'Gestionar semanas' }, WAIT);
+    if (toggle.getAttribute('aria-expanded') !== 'true') await user.click(toggle);
+  }
+
   it('starts the next week from inside the app, with the weights to fill in again', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -248,7 +259,8 @@ describe('the full training flow, persisted in PostgreSQL', () => {
 
     // The workbook carries a single week; the plan must not end there.
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
-    await user.click(screen.getByRole('button', { name: '+ Semana 2' }));
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: /Empezar la semana 2 en blanco/ }));
 
     await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
     await openDay(user, 1);
@@ -266,6 +278,161 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     const stored = await latestProgram();
     expect(stored?.weeks.map((week) => week.number)).toEqual([1, 2]);
     expect(stored?.weeks[0]?.days[0]?.exercises[0]?.currentWeek[0]?.weight).toBe(82.5);
+  }, 90_000);
+
+  it('can start the week with last week\u2019s weights already in the boxes', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: /con los pesos de la 1/ }));
+
+    await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
+    await openDay(user, 1);
+
+    // The weight is there to adjust; the reps are not, so nothing counts as
+    // trained until the person says what they did.
+    expect(screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`))).toHaveValue('82.5');
+    expect(screen.getByLabelText(new RegExp(`Repeticiones de la serie 1 de ${BENCH}`))).toHaveValue('');
+
+    const card = screen.getByRole('heading', { name: BENCH }).closest('article');
+    expect(within(card!).getByText('Volumen').nextSibling).toHaveTextContent('—');
+  }, 90_000);
+
+  it('deletes a week nobody trained, and refuses one that was', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+
+    await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: /Empezar la semana 2 en blanco/ }));
+    await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
+
+    // An empty week goes without argument.
+    const confirmed = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: 'Borrar la semana 2' }));
+
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      expect(stored?.weeks).toHaveLength(1);
+    }, WAIT);
+
+    // Now train week 2 and try again: the session must survive the tap.
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: /Empezar la semana 2 en blanco/ }));
+    await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
+    await openDay(user, 1);
+    await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`)), '70');
+
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      expect(stored?.weeks[1]?.days[0]?.exercises[0]?.currentWeek[0]?.weight).toBe(70);
+    }, WAIT);
+
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: 'Borrar la semana 2' }));
+
+    expect(await screen.findByText(/tiene entrenamiento anotado/i, {}, WAIT)).toBeInTheDocument();
+    const stored = await latestProgram();
+    expect(stored?.weeks).toHaveLength(2);
+    confirmed.mockRestore();
+  }, 90_000);
+
+  it('edits the plan of a day: rename, reorder, add and remove', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+    await openDay(user, 1);
+
+    const before = await latestProgram();
+    const second = before?.weeks[0]?.days[0]?.exercises[1]?.name;
+
+    await user.click(screen.getByRole('button', { name: 'Editar el plan de este día' }));
+
+    // Rename the first exercise. The write goes out on blur, not per letter.
+    const name = screen.getByLabelText(/Nombre del ejercicio 1$/);
+    await user.clear(name);
+    await user.type(name, 'PRESS INCLINADO CON MANCUERNAS');
+    await user.tab();
+
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      expect(stored?.weeks[0]?.days[0]?.exercises[0]?.name).toBe('PRESS INCLINADO CON MANCUERNAS');
+    }, WAIT);
+
+    // Reorder: the second exercise moves up.
+    await user.click(screen.getByRole('button', { name: `Subir ${second}` }));
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      expect(stored?.weeks[0]?.days[0]?.exercises[0]?.name).toBe(second);
+    }, WAIT);
+
+    // Add one that was not in the spreadsheet.
+    await user.type(screen.getByLabelText('Nombre del ejercicio nuevo'), 'FACE PULL');
+    await user.click(screen.getByRole('button', { name: 'Añadir' }));
+
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      const names = stored?.weeks[0]?.days[0]?.exercises.map((exercise) => exercise.name);
+      expect(names).toContain('FACE PULL');
+    }, WAIT);
+
+    // And remove it again — the button inside that exercise's row, not any
+    // of the six others.
+    const confirmed = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const row = screen.getByDisplayValue('FACE PULL').closest('li');
+    await user.click(within(row!).getByRole('button', { name: /Quitar del plan/ }));
+    await waitFor(async () => {
+      const stored = await latestProgram();
+      const names = stored?.weeks[0]?.days[0]?.exercises.map((exercise) => exercise.name);
+      // Back to the seven the spreadsheet had, minus nothing: the added one
+      // is gone and no imported exercise went with it.
+      expect(names).toHaveLength(7);
+      expect(names).not.toContain('FACE PULL');
+    }, WAIT);
+    confirmed.mockRestore();
+
+    // Back to training, with the plan as edited.
+    await user.click(screen.getByRole('button', { name: 'Hecho' }));
+    expect(screen.getByRole('heading', { name: 'PRESS INCLINADO CON MANCUERNAS' })).toBeInTheDocument();
+  }, 90_000);
+
+  it('shows how the block is going, week by week', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+
+    await openWeekPanel(user);
+    await user.click(screen.getByRole('button', { name: /Empezar la semana 2 en blanco/ }));
+    await screen.findByRole('heading', { name: /Semana 2/ }, WAIT);
+    await openDay(user, 1);
+    await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 1 de ${BENCH}`)), '90');
+    await user.type(screen.getByLabelText(new RegExp(`Repeticiones de la serie 1 de ${BENCH}`)), '5');
+
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('button', {
+        name: /Progreso/,
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Semanas' }));
+
+    // Both weeks are listed, and the exercise carries its top weight per week.
+    const block = await screen.findByRole('region', { name: /Volumen por semana/i }, WAIT);
+    expect(within(block).getByText('Semana 1')).toBeInTheDocument();
+    expect(within(block).getByText('Semana 2')).toBeInTheDocument();
+
+    const trends = screen.getByRole('region', { name: /Cada ejercicio/i });
+    expect(within(trends).getByText(BENCH)).toBeInTheDocument();
+    expect(within(trends).getByText('90 kg')).toBeInTheDocument();
+    expect(within(trends).getByText('82.5 kg')).toBeInTheDocument();
   }, 90_000);
 
   it('adds a set beyond the template and persists it', async () => {
@@ -464,6 +631,62 @@ describe('offline behaviour', () => {
       expect(screen.getByRole('heading', { name: BENCH })).toBeInTheDocument();
     } finally {
       globalThis.fetch = working;
+    }
+  }, 90_000);
+
+  it('says so when a write made offline is rejected instead of losing it quietly', async () => {
+    const user = userEvent.setup();
+    const app = render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+    await openDay(user, 1);
+    await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
+    app.unmount();
+
+    // Offline: the set is typed, shown, cached and queued.
+    const working = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError('network down'))) as typeof fetch;
+    try {
+      render(<App />);
+      await openDay(user, 1);
+      await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`)), '85');
+      await waitFor(() => {
+        expect(JSON.parse(localStorage.getItem('kilaje.outbox.v1') ?? '[]')).toHaveLength(1);
+      }, WAIT);
+    } finally {
+      globalThis.fetch = working;
+    }
+
+    // The connection comes back, but the server refuses that write on its
+    // merits. Before, the entry was dropped in silence and the person kept
+    // believing the set was saved.
+    const rejecting = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input);
+      if (url.includes('/sets') && init?.method === 'PUT') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'Datos inválidos.' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return working(input as RequestInfo, init);
+    }) as typeof fetch;
+
+    const restore = globalThis.fetch;
+    globalThis.fetch = rejecting;
+    try {
+      render(<App />);
+      expect(
+        await screen.findByText(/se ha rechazado al enviarlo y no se ha guardado/i, {}, WAIT),
+      ).toBeInTheDocument();
+
+      // And it is out of the queue rather than retried forever.
+      await waitFor(() => {
+        expect(JSON.parse(localStorage.getItem('kilaje.outbox.v1') ?? '[]')).toHaveLength(0);
+      }, WAIT);
+    } finally {
+      globalThis.fetch = restore;
     }
   }, 90_000);
 });

@@ -10,18 +10,21 @@ import {
 import type { Week } from '../../domain/types';
 import { HistoryScreen } from './HistoryScreen';
 import { Icon } from './Icon';
+import { MesocycleProgress } from './MesocycleProgress';
 
 interface ProgressScreenProps {
   week: Week;
+  /** Every week of the program, for the block view. */
+  weeks: Week[];
 }
 
-type View = 'week' | 'history';
+type View = 'week' | 'mesocycle' | 'history';
 
 /**
- * Two questions, two views: how this week is going, and whether the numbers
- * are moving across programs.
+ * Three questions, three views: how this week is going, whether the block is
+ * working, and whether the numbers move across programs.
  */
-export function ProgressScreen({ week }: ProgressScreenProps) {
+export function ProgressScreen({ week, weeks }: ProgressScreenProps) {
   const [view, setView] = useState<View>('week');
 
   return (
@@ -29,6 +32,7 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
       <div role="group" aria-label="Periodo" className="flex gap-2">
         {([
           { id: 'week' as const, label: 'Esta semana' },
+          { id: 'mesocycle' as const, label: 'Semanas' },
           { id: 'history' as const, label: 'Histórico' },
         ]).map((option) => (
           <button
@@ -47,13 +51,15 @@ export function ProgressScreen({ week }: ProgressScreenProps) {
         ))}
       </div>
 
-      {view === 'week' ? <WeekProgress week={week} /> : <HistoryScreen />}
+      {view === 'week' ? <WeekProgress week={week} /> : null}
+      {view === 'mesocycle' ? <MesocycleProgress weeks={weeks} /> : null}
+      {view === 'history' ? <HistoryScreen /> : null}
     </div>
   );
 }
 
 /** What the week actually produced: volume per session and per exercise. */
-function WeekProgress({ week }: ProgressScreenProps) {
+function WeekProgress({ week }: { week: Week }) {
   const summary = weekSummary(week);
   const days = volumeByDay(week);
   const exercises = exerciseProgress(week);

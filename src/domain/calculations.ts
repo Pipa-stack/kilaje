@@ -279,6 +279,114 @@ export function exerciseProgress(week: Week): ExerciseProgressRow[] {
   return rows.sort((a, b) => b.volume - a.volume);
 }
 
+/* ------------------------------------------------------------------ */
+/* Across the whole mesocycle                                          */
+/* ------------------------------------------------------------------ */
+
+export interface WeekVolumeRow {
+  number: number;
+  volume: number;
+  completedDays: number;
+  totalDays: number;
+  /** Change against the week before it, or `null` for the first one. */
+  changePercent: number | null;
+}
+
+/**
+ * Volume week by week.
+ *
+ * While a program was one imported week this had nothing to compare; now that
+ * weeks are created inside the app, this is the shape of a mesocycle — whether
+ * the load is climbing, flat, or quietly falling off.
+ */
+export function volumeByWeek(weeks: readonly Week[]): WeekVolumeRow[] {
+  return weeks.map((week, index) => {
+    const volume = weekVolume(week);
+    const earlier = index > 0 ? weeks[index - 1] : undefined;
+
+    return {
+      number: week.number,
+      volume,
+      completedDays: week.days.filter((day) => day.completed).length,
+      totalDays: week.days.length,
+      changePercent: earlier ? volumeChangePercent(volume, weekVolume(earlier)) : null,
+    };
+  });
+}
+
+export interface TrendPoint {
+  weekNumber: number;
+  volume: number;
+  /** Heaviest weight moved for at least one rep that week. */
+  topWeight: number | null;
+  oneRepMax: number | null;
+}
+
+export interface ExerciseTrend {
+  name: string;
+  points: TrendPoint[];
+  /** Top weight in the most recent week that has one. */
+  latestTopWeight: number | null;
+  /** Change in top weight between the first and last week with data, in kg. */
+  weightGain: number | null;
+}
+
+/**
+ * One row per exercise, tracked across every week of the program.
+ *
+ * Matched by name rather than by id: each week holds its own copy of the plan,
+ * so the same movement has a different id in every week. Names come from the
+ * spreadsheet and are stable in practice — the same string is what a person
+ * would call the same lift.
+ *
+ * Only weeks with something logged become points; an untrained week is absent
+ * rather than a zero, so a mesocycle in progress does not read as a collapse.
+ */
+export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
+  const byName = new Map<string, TrendPoint[]>();
+
+  for (const week of weeks) {
+    for (const day of week.days) {
+      for (const exercise of day.exercises) {
+        const name = exercise.name.trim();
+        if (name === '' || loggedSetCount(exercise.currentWeek) === 0) continue;
+
+        const weights = exercise.currentWeek
+          .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
+          .map((set) => set.weight as number);
+
+        const points = byName.get(name) ?? [];
+        points.push({
+          weekNumber: week.number,
+          volume: exerciseVolume(exercise.currentWeek),
+          topWeight: weights.length > 0 ? Math.max(...weights) : null,
+          oneRepMax: exercise1RM(exercise),
+        });
+        byName.set(name, points);
+      }
+    }
+  }
+
+  const trends: ExerciseTrend[] = [];
+
+  for (const [name, points] of byName) {
+    points.sort((a, b) => a.weekNumber - b.weekNumber);
+    const withWeight = points.filter((point) => point.topWeight !== null);
+    const first = withWeight[0]?.topWeight ?? null;
+    const last = withWeight.at(-1)?.topWeight ?? null;
+
+    trends.push({
+      name,
+      points,
+      latestTopWeight: last,
+      weightGain: first !== null && last !== null && withWeight.length > 1 ? excelRound(last - first, 1) : null,
+    });
+  }
+
+  // Most weeks trained first: those are the ones a progression is real for.
+  return trends.sort((a, b) => b.points.length - a.points.length || a.name.localeCompare(b.name));
+}
+
 export interface DayVolumeRow {
   dayNumber: number;
   type: string | null;

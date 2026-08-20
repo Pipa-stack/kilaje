@@ -148,6 +148,23 @@ export function createAuthIpLimiter() {
   });
 }
 
+/**
+ * Structural writes: creating and deleting weeks, editing the plan.
+ *
+ * Cloning a week inserts a row per day, per exercise and per reference set, so
+ * a loop of these is a cheap way to make the database do a lot of work. The
+ * 52-week ceiling bounds one program; nothing bounds how many programs a
+ * client can hammer at once. Loose enough that a person reorganising their
+ * plan never meets it.
+ */
+export function createPlanLimiter() {
+  return rateLimit({
+    max: 200,
+    windowMs: 60 * 60 * 1000,
+    message: 'Demasiados cambios seguidos en el plan. Prueba dentro de un rato.',
+  });
+}
+
 /** Parsing a spreadsheet is the most expensive request the server serves. */
 export function createImportLimiter() {
   return rateLimit({

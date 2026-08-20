@@ -5,10 +5,13 @@ import {
   formatVolume,
   volumeChangePercent,
 } from '../../domain/calculations';
-import type { SetPatch } from '../../domain/mutations';
+import { useState } from 'react';
+
+import type { ExerciseFields, SetPatch } from '../../domain/mutations';
 import type { Day } from '../../domain/types';
 import { ExerciseCard } from './ExerciseCard';
 import { Icon } from './Icon';
+import { PlanEditor } from './PlanEditor';
 
 interface DayViewProps {
   day: Day;
@@ -21,6 +24,13 @@ interface DayViewProps {
   onNotesChange: (notes: string) => void;
   onToggleCompleted: () => void;
   onResetDay: () => void;
+  /** True while a structural edit to the plan is in flight. */
+  editingPlan: boolean;
+  offline: boolean;
+  onUpdateExercise: (exerciseId: string, fields: ExerciseFields) => void;
+  onMoveExercise: (exerciseId: string, offset: -1 | 1) => void;
+  onRemoveExercise: (exerciseId: string) => void;
+  onAddExercise: (name: string) => void;
 }
 
 export function DayView({
@@ -34,7 +44,14 @@ export function DayView({
   onNotesChange,
   onToggleCompleted,
   onResetDay,
+  editingPlan,
+  offline,
+  onUpdateExercise,
+  onMoveExercise,
+  onRemoveExercise,
+  onAddExercise,
 }: DayViewProps) {
+  const [editing, setEditing] = useState(false);
   const volume = dayVolume(day);
   const previousVolume = dayPreviousVolume(day);
   const change = volumeChangePercent(volume, previousVolume);
@@ -98,18 +115,41 @@ export function DayView({
         </div>
       </section>
 
-      <ol className="space-y-4">
-        {day.exercises.map((exercise) => (
-          <li key={exercise.id}>
-            <ExerciseCard
-              exercise={exercise}
-              onUpdateSet={onUpdateSet}
-              onAddSet={onAddSet}
-              onRemoveSet={onRemoveSet}
-            />
-          </li>
-        ))}
-      </ol>
+      {editing ? (
+        <PlanEditor
+          day={day}
+          busy={editingPlan}
+          offline={offline}
+          onUpdate={onUpdateExercise}
+          onMove={onMoveExercise}
+          onRemove={onRemoveExercise}
+          onAdd={onAddExercise}
+          onClose={() => setEditing(false)}
+        />
+      ) : (
+        <>
+          <ol className="space-y-4">
+            {day.exercises.map((exercise) => (
+              <li key={exercise.id}>
+                <ExerciseCard
+                  exercise={exercise}
+                  onUpdateSet={onUpdateSet}
+                  onAddSet={onAddSet}
+                  onRemoveSet={onRemoveSet}
+                />
+              </li>
+            ))}
+          </ol>
+
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="min-h-11 w-full rounded-xl border border-dashed border-iron-700 text-sm font-semibold text-iron-400 hover:border-iron-600 hover:bg-iron-850 hover:text-iron-100"
+          >
+            Editar el plan de este día
+          </button>
+        </>
+      )}
 
       <section className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <label htmlFor={`${day.id}-notes`} className="mb-2 block font-semibold text-chalk">
