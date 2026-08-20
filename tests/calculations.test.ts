@@ -35,6 +35,7 @@ function set(weight: number | null, reps: number | null, rir: number | null = nu
 function exercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: 'w1:d1:e1',
+    lineage: 'd1:e1',
     number: 1,
     name: 'PRESS DE BANCA',
     video: null,
@@ -213,9 +214,23 @@ describe('progress helpers', () => {
     expect(loggedSetCount([set(80, 10), set(null, 8), set(null, null)])).toBe(2);
   });
 
-  it('reports an exercise as started once any set has data', () => {
+  it('reports an exercise as started once a set has been worked', () => {
     expect(isExerciseStarted(exercise())).toBe(false);
-    expect(isExerciseStarted(exercise({ currentWeek: [set(80, null), ...emptySets(3)] }))).toBe(true);
+    expect(isExerciseStarted(exercise({ currentWeek: [set(80, 8), ...emptySets(3)] }))).toBe(true);
+    // Reps with no weight is a bodyweight set, and it is still training.
+    expect(isExerciseStarted(exercise({ currentWeek: [set(null, 8), ...emptySets(3)] }))).toBe(true);
+  });
+
+  it('does not call a bare weight training', () => {
+    // This is what starting a week from last week's loads pre-fills, and what
+    // sits in the box between typing the weight and typing the reps. Counting
+    // it made an untrained week show up as trained everywhere: in the day
+    // progress bar, in the trends, and as the "semana anterior" the next week
+    // was told to beat.
+    expect(isExerciseStarted(exercise({ currentWeek: [set(80, null), ...emptySets(3)] }))).toBe(
+      false,
+    );
+    expect(loggedSetCount([set(80, null), set(80, 5)])).toBe(1);
   });
 
   it('reports day progress', () => {
@@ -441,6 +456,44 @@ describe('across the whole mesocycle', () => {
 
     expect(trend?.points.map((point) => point.weekNumber)).toEqual([1, 3]);
     expect(trend?.weightGain).toBe(20);
+  });
+
+  it('survives a rename, because it follows the lineage and not the name', () => {
+    // The whole reason lineage exists: tidying a name in week 3 used to split
+    // one progression into two lines and throw the trend away.
+    const weeks = [
+      weekOf(1, [bench(100, 10)]),
+      weekOf(2, [
+        exercise({
+          name: 'PRESS BANCA',
+          lineage: 'd1:e1',
+          currentWeek: [set(110, 8), ...emptySets(3)],
+        }),
+      ]),
+    ];
+
+    const trends = exerciseTrends(weeks);
+    expect(trends).toHaveLength(1);
+    expect(trends[0]?.points.map((point) => point.topWeight)).toEqual([100, 110]);
+    // Labelled with what the person calls it now.
+    expect(trends[0]?.name).toBe('PRESS BANCA');
+    expect(trends[0]?.weightGain).toBe(10);
+  });
+
+  it('keeps two different movements apart even when they share a name', () => {
+    const weeks = [
+      weekOf(1, [
+        bench(100, 10),
+        exercise({
+          id: 'w1:d1:e2',
+          lineage: 'd1:e2',
+          number: 2,
+          currentWeek: [set(60, 10), ...emptySets(3)],
+        }),
+      ]),
+    ];
+
+    expect(exerciseTrends(weeks)).toHaveLength(2);
   });
 
   it('has no gain to report from a single week', () => {

@@ -85,7 +85,15 @@ async function requestReset(email = 'ana@ejemplo.com'): Promise<string | null> {
   await waitFor(() => sent.length > before);
 
   const link = sent.at(-1)?.text.match(/https:\/\/\S+/)?.[0];
-  return link ? new URL(link).searchParams.get('reset') : null;
+  if (!link) return null;
+
+  // The token rides in the fragment, not the query string: a fragment is never
+  // sent to a server, so it never lands in an access log where it could be
+  // replayed for the hour it stays valid.
+  const { hash, searchParams } = new URL(link);
+  return (
+    new URLSearchParams(hash.slice(1)).get('reset') ?? searchParams.get('reset')
+  );
 }
 
 describe('asking for a reset', () => {
@@ -204,12 +212,12 @@ describe('the email itself', () => {
   it('carries the link in both plain text and HTML', () => {
     const email = buildResetEmail({
       to: 'ana@ejemplo.com',
-      link: 'https://kilaje.test/?reset=abc',
+      link: 'https://kilaje.test/#reset=abc',
       minutesValid: 60,
     });
     // Some clients render only one of the two; a blank reset mail is a lockout.
-    expect(email.text).toContain('https://kilaje.test/?reset=abc');
-    expect(email.html).toContain('https://kilaje.test/?reset=abc');
+    expect(email.text).toContain('https://kilaje.test/#reset=abc');
+    expect(email.html).toContain('https://kilaje.test/#reset=abc');
     expect(email.text).toContain('60');
   });
 

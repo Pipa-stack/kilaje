@@ -5,7 +5,7 @@ import { ApiError } from '../../api/client';
 import { MIN_PASSWORD_LENGTH } from '../../domain/upload';
 
 interface ResetPasswordScreenProps {
-  /** Taken from `?reset=` in the link the email carried. */
+  /** Taken from `#reset=` in the link the email carried. */
   token: string;
   /** Called once the password is set, to return to a clean sign-in. */
   onDone: () => void;

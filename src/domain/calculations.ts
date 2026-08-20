@@ -7,7 +7,7 @@
  * decision for the user.
  */
 
-import type { Day, Exercise, SetEntry, Week } from './types';
+import { isSetWorked, type Day, type Exercise, type SetEntry, type Week } from './types';
 
 /**
  * Excel's ROUND, which rounds half **away from zero**.
@@ -114,9 +114,14 @@ export function parseProtocolSetCount(protocol: string | null): number | null {
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 
-/** Sets with at least a weight or a rep recorded. */
+/**
+ * Sets that count as work performed — see {@link isSetWorked}.
+ *
+ * A weight with no reps does not count. This is what keeps a week started from
+ * last week's loads out of every total until it is actually trained.
+ */
 export function loggedSetCount(sets: readonly SetEntry[]): number {
-  return sets.filter((set) => set.weight !== null || set.reps !== null).length;
+  return sets.filter(isSetWorked).length;
 }
 
 /** An exercise counts as started once any set has data. */
@@ -309,7 +314,10 @@ export function volumeByWeek(weeks: readonly Week[]): WeekVolumeRow[] {
       volume,
       completedDays: week.days.filter((day) => day.completed).length,
       totalDays: week.days.length,
-      changePercent: earlier ? volumeChangePercent(volume, weekVolume(earlier)) : null,
+      // A week you have not trained yet is not a 100% drop in training. It
+      // read as one the moment you created it, in alarming amber.
+      changePercent:
+        earlier && volume > 0 ? volumeChangePercent(volume, weekVolume(earlier)) : null,
     };
   });
 }
@@ -323,6 +331,8 @@ export interface TrendPoint {
 }
 
 export interface ExerciseTrend {
+  /** The lineage these points share. Unique, unlike the name. */
+  key: string;
   name: string;
   points: TrendPoint[];
   /** Top weight in the most recent week that has one. */
@@ -334,16 +344,19 @@ export interface ExerciseTrend {
 /**
  * One row per exercise, tracked across every week of the program.
  *
- * Matched by name rather than by id: each week holds its own copy of the plan,
- * so the same movement has a different id in every week. Names come from the
- * spreadsheet and are stable in practice — the same string is what a person
- * would call the same lift.
+ * Grouped by `lineage`, not by name and not by id. Each week holds its own copy
+ * of the plan, so ids differ every week; and names can be edited from the app,
+ * so grouping by name turned one renamed exercise into two lines and threw
+ * away the progression it had taken the whole block to build.
+ *
+ * The label is the most recent name, since that is what the person now calls
+ * the lift.
  *
  * Only weeks with something logged become points; an untrained week is absent
  * rather than a zero, so a mesocycle in progress does not read as a collapse.
  */
 export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
-  const byName = new Map<string, TrendPoint[]>();
+  const byLineage = new Map<string, { name: string; points: TrendPoint[] }>();
 
   for (const week of weeks) {
     for (const day of week.days) {
@@ -355,27 +368,42 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
           .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
           .map((set) => set.weight as number);
 
-        const points = byName.get(name) ?? [];
-        points.push({
-          weekNumber: week.number,
-          volume: exerciseVolume(exercise.currentWeek),
-          topWeight: weights.length > 0 ? Math.max(...weights) : null,
-          oneRepMax: exercise1RM(exercise),
-        });
-        byName.set(name, points);
+        const entry = byLineage.get(exercise.lineage) ?? { name, points: [] };
+        // Weeks arrive in order, so the last one to write wins the label.
+        entry.name = name;
+
+        const volume = exerciseVolume(exercise.currentWeek);
+        const topWeight = weights.length > 0 ? Math.max(...weights) : null;
+        const oneRepMax = exercise1RM(exercise);
+
+        // One point per week, never one per occurrence. An upper/lower split
+        // hits the same movement twice a week, and two entries for one week
+        // gave the list duplicate keys and let `weightGain` report a
+        // progression measured between two sessions of the same Monday.
+        const existing = entry.points.find((point) => point.weekNumber === week.number);
+        if (existing) {
+          existing.volume += volume;
+          existing.topWeight = maxOrNull(existing.topWeight, topWeight);
+          existing.oneRepMax = maxOrNull(existing.oneRepMax, oneRepMax);
+        } else {
+          entry.points.push({ weekNumber: week.number, volume, topWeight, oneRepMax });
+        }
+
+        byLineage.set(exercise.lineage, entry);
       }
     }
   }
 
   const trends: ExerciseTrend[] = [];
 
-  for (const [name, points] of byName) {
+  for (const [key, { name, points }] of byLineage) {
     points.sort((a, b) => a.weekNumber - b.weekNumber);
     const withWeight = points.filter((point) => point.topWeight !== null);
     const first = withWeight[0]?.topWeight ?? null;
     const last = withWeight.at(-1)?.topWeight ?? null;
 
     trends.push({
+      key,
       name,
       points,
       latestTopWeight: last,
@@ -385,6 +413,12 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
 
   // Most weeks trained first: those are the ones a progression is real for.
   return trends.sort((a, b) => b.points.length - a.points.length || a.name.localeCompare(b.name));
+}
+
+function maxOrNull(left: number | null, right: number | null): number | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return Math.max(left, right);
 }
 
 export interface DayVolumeRow {

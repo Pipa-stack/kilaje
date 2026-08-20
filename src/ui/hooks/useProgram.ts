@@ -90,6 +90,8 @@ export interface ProgramState {
   offline: boolean;
   /** How many edits are waiting to reach the server. */
   pendingWrites: number;
+  /** True once those edits have been waiting long enough to be worth saying. */
+  syncStalled: boolean;
 
   importFile: (file: File) => Promise<void>;
   /** Appends a week cloned from the last one, then opens it. */
@@ -125,6 +127,15 @@ export function useProgram(): ProgramState {
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingWrites, setPendingWrites] = useState(() => readOutbox().length);
+  /**
+   * True only once the queue has been stuck for a moment.
+   *
+   * Every write now passes through the queue, so `pendingWrites` ticks up and
+   * back down on each keystroke. Wiring a banner straight to that would flash
+   * "enviando…" over the screen while somebody types a weight. What is worth
+   * telling them is that a write is *not* going through.
+   */
+  const [syncStalled, setSyncStalled] = useState(false);
 
   /** Latest program state, readable from callbacks without re-subscribing. */
   const latest = useRef<StoredProgram | null>(null);
@@ -140,27 +151,75 @@ export function useProgram(): ProgramState {
   }, [program]);
 
   /**
-   * Reports a failed write without discarding what the user typed: local
-   * state keeps the edit and the cache keeps it across a reload.
+   * Replays queued writes.
+   *
+   * Runs oldest first and stops at the first failure, so the queue keeps its
+   * order and a still-dead connection does not burn through every entry. An
+   * entry the server rejects on its merits (a 4xx: the day was deleted, the
+   * value is invalid) is dropped rather than retried forever — but said out
+   * loud, because it exists nowhere else.
    */
-  const reportFailure = useCallback((cause: unknown, operation?: PendingOperation) => {
-    if (cause instanceof ApiError && cause.isOffline) {
-      setOffline(true);
-      // Keep the write so it can be replayed instead of silently lost.
-      if (operation) setPendingWrites(enqueue(operation).length);
-      return;
+  const flushOutbox = useCallback(async () => {
+    // Three things start a flush — a new write, the `online` event and a 20 s
+    // poll — and a slow connection is exactly when they overlap. Without this
+    // guard two flushes send the same entry twice and race each other's
+    // removals.
+    if (flushing.current) return;
+    flushing.current = true;
+
+    const rejected: PendingOperation[] = [];
+
+    try {
+      // Re-read each time round: an edit made while this was in flight belongs
+      // to this pass too, and `removeSent` keys on the timestamp so a
+      // correction that landed mid-send is never mistaken for what was sent.
+      for (let entry = readOutbox()[0]; entry; entry = readOutbox()[0]) {
+        try {
+          await performOperation(entry.operation);
+          setPendingWrites(removeSent(entry).length);
+        } catch (cause) {
+          if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
+            // The server refuses this one on its merits, so retrying forever
+            // would only block the queue behind it. Dropping it is right;
+            // dropping it in silence was not: the set was logged in a basement
+            // with no signal, exists nowhere else, and the person had every
+            // reason to believe it was saved. Say what was lost, and where.
+            rejected.push(entry.operation);
+            setPendingWrites(removeSent(entry).length);
+            continue;
+          }
+          setOffline(true);
+          return;
+        }
+      }
+      setOffline(false);
+    } finally {
+      flushing.current = false;
+      if (rejected.length > 0) setError(describeRejected(rejected));
     }
-    setError(cause instanceof Error ? cause.message : 'No se ha podido guardar el cambio.');
   }, []);
 
-  /** Sends one write, queueing it for replay if the connection is gone. */
+  /**
+   * Records a write.
+   *
+   * Everything goes through the queue, including writes made with a perfectly
+   * good connection. It looks like a detour and it is the only thing that
+   * makes the order correct: while live writes went straight out and only
+   * failures were queued, a value queued offline could be replayed on top of a
+   * newer one sent live seconds later — the server ending up with the number
+   * the user had already corrected — and a day cleared online came back from
+   * the dead when the queue replayed the sets it had superseded.
+   *
+   * `enqueue` collapses repeats of the same target and lets a reset supersede
+   * that day's pending sets, which is only true if the reset is in the queue
+   * with them.
+   */
   const send = useCallback(
     (operation: PendingOperation) => {
-      performOperation(operation)
-        .then(() => setOffline(false))
-        .catch((cause: unknown) => reportFailure(cause, operation));
+      setPendingWrites(enqueue(operation).length);
+      void flushOutbox();
     },
-    [reportFailure],
+    [flushOutbox],
   );
 
   /**
@@ -222,49 +281,14 @@ export function useProgram(): ProgramState {
     void load();
   }, [load]);
 
-  /**
-   * Replays queued writes.
-   *
-   * Runs oldest first and stops at the first failure, so the queue keeps its
-   * order and a still-dead connection does not burn through every entry. An
-   * entry the server rejects on its merits (a 4xx: the day was deleted, the
-   * value is invalid) is dropped rather than retried forever.
-   */
-  const flushOutbox = useCallback(async () => {
-    // Three things start a flush — mount, the `online` event and a 20 s poll —
-    // and a slow connection is exactly when they overlap. Without this guard
-    // two flushes send the same entry twice and race each other's removals.
-    if (flushing.current) return;
-    flushing.current = true;
-
-    const rejected: PendingOperation[] = [];
-
-    try {
-      for (const entry of readOutbox()) {
-        try {
-          await performOperation(entry.operation);
-          setPendingWrites(removeSent(entry).length);
-        } catch (cause) {
-          if (cause instanceof ApiError && !cause.isOffline && cause.status < 500) {
-            // The server refuses this one on its merits — the day was deleted,
-            // the value is out of range — so retrying forever would only block
-            // the queue behind it. Dropping it is right; dropping it in silence
-            // was not: the set was logged in a basement with no signal, exists
-            // nowhere else, and the person had every reason to believe it was
-            // saved. Say what was lost, and where.
-            rejected.push(entry.operation);
-            setPendingWrites(removeSent(entry).length);
-            continue;
-          }
-          return;
-        }
-      }
-      setOffline(false);
-    } finally {
-      flushing.current = false;
-      if (rejected.length > 0) setError(describeRejected(rejected));
+  useEffect(() => {
+    if (pendingWrites === 0) {
+      setSyncStalled(false);
+      return;
     }
-  }, []);
+    const timer = setTimeout(() => setSyncStalled(true), 1500);
+    return () => clearTimeout(timer);
+  }, [pendingWrites]);
 
   // Retry when the browser says the network is back, and once on load for a
   // queue left over from a previous session.
@@ -430,15 +454,8 @@ export function useProgram(): ProgramState {
     const pending = pendingNotes.current;
     if (!pending) return;
     pendingNotes.current = null;
-    const operation: PendingOperation = {
-      kind: 'session',
-      dayId: pending.dayId,
-      notes: pending.notes,
-    };
-    performOperation(operation)
-      .then(() => setOffline(false))
-      .catch((cause: unknown) => reportFailure(cause, operation));
-  }, [reportFailure]);
+    send({ kind: 'session', dayId: pending.dayId, notes: pending.notes });
+  }, [send]);
 
   useEffect(() => {
     const onHide = () => flushNotes();
@@ -474,6 +491,7 @@ export function useProgram(): ProgramState {
     error,
     offline,
     pendingWrites,
+    syncStalled,
 
     importFile,
     addWeek,
@@ -523,10 +541,24 @@ export function useProgram(): ProgramState {
         latest.current = next;
         setProgram(next);
 
+        // Not queued, unlike a set: the plan is structural and replaying a
+        // rename over a plan that has since been reorganised is worse than
+        // not replaying it. So on failure the local copy is put back to
+        // whatever the server actually holds, rather than left showing a name
+        // that only exists on this phone.
         api.updateExercise(exerciseId, fields).catch((cause: unknown) => {
           setError(
             cause instanceof ApiError ? cause.message : 'No se ha podido guardar el ejercicio.',
           );
+          api
+            .fetchProgram(current.id)
+            .then((server) => {
+              latest.current = server;
+              setProgram(server);
+            })
+            .catch(() => {
+              /* offline too: the banner already says so */
+            });
         });
       },
       [selection],
@@ -654,12 +686,15 @@ export function useProgram(): ProgramState {
       if (!current || !target) return;
       const completed = !target.completed;
 
-      setProgram(setDayCompleted(current, target.id, completed));
-      const operation: PendingOperation = { kind: 'session', dayId: target.id, completed };
-      performOperation(operation)
-        .then(() => setOffline(false))
-        .catch((cause: unknown) => reportFailure(cause, operation));
-    }, [reportFailure, selection]),
+      // The ref as well as the state. Every other local edit writes both, and
+      // this one did not: a second change in the same React batch read the
+      // program from before the toggle and wrote the flag back out.
+      const next = setDayCompleted(current, target.id, completed);
+      latest.current = next;
+      setProgram(next);
+
+      send({ kind: 'session', dayId: target.id, completed });
+    }, [selection, send]),
 
     resetDay: useCallback(() => {
       mutate(

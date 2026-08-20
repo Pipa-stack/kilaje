@@ -17,7 +17,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { migrate, loadMigrations } from '../server/db/migrate';
 import { seedReferenceProgram } from '../server/db/seed';
-import { DEFAULT_DEMO_EMAIL, DEFAULT_DEMO_PASSWORD, seedDemoAccount } from '../server/db/demoAccount';
+import { DEFAULT_DEMO_EMAIL, seedDemoAccount } from '../server/db/demoAccount';
+
+/**
+ * The password these tests use.
+ *
+ * There is no default in the source any more — a working credential in a
+ * public repository is a door, not a convenience — so the caller supplies one.
+ */
+const DEMO_PASSWORD = 'contrasena-de-la-demo';
 import { sanitizeFileName } from '../server/api/schemas';
 import { createTestDatabase, type TestDatabase } from './helpers/testDatabase';
 
@@ -867,6 +875,27 @@ describe('starting a week with last week\'s weights', () => {
     });
   });
 
+  it('gives the cloned week the same lineages, so the trends carry over', async () => {
+    const imported = await importReference();
+    const programId = imported.body.program.id;
+    await agent.post(`/api/programs/${programId}/weeks`).expect(201);
+
+    const { rows } = await db.query<{ number: number; lineage: string }>(
+      `SELECT w.number, e.lineage
+         FROM exercises e
+         JOIN workout_days d ON d.id = e.day_id
+         JOIN weeks w        ON w.id = d.week_id
+        WHERE w.program_id = $1 AND d.number = 1
+        ORDER BY w.number, e.position`,
+      [programId],
+    );
+
+    const first = rows.filter((row) => row.number === 1).map((row) => row.lineage);
+    const second = rows.filter((row) => row.number === 2).map((row) => row.lineage);
+    expect(second).toEqual(first);
+    expect(first.length).toBeGreaterThan(0);
+  });
+
   it('answers the week instead of a 500 when two requests race', async () => {
     const imported = await importReference();
     const programId = imported.body.program.id;
@@ -917,6 +946,20 @@ describe('editing the plan', () => {
         { weight: null, reps: null, rir: null },
       ],
     });
+  });
+
+  it('gives a hand-added exercise a lineage of its own', async () => {
+    await agent.post(`/api/days/${dayId}/exercises`).send({ name: 'FACE PULL' }).expect(201);
+
+    const { rows } = await db.query<{ lineage: string; name: string }>(
+      'SELECT lineage, name FROM exercises WHERE day_id = $1 ORDER BY position',
+      [dayId],
+    );
+    const added = rows.at(-1);
+    expect(added?.name).toBe('FACE PULL');
+    expect(added?.lineage).toMatch(/^manual:/);
+    // Distinct from every imported one, so it never merges into their trend.
+    expect(new Set(rows.map((row) => row.lineage)).size).toBe(rows.length);
   });
 
   it('rejects an exercise with no name', async () => {
@@ -1036,29 +1079,29 @@ describe('the demo account', () => {
   }
 
   it('creates an account that can sign in, with a program already in it', async () => {
-    const result = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    const result = await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
     expect(result.account).toBe('creada');
     expect(result.program).toBe('importado');
 
-    const login = await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+    const login = await signIn(DEMO_PASSWORD).expect(200);
     expect(login.body.user.email).toBe(DEFAULT_DEMO_EMAIL);
 
     const visitor = request.agent(app);
     await visitor
       .post('/api/auth/login')
-      .send({ email: DEFAULT_DEMO_EMAIL, password: DEFAULT_DEMO_PASSWORD })
+      .send({ email: DEFAULT_DEMO_EMAIL, password: DEMO_PASSWORD })
       .expect(200);
     const { body } = await visitor.get('/api/programs/latest').expect(200);
     expect(body.program.weeks[0].days).not.toHaveLength(0);
   });
 
   it('is safe to run on every boot', async () => {
-    await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
-    const again = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
+    const again = await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
 
     expect(again.account).toBe('ya estaba lista');
     expect(again.program).toBe('ya tenía');
-    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+    await signIn(DEMO_PASSWORD).expect(200);
 
     const { rows } = await db.query<{ count: number }>(
       'SELECT COUNT(*)::int AS count FROM users WHERE email = $1',
@@ -1068,22 +1111,22 @@ describe('the demo account', () => {
   });
 
   it('puts the password back when it has been changed', async () => {
-    await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
 
     const session = request.agent(app);
     await session
       .post('/api/auth/login')
-      .send({ email: DEFAULT_DEMO_EMAIL, password: DEFAULT_DEMO_PASSWORD })
+      .send({ email: DEFAULT_DEMO_EMAIL, password: DEMO_PASSWORD })
       .expect(200);
     await session
       .post('/api/auth/password')
-      .send({ currentPassword: DEFAULT_DEMO_PASSWORD, newPassword: 'otra-contrasena-larga' })
+      .send({ currentPassword: DEMO_PASSWORD, newPassword: 'otra-contrasena-larga' })
       .expect(204);
-    await signIn(DEFAULT_DEMO_PASSWORD).expect(401);
+    await signIn(DEMO_PASSWORD).expect(401);
 
-    const repaired = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    const repaired = await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
     expect(repaired.account).toBe('contraseña restablecida');
-    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+    await signIn(DEMO_PASSWORD).expect(200);
   });
 
   it('honours the credentials given to it', async () => {
@@ -1096,21 +1139,21 @@ describe('the demo account', () => {
 
     // Stored lower-cased, so the address is never split by its capitals.
     await signIn('contrasena-elegida', 'pruebas@ejemplo.com').expect(200);
-    await signIn(DEFAULT_DEMO_PASSWORD).expect(401);
+    await signIn(DEMO_PASSWORD).expect(401);
   });
 
   it('adopts a program seeded before there were any accounts', async () => {
     await db.query('DELETE FROM programs');
     await seedReferenceProgram(db, REFERENCE_FILE);
 
-    const result = await seedDemoAccount(db, { workbookPath: REFERENCE_FILE });
+    const result = await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: REFERENCE_FILE });
     expect(result.program).toBe('adoptado');
   });
 
   it('still creates a usable account when the workbook is missing', async () => {
-    const result = await seedDemoAccount(db, { workbookPath: '/no/existe.xlsx' });
+    const result = await seedDemoAccount(db, { password: DEMO_PASSWORD, workbookPath: '/no/existe.xlsx' });
     expect(result.program).toBe('sin plantilla que importar');
-    await signIn(DEFAULT_DEMO_PASSWORD).expect(200);
+    await signIn(DEMO_PASSWORD).expect(200);
   });
 });
 

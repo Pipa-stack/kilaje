@@ -177,13 +177,15 @@ async function insertDay(tx: Database, weekId: number, day: Day): Promise<number
 async function insertExercise(tx: Database, dayId: number, exercise: Exercise): Promise<number> {
   const { rows } = await tx.query<{ id: number }>(
     `INSERT INTO exercises
-       (day_id, position, external_key, name, video_url, protocol, comments, planned_set_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (day_id, position, external_key, lineage, name, video_url, protocol, comments,
+        planned_set_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       dayId,
       exercise.number,
       exercise.id,
+      exercise.lineage,
       exercise.name,
       exercise.video,
       exercise.protocol,
@@ -360,6 +362,7 @@ interface ContentRow {
   exercise_id: number | null;
   position: number | null;
   external_key: string | null;
+  lineage: string | null;
   name: string | null;
   video_url: string | null;
   protocol: string | null;
@@ -387,7 +390,7 @@ export async function getProgram(
     `SELECT w.id AS week_id, w.number AS week_number, w.sheet_name,
             d.id AS day_id, d.number AS day_number, d.type AS day_type,
             s.notes, s.completed,
-            e.id AS exercise_id, e.position, e.external_key, e.name,
+            e.id AS exercise_id, e.position, e.external_key, e.lineage, e.name,
             e.video_url, e.protocol, e.comments
        FROM weeks w
        LEFT JOIN workout_days d     ON d.week_id = w.id
@@ -496,6 +499,10 @@ function assembleWeeks(
 
     day.exercises.push({
       id: String(row.exercise_id),
+      // Pre-lineage rows cannot exist (the migration backfills every one), but
+      // the column is nullable in the read type, so fall back to the same
+      // shape the backfill used rather than to something that groups wrongly.
+      lineage: row.lineage ?? `d${row.day_number}:e${row.position ?? 0}`,
       number: row.position ?? day.exercises.length + 1,
       name: row.name ?? '',
       video: row.video_url,

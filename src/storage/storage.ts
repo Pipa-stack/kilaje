@@ -202,7 +202,7 @@ function normalizeDay(input: unknown, weekNumber: number): Day | null {
   const id = typeof input.id === 'string' ? input.id : `w${weekNumber}:d${number}`;
   const exercises = Array.isArray(input.exercises)
     ? input.exercises
-        .map((exercise) => normalizeExercise(exercise, id))
+        .map((exercise) => normalizeExercise(exercise, id, number))
         .filter((exercise): exercise is Exercise => exercise !== null)
     : [];
   if (exercises.length === 0) return null;
@@ -217,7 +217,7 @@ function normalizeDay(input: unknown, weekNumber: number): Day | null {
   };
 }
 
-function normalizeExercise(input: unknown, dayId: string): Exercise | null {
+function normalizeExercise(input: unknown, dayId: string, dayNumber: number): Exercise | null {
   if (!isRecord(input)) return null;
 
   const number = finiteNumber(input.number);
@@ -225,6 +225,10 @@ function normalizeExercise(input: unknown, dayId: string): Exercise | null {
 
   return {
     id: typeof input.id === 'string' ? input.id : `${dayId}:e${number}`,
+    // A cache written before lineage existed has none. Rebuilding it the way
+    // the migration did keeps a stale device's copy grouping the same way the
+    // server would, instead of splitting every trend until the next load.
+    lineage: typeof input.lineage === 'string' ? input.lineage : `d${dayNumber}:e${number}`,
     number,
     name: typeof input.name === 'string' ? input.name : '',
     video: typeof input.video === 'string' ? input.video : null,

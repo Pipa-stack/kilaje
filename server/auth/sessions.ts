@@ -65,13 +65,22 @@ export function readSessionCookie(req: Request): string | null {
 /**
  * `httpOnly` keeps the token away from any script on the page, `sameSite:
  * lax` stops another site from riding the cookie on a cross-site request,
- * and `secure` is set whenever the request arrived over HTTPS.
+ * and `secure` is set on every production response.
+ *
+ * Not `req.secure` alone: that is derived from `x-forwarded-proto`, so any
+ * request reaching Node without the header — a misconfigured proxy, a probe on
+ * the internal port — would mint a session cookie a plain-HTTP page could
+ * carry. In production the answer is always yes.
  */
+function isSecure(req: Request): boolean {
+  return process.env.NODE_ENV === 'production' || req.secure;
+}
+
 export function setSessionCookie(req: Request, res: Response, token: string): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: req.secure,
+    secure: isSecure(req),
     path: '/',
     maxAge: SESSION_MAX_AGE_MS,
   });
@@ -81,7 +90,7 @@ export function clearSessionCookie(req: Request, res: Response): void {
   res.clearCookie(SESSION_COOKIE, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: req.secure,
+    secure: isSecure(req),
     path: '/',
   });
 }

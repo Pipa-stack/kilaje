@@ -6,13 +6,19 @@
     <meta name="theme-color" content="#0e100f" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)" />
     <script src="/theme.js"></script>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+    <!-- iOS ignores the manifest and reads these two instead. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Kilaje" />
     <meta
       name="description"
       content="Convierte tu plantilla Excel de entrenamiento en una app simple para usar en el gimnasio."
     />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+      content="default-src 'self'; worker-src 'self'; manifest-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
     <title>Kilaje — Entrenamiento</title>
   </head>

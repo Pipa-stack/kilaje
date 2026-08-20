@@ -29,6 +29,7 @@ import {
 } from '../../src/domain/types';
 import {
   cellAt,
+  createCellBudget,
   findColumn,
   label,
   normalize,
@@ -36,8 +37,10 @@ import {
   text,
   toGrid,
   toNumber,
+  type CellBudget,
   type Grid,
 } from './cells';
+import { assertInflatedSizeIsSane } from './zipGuard';
 
 export { MAX_FILE_BYTES, TemplateError } from '../../src/domain/upload';
 
@@ -50,6 +53,15 @@ const HEADER_SEARCH_DEPTH = 5;
 
 /** Guards against a malformed sheet producing an unbounded exercise list. */
 const MAX_EXERCISE_ROWS = 200;
+
+/**
+ * How many `Semana N` sheets are worth reading.
+ *
+ * A mesocycle is weeks, not hundreds of them, and every extra sheet is another
+ * dense grid allocated on the thread that serves every other request. Fifty-two
+ * matches the ceiling the app puts on weeks it creates itself.
+ */
+const MAX_WEEK_SHEETS = 52;
 
 const WEEK_SHEET = /^\s*semana\s*(\d+)\s*$/;
 const DAY_HEADER = /^dia\s*(\d+)\b/;
@@ -71,9 +83,18 @@ export function parseWorkbook(data: ArrayBuffer | Uint8Array, sourceFileName: st
     throw new TemplateError('El archivo supera el límite de 10 MB.');
   }
 
+  // Before SheetJS sees it: a zip that inflates to gigabytes is refused unread.
+  assertInflatedSizeIsSane(bytes);
+
   const workbook = readWorkbook(bytes);
+
+  // One budget for the whole file, spent sheet by sheet. Without it the
+  // per-sheet cap bounds each grid and nothing bounds their number.
+  const budget = createCellBudget();
+
   const weeks = findWeekSheets(workbook)
-    .map(({ sheetName, weekNumber }) => parseWeek(workbook, sheetName, weekNumber))
+    .slice(0, MAX_WEEK_SHEETS)
+    .map(({ sheetName, weekNumber }) => parseWeek(workbook, sheetName, weekNumber, budget))
     .filter((week): week is Week => week !== null)
     .sort((a, b) => a.number - b.number);
 
@@ -131,11 +152,16 @@ function findWeekSheets(workbook: XLSX.WorkBook): WeekSheet[] {
   return sheets.sort((a, b) => a.weekNumber - b.weekNumber);
 }
 
-function parseWeek(workbook: XLSX.WorkBook, sheetName: string, weekNumber: number): Week | null {
+function parseWeek(
+  workbook: XLSX.WorkBook,
+  sheetName: string,
+  weekNumber: number,
+  budget: CellBudget,
+): Week | null {
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) return null;
 
-  const grid = toGrid(sheet);
+  const grid = toGrid(sheet, budget);
   const days: Day[] = [];
 
   for (let row = 0; row < grid.length; row += 1) {
@@ -204,7 +230,7 @@ function parseDay(grid: Grid, headerRow: number, weekNumber: number, dayNumber: 
     // Another day starting means this block had no summary row.
     if (matchDayHeader(grid, row) !== null) break;
 
-    const exercise = parseExercise(grid, row, columns, dayId);
+    const exercise = parseExercise(grid, row, columns, dayId, dayNumber);
     if (exercise) exercises.push(exercise);
   }
 
@@ -314,6 +340,7 @@ function parseExercise(
   row: number,
   columns: DayColumns,
   dayId: string,
+  dayNumber: number,
 ): Exercise | null {
   const name = text(grid, row, columns.name);
   const currentWeek = readSets(grid, row, columns.currentSets);
@@ -328,6 +355,9 @@ function parseExercise(
 
   return {
     id: `${dayId}:e${number}`,
+    // Position within the day, which is exactly how `derivePreviousWeeks`
+    // already pairs an exercise with its counterpart a week earlier.
+    lineage: `d${dayNumber}:e${number}`,
     number,
     name,
     video: readVideo(grid, row, columns.video),

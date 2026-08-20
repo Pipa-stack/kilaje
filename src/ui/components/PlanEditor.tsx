@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import type { ExerciseFields } from '../../domain/mutations';
-import { isSetEmpty, type Day } from '../../domain/types';
+import { isSetWorked, type Day } from '../../domain/types';
 import { Icon } from './Icon';
 
 interface PlanEditorProps {
@@ -64,7 +64,9 @@ export function PlanEditor({
 
       <ul className="space-y-3">
         {day.exercises.map((exercise, index) => {
-          const logged = exercise.currentWeek.filter((set) => !isSetEmpty(set)).length;
+          // Only real sets are worth warning about; a pre-filled weight is
+          // not something the person would mourn.
+          const logged = exercise.currentWeek.filter(isSetWorked).length;
 
           return (
             <li key={exercise.id} className="rounded-xl border border-iron-800 bg-iron-850 p-3">

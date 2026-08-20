@@ -119,34 +119,48 @@ export async function addExercise(
   const location = await locateDay(db, dayId, userId);
   if (!location) return null;
 
-  const { rows: existing } = await db.query<{ total: number; last: number | null }>(
-    'SELECT COUNT(*)::int AS total, MAX(position) AS last FROM exercises WHERE day_id = $1',
-    [dayId],
-  );
-  const total = existing[0]?.total ?? 0;
-  if (total >= MAX_EXERCISES_PER_DAY) {
-    throw new PlanLimitError(
-      `Un día no puede tener más de ${MAX_EXERCISES_PER_DAY} ejercicios.`,
-    );
-  }
+  // One identity for both jobs: `external_key` must not collide with the
+  // parser's `w1:d1:eN` shape on a re-import, and `lineage` must be unique so a
+  // hand-added exercise is not mistaken for an imported one in another week.
+  const key = `manual:${randomUUID()}`;
 
-  await db.query(
-    `INSERT INTO exercises
-       (day_id, position, external_key, name, video_url, protocol, comments, planned_set_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      dayId,
-      (existing[0]?.last ?? 0) + 1,
-      // Not `w1:d1:eN`: that shape is the parser's, and reusing it would let a
-      // hand-added exercise collide with an imported one on a later re-import.
-      `manual:${randomUUID()}`,
-      input.name,
-      input.video ?? null,
-      input.protocol ?? null,
-      input.comments ?? null,
-      parseProtocolSetCount(input.protocol ?? null),
-    ],
-  );
+  // Reading the last position and inserting after it is one operation, not
+  // two. Split, two devices adding at once both read the same MAX and land on
+  // the same position, and `ORDER BY position` stops being an order at all.
+  await db.transaction(async (tx) => {
+    // The day row, not the exercise rows: locking the children serialises
+    // nothing when the day is empty, which is exactly when two adds collide.
+    // (`FOR UPDATE` is also illegal alongside an aggregate.)
+    await tx.query('SELECT id FROM workout_days WHERE id = $1 FOR UPDATE', [dayId]);
+
+    const { rows: existing } = await tx.query<{ position: number }>(
+      'SELECT position FROM exercises WHERE day_id = $1 ORDER BY position',
+      [dayId],
+    );
+    if (existing.length >= MAX_EXERCISES_PER_DAY) {
+      throw new PlanLimitError(
+        `Un día no puede tener más de ${MAX_EXERCISES_PER_DAY} ejercicios.`,
+      );
+    }
+
+    await tx.query(
+      `INSERT INTO exercises
+         (day_id, position, external_key, lineage, name, video_url, protocol, comments,
+          planned_set_count)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        dayId,
+        (existing.at(-1)?.position ?? 0) + 1,
+        key,
+        key,
+        input.name,
+        input.video ?? null,
+        input.protocol ?? null,
+        input.comments ?? null,
+        parseProtocolSetCount(input.protocol ?? null),
+      ],
+    );
+  });
 
   return getProgram(db, location.programId, userId);
 }
@@ -218,29 +232,36 @@ export async function moveExercise(
   const location = await locateExercise(db, exerciseId, userId);
   if (!location) return null;
 
-  const { rows: neighbours } = await db.query<{ id: number; position: number }>(
-    offset < 0
-      ? `SELECT id, position FROM exercises
-          WHERE day_id = $1 AND position < $2 ORDER BY position DESC LIMIT 1`
-      : `SELECT id, position FROM exercises
-          WHERE day_id = $1 AND position > $2 ORDER BY position ASC LIMIT 1`,
-    [location.dayId, location.position],
-  );
+  // The neighbour is found inside the transaction that swaps with it, and the
+  // day's rows are locked first. Read outside, two moves at once resolve the
+  // same neighbour and one of them writes a position that no longer means what
+  // it did — or, if the neighbour was deleted in between, lands on top of a
+  // third exercise's position.
+  await db.transaction(async (tx) => {
+    await tx.query('SELECT id FROM workout_days WHERE id = $1 FOR UPDATE', [location.dayId]);
 
-  const neighbour = neighbours[0];
-  // Already at the end: not an error, just nothing to do.
-  if (neighbour) {
-    await db.transaction(async (tx) => {
-      await tx.query('UPDATE exercises SET position = $2 WHERE id = $1', [
-        exerciseId,
-        neighbour.position,
-      ]);
-      await tx.query('UPDATE exercises SET position = $2 WHERE id = $1', [
-        neighbour.id,
-        location.position,
-      ]);
-    });
-  }
+    const { rows: neighbours } = await tx.query<{ id: number; position: number }>(
+      offset < 0
+        ? `SELECT id, position FROM exercises
+            WHERE day_id = $1 AND position < $2 ORDER BY position DESC LIMIT 1`
+        : `SELECT id, position FROM exercises
+            WHERE day_id = $1 AND position > $2 ORDER BY position ASC LIMIT 1`,
+      [location.dayId, location.position],
+    );
+
+    const neighbour = neighbours[0];
+    // Already at the end: not an error, just nothing to do.
+    if (!neighbour) return;
+
+    await tx.query('UPDATE exercises SET position = $2 WHERE id = $1', [
+      exerciseId,
+      neighbour.position,
+    ]);
+    await tx.query('UPDATE exercises SET position = $2 WHERE id = $1', [
+      neighbour.id,
+      location.position,
+    ]);
+  });
 
   return getProgram(db, location.programId, userId);
 }

@@ -307,6 +307,66 @@ npm run db:seed               # opcional: importa Ejemplo/ejemplo.xlsx
 npm run db:seed:demo          # opcional: cuenta de prueba, e imprime sus credenciales
 ```
 
+### Lo que puede subir un desconocido
+
+El importador es la única superficie donde un extraño elige los bytes, y las tres
+comprobaciones de tamaño que había medían el archivo **comprimido**:
+
+- **Número de hojas.** Una hoja cuesta ~550 bytes en el `.xlsx` y ~0,9 s de hilo bloqueado
+  si declara el lienzo entero de Excel. Miles de ellas caben bajo el límite de 10 MB: una
+  sola subida compraba más de una hora de servidor sin responder. Se leen 52 como máximo.
+- **Celdas totales.** El tope por hoja acotaba una rejilla y no su número; ahora hay un
+  presupuesto de dos millones de celdas para todo el libro, repartido entre las hojas.
+- **Tamaño descomprimido.** Antes de que SheetJS lo abra, se leen los tamaños declarados
+  en el directorio central del zip y se rechaza lo que diga inflarse por encima de 50 MB.
+  Es un filtro, no una prueba: un zip puede mentir sobre esos tamaños, y solo inflar con
+  un contador lo cazaría. Lo que sí para es la bomba corriente.
+
+### Funciona sin cobertura, de verdad
+
+Toda la maquinaria offline —el programa en caché, la cola de escrituras, el aviso— solo
+servía con la pestaña ya abierta. Cerrabas la app en el sótano del gimnasio, la volvías a
+abrir, y el navegador no podía descargar ni el HTML ni el bundle: la parte offline era
+inalcanzable justo en la situación para la que se construyó.
+
+`public/sw.js` lo arregla con tres reglas y sesenta líneas, sin dependencias:
+
+- **`/api/*` no se cachea nunca.** La app tiene su propia caché y su propia cola, y ambas
+  dan por hecho que la API responde con la verdad o no responde. Una serie servida desde
+  la caché del worker sería un número viejo que la app no puede detectar.
+- **Las navegaciones van a red primero**, con el shell cacheado de reserva: así un
+  despliegue nuevo entra en la primera carga con conexión, no en la siguiente.
+- **El resto, caché primero.** Los nombres de archivo llevan hash, así que un acierto de
+  caché nunca es la versión equivocada.
+
+Con el `manifest.webmanifest` se instala en la pantalla de inicio y se abre sin barra de
+direcciones. Los iconos se generan con `node tools/generate-icons.mjs` — una mancuerna
+hecha de rectángulos, para que sean reproducibles y no blobs binarios que nadie sabe
+rehacer.
+
+### Seguir el mismo ejercicio entre semanas
+
+Cada semana tiene su propia copia del plan, así que el mismo ejercicio tiene un `id`
+distinto en cada una. La vista de progreso los agrupaba **por nombre**, y eso se rompía en
+cuanto renombrabas uno desde la app: una línea se convertía en dos y la progresión de todo
+el bloque desaparecía.
+
+Cada ejercicio lleva ahora un `lineage`: se asigna una vez, lo heredan todas las copias y
+un renombrado no lo toca. La etiqueta que se muestra es el nombre más reciente, que es
+como lo llamas ahora.
+
+### La cola es el único camino de escritura
+
+Todo lo que se anota pasa por la cola offline, también con buena cobertura. Parece un
+rodeo y es lo único que hace el orden correcto: mientras las escrituras en directo iban
+por su cuenta y solo se encolaban los fallos, un valor encolado sin cobertura se
+reenviaba **encima** de otro más nuevo mandado en directo segundos después, y un día
+vaciado con conexión resucitaba cuando la cola reproducía las series que ese vaciado ya
+había anulado.
+
+El aviso de «enviando…» solo aparece si la cola se atasca más de un segundo y medio; si
+no, parpadearía en cada tecla.
+
 ### Cuando el servidor rechaza algo anotado sin conexión
 
 La cola offline reintenta lo que no pudo enviarse. Si el servidor lo rechaza por lo que es

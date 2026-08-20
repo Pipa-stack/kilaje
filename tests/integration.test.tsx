@@ -640,6 +640,52 @@ describe('offline behaviour', () => {
     }
   }, 90_000);
 
+  it('does not resurrect sets that were cleared after they were queued', async () => {
+    const user = userEvent.setup();
+    const app = render(<App />);
+    await signIn(user);
+    await importFile(user, referenceFile());
+    await openDay(user, 1);
+    await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
+    app.unmount();
+
+    // Offline: two sets are typed and queued.
+    const working = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError('network down'))) as typeof fetch;
+    try {
+      render(<App />);
+      await openDay(user, 1);
+      await user.type(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`)), '85');
+      await user.type(
+        screen.getByLabelText(new RegExp(`Repeticiones de la serie 2 de ${BENCH}`)),
+        '6',
+      );
+      await waitFor(() => {
+        expect(
+          JSON.parse(localStorage.getItem('kilaje.outbox.v1') ?? '[]').length,
+        ).toBeGreaterThan(0);
+      }, WAIT);
+    } finally {
+      globalThis.fetch = working;
+    }
+
+    // Back online, the person empties the day. While live writes bypassed the
+    // queue, this succeeded on the server and the queue then replayed the sets
+    // on top of it — the cleared day filled itself back in on the next reload.
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<App />);
+    await openDay(user, 1);
+    await user.click(screen.getByRole('button', { name: 'Vaciar los datos de este día' }));
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem('kilaje.outbox.v1') ?? '[]')).toHaveLength(0);
+    }, WAIT);
+
+    const stored = await latestProgram();
+    const sets = stored?.weeks[0]?.days[0]?.exercises[0]?.currentWeek ?? [];
+    expect(sets.every((set) => set.weight === null && set.reps === null)).toBe(true);
+  }, 90_000);
+
   it('says so when a write made offline is rejected instead of losing it quietly', async () => {
     const user = userEvent.setup();
     const app = render(<App />);

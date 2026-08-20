@@ -100,7 +100,7 @@ export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
 
         <ul className="divide-y divide-iron-800">
           {trends.map((trend) => (
-            <TrendRow key={trend.name} trend={trend} />
+            <TrendRow key={trend.key} trend={trend} />
           ))}
         </ul>
       </section>

@@ -148,6 +148,61 @@ describe('server boundaries', () => {
   });
 });
 
+describe('the service worker', () => {
+  const worker = readFileSync(resolve(process.cwd(), 'public/sw.js'), 'utf8');
+
+  /**
+   * The one rule that cannot be got wrong.
+   *
+   * The app keeps its own cache of the program and its own queue of writes,
+   * and both assume the API answers with the truth or not at all. A set served
+   * from the worker's cache would be a stale number the app has no way to
+   * detect — worse than the error it replaced.
+   */
+  it('never serves the API from cache', () => {
+    expect(worker).toMatch(/url\.pathname\.startsWith\('\/api\/'\)/);
+    // The bail-out has to come before anything that could respond.
+    const bailOut = worker.indexOf("startsWith('/api/')");
+    const firstRespond = worker.indexOf('event.respondWith');
+    expect(bailOut).toBeGreaterThan(-1);
+    expect(bailOut).toBeLessThan(firstRespond);
+  });
+
+  it('only handles GET, and only same-origin', () => {
+    expect(worker).toMatch(/request\.method !== 'GET'/);
+    expect(worker).toMatch(/url\.origin !== self\.location\.origin/);
+  });
+
+  it('drops the previous version’s caches on activate', () => {
+    // Without this every deploy leaves its assets behind for ever.
+    expect(worker).toMatch(/caches\.delete/);
+  });
+
+  it('is linked from the page together with the manifest', () => {
+    const page = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(page).toMatch(/rel="manifest" href="\/manifest\.webmanifest"/);
+    expect(page).toMatch(/rel="apple-touch-icon"/);
+  });
+
+  it('declares a manifest the browser can install', () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'public/manifest.webmanifest'), 'utf8'),
+    );
+    const parsed = manifest as {
+      start_url?: string;
+      display?: string;
+      icons?: { sizes: string; purpose: string }[];
+    };
+
+    expect(parsed.start_url).toBe('/');
+    expect(parsed.display).toBe('standalone');
+    // Android needs a 512 and a maskable one, or it refuses to install.
+    expect(parsed.icons?.map((icon) => `${icon.sizes} ${icon.purpose}`)).toEqual(
+      expect.arrayContaining(['512x512 any', '512x512 maskable']),
+    );
+  });
+});
+
 describe('duplicated constants', () => {
   /**
    * `public/theme.js` runs before the bundle to avoid a flash of the wrong

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createPostgresDatabase } from '../db/database';
 import { migrate } from '../db/migrate';
-import { DEFAULT_DEMO_PASSWORD, seedDemoAccount } from '../db/demoAccount';
+import { generateDemoPassword, seedDemoAccount } from '../db/demoAccount';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -24,7 +24,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const password = process.env.DEMO_PASSWORD;
+  // No default to fall back on: the repository must never carry a working
+  // password. Without the variable, one is made up and printed below.
+  const password = process.env.DEMO_PASSWORD ?? generateDemoPassword();
   const db = createPostgresDatabase(connectionString);
   try {
     await migrate(db);
@@ -36,7 +38,7 @@ async function main(): Promise<void> {
 
     console.log(`Cuenta de prueba: ${result.account}, programa: ${result.program}`);
     console.log(`  correo:     ${result.email}`);
-    console.log(`  contraseña: ${password ?? DEFAULT_DEMO_PASSWORD}`);
+    console.log(`  contraseña: ${password}`);
   } finally {
     await db.close();
   }

@@ -165,6 +165,44 @@ export function createPlanLimiter() {
   });
 }
 
+/**
+ * The two reads that fan out into whole-history queries.
+ *
+ * `GET /api/profile` runs six queries in parallel, five of them four-table
+ * joins over every set ever logged, and `GET /api/history` returns up to
+ * twenty thousand rows and groups them in JS. The connection pool holds ten
+ * connections: four concurrent profile requests take six each, and everything
+ * else — including the healthcheck Railway uses to decide the service is
+ * alive — queues behind a ten second connect timeout. One signed-in account
+ * was enough to do it, and nothing counted the attempt.
+ *
+ * Keyed by account, not address: the cost is per user's data.
+ */
+export function createReadLimiter(keyBy: (req: Request) => string) {
+  return rateLimit({
+    max: 120,
+    windowMs: 60 * 60 * 1000,
+    message: 'Demasiadas consultas seguidas. Espera un momento.',
+    keyBy,
+  });
+}
+
+/**
+ * Everything that writes training.
+ *
+ * Each is only three or four queries, so this is not about one request being
+ * expensive — it is that nothing at all bounded how many of them one client
+ * could have in flight against the same pool.
+ */
+export function createWriteLimiter(keyBy: (req: Request) => string) {
+  return rateLimit({
+    max: 3_000,
+    windowMs: 60 * 60 * 1000,
+    message: 'Demasiados cambios seguidos. Espera un momento y vuelve a probar.',
+    keyBy,
+  });
+}
+
 /** Parsing a spreadsheet is the most expensive request the server serves. */
 export function createImportLimiter() {
   return rateLimit({

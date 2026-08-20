@@ -48,7 +48,12 @@ import {
 } from './schemas';
 import { currentUserId } from './authRouter';
 import { loadHistory } from '../repositories/history';
-import { createImportLimiter, createPlanLimiter } from './rateLimit';
+import {
+  createImportLimiter,
+  createPlanLimiter,
+  createReadLimiter,
+  createWriteLimiter,
+} from './rateLimit';
 
 /** Wraps an async handler so rejections reach the error middleware. */
 function handle(
@@ -62,8 +67,11 @@ function handle(
 export function createApiRouter(db: Database, rateLimits = true): Router {
   const router = Router();
   const passThrough = (_req: Request, _res: Response, next: NextFunction): void => next();
+  const byUser = (req: Request): string => `user:${currentUserId(req)}`;
   const importLimiter = rateLimits ? createImportLimiter() : passThrough;
   const planLimiter = rateLimits ? createPlanLimiter() : passThrough;
+  const readLimiter = rateLimits ? createReadLimiter(byUser) : passThrough;
+  const writeLimiter = rateLimits ? createWriteLimiter(byUser) : passThrough;
 
   router.get(
     '/programs',
@@ -187,6 +195,12 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
         });
         return;
       }
+      if (outcome === 'no es la ultima') {
+        res.status(409).json({
+          error: 'Solo se puede borrar la última semana del programa.',
+        });
+        return;
+      }
       if (outcome === 'tiene trabajo anotado') {
         res.status(409).json({
           error: 'Esa semana tiene entrenamiento anotado. Vacía sus días antes de borrarla.',
@@ -267,6 +281,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /** Deletes a program and all the training logged against it. */
   router.delete(
     '/programs/:programId',
+    planLimiter,
     handle(async (req, res) => {
       const programId = idParam.parse(req.params.programId);
       const removed = await deleteProgram(db, programId, currentUserId(req));
@@ -286,6 +301,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
    */
   router.get(
     '/history',
+    readLimiter,
     handle(async (req, res) => {
       res.json({ exercises: await loadHistory(db, currentUserId(req)) });
     }),
@@ -294,6 +310,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /** Records one set of one exercise within a day. */
   router.put(
     '/days/:dayId/sets',
+    writeLimiter,
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       const { exerciseId, setIndex, weight, reps, rir } = saveSetBody.parse(req.body);
@@ -304,6 +321,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
 
   router.delete(
     '/days/:dayId/sets',
+    writeLimiter,
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       const { exerciseId, setIndex } = deleteSetBody.parse(req.body);
@@ -315,6 +333,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /** Session notes and the completed flag. */
   router.patch(
     '/days/:dayId/session',
+    writeLimiter,
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       await updateSession(db, dayId, sessionPatchBody.parse(req.body), currentUserId(req));
@@ -325,6 +344,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /** Clears the work logged for a day, leaving the template intact. */
   router.delete(
     '/days/:dayId/session',
+    writeLimiter,
     handle(async (req, res) => {
       const dayId = idParam.parse(req.params.dayId);
       await resetSession(db, dayId, currentUserId(req));

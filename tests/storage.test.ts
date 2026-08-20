@@ -36,6 +36,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
             exercises: [
               {
                 id: 'w1:d1:e1',
+                lineage: 'd1:e1',
                 number: 1,
                 name: 'PRESS DE BANCA',
                 video: null,

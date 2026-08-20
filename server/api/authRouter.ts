@@ -296,7 +296,12 @@ export function createAuthRouter(
         if (!user) return;
 
         const token = await createResetToken(db, user.id);
-        const link = `${appUrl}/?reset=${encodeURIComponent(token)}`;
+        // In the fragment, not the query string. A query string is written to
+        // the server's access log, kept in browser history and handed to every
+        // intermediary; until the token is spent — an hour — anyone with log
+        // access can replay it into a full account takeover. Fragments are
+        // never sent to a server at all.
+        const link = `${appUrl}/#reset=${encodeURIComponent(token)}`;
 
         if (!email?.configured) {
           console.warn('[auth] reset solicitado pero el correo no está configurado');

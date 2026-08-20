@@ -13,7 +13,7 @@ import { createApp } from './app';
 import { createSenderFromEnv } from './email/sender';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
-import { seedDemoAccount } from './db/demoAccount';
+import { generateDemoPassword, seedDemoAccount } from './db/demoAccount';
 import { seedReferenceProgram } from './db/seed';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,18 +47,21 @@ async function main(): Promise<void> {
   // never leaves it broken. Opt-in, and with the password taken from the
   // environment: see `db/demoAccount.ts`.
   if (process.env.DEMO_ACCOUNT === 'true') {
+    // Generated rather than defaulted: a password constant in the repository
+    // would be a live credential anybody could read.
+    const generated = process.env.DEMO_PASSWORD ? null : generateDemoPassword();
     const demo = await seedDemoAccount(db, {
       email: process.env.DEMO_EMAIL,
-      password: process.env.DEMO_PASSWORD,
+      password: process.env.DEMO_PASSWORD ?? generated ?? '',
       workbookPath: join(ROOT, 'Ejemplo/ejemplo.xlsx'),
     });
     console.log(
       `[server] cuenta de prueba ${demo.email}: ${demo.account}, programa ${demo.program}`,
     );
-    if (!process.env.DEMO_PASSWORD) {
+    if (generated) {
       console.warn(
-        '[server] la cuenta de prueba usa la contraseña por defecto del repositorio. ' +
-          'Define DEMO_PASSWORD si el despliegue es público.',
+        `[server] DEMO_PASSWORD no está definida. Contraseña generada para esta ` +
+          `ejecución: ${generated} — cámbiala por una variable si quieres que dure.`,
       );
     }
   }

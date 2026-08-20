@@ -22,6 +22,15 @@ export interface SetEntry {
 export interface Exercise {
   /** Stable across re-imports: `w<week>:d<day>:e<number>`. */
   id: string;
+  /**
+   * Identifies the same movement across weeks.
+   *
+   * Every week holds its own copy of the plan, so the same exercise has a
+   * different `id` in each one. This is what lets progress be followed from
+   * week to week: assigned once, inherited by every clone, and untouched by a
+   * rename — which is what matching on the name could not survive.
+   */
+  lineage: string;
   /** Position within the day, 1-based, as printed in the template. */
   number: number;
   name: string;
@@ -74,4 +83,22 @@ export function emptySets(count: number): SetEntry[] {
 /** True when nothing at all has been recorded for this set. */
 export function isSetEmpty(set: SetEntry): boolean {
   return set.weight === null && set.reps === null && set.rir === null;
+}
+
+/**
+ * True when this set represents work that was actually performed.
+ *
+ * A weight on its own is a plan, not a session: it is what the app pre-fills
+ * when a week is started from the previous one's loads, and what sits in the
+ * box for the few seconds between typing the weight and typing the reps. The
+ * reps (or an RIR) are what turn it into training.
+ *
+ * The distinction has to live in one place. It was previously re-decided at
+ * each call site, and the three answers disagreed: a week pre-filled with last
+ * week's weights counted as trained for the progress chart and for the
+ * "previous week" reference — so the next week suggested a progression on top
+ * of numbers nobody had lifted.
+ */
+export function isSetWorked(set: SetEntry): boolean {
+  return set.reps !== null || set.rir !== null;
 }

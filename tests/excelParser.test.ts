@@ -12,7 +12,13 @@ import * as XLSX from 'xlsx';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { MAX_FILE_BYTES, TemplateError, parseWorkbook, sanitizeUrl } from '../server/parser/excelParser';
-import { normalize, toGrid, toNumber } from '../server/parser/cells';
+import {
+  createCellBudget,
+  MAX_WORKBOOK_CELLS,
+  normalize,
+  toGrid,
+  toNumber,
+} from '../server/parser/cells';
 import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
 import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 
@@ -361,5 +367,91 @@ describe('a sheet that lies about its own size', () => {
     const grid = toGrid(sheet);
     expect(grid).toHaveLength(2);
     expect(grid[1]?.[1]?.value).toBe(42);
+  });
+});
+
+
+describe('a workbook that lies about how much of it there is', () => {
+  /**
+   * `n` sheets named "Semana i".
+   *
+   * Deliberately small sheets: SheetJS *writes* the whole declared range, so
+   * building the real attack file here would hang the test rather than the
+   * server. What this checks is the other half of the attack — the number of
+   * sheets — and the budget test below covers the size of each one.
+   */
+  function manySheets(count: number): Uint8Array {
+    const workbook = XLSX.utils.book_new();
+    for (let index = 1; index <= count; index += 1) {
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([['DÍA 1', 'PUSH'], ['Nº', 'Ejercicio']]),
+        `Semana ${index}`,
+      );
+    }
+    return new Uint8Array(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+  }
+
+  it('reads at most 52 week sheets, whatever the file contains', () => {
+    // A sheet costs ~550 bytes in the upload and, if it declares the full
+    // Excel canvas, ~0.9 s of blocked event loop to read. Thousands of them
+    // fit under the 10 MB limit, which turned one upload into an hour of a
+    // completely unresponsive server.
+    const bytes = manySheets(300);
+    expect(bytes.byteLength).toBeLessThan(MAX_FILE_BYTES);
+
+    // No exercise rows, so nothing parses — the point is that it gave up
+    // early instead of walking three hundred grids.
+    const started = Date.now();
+    expect(() => parseWorkbook(bytes, 'muchas-hojas.xlsx')).toThrow(TemplateError);
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 30_000);
+
+  it('spends one cell budget across sheets instead of a fresh one per sheet', () => {
+    const budget = createCellBudget(1_000);
+    const sheet: XLSX.WorkSheet = { '!ref': 'A1:J1048576', A1: { t: 's', v: 'x' } };
+
+    const first = toGrid(sheet, budget);
+    const second = toGrid(sheet, budget);
+
+    expect(first).toHaveLength(100); // 1000 cells / 10 columns
+    expect(second).toHaveLength(0); // nothing left to spend
+    expect(budget.remaining).toBeLessThanOrEqual(0);
+  });
+
+  it('leaves a real workbook far below the ceiling', () => {
+    const program = parseWorkbook(readSecond(), 'ejemplo 2.xlsx');
+    expect(program.weeks).toHaveLength(7);
+    expect(MAX_WORKBOOK_CELLS).toBeGreaterThan(7 * 1000 * 40);
+  });
+});
+
+describe('a workbook that unzips to far more than it weighs', () => {
+  it('refuses an archive whose entries claim an absurd inflated size', () => {
+    // The 10 MB limit measures compressed bytes; SheetJS inflates eagerly.
+    // Here the central directory is edited to claim each entry inflates to
+    // 40 MB, which is what an ordinary zip bomb looks like from outside.
+    const honest = Buffer.from(readReference());
+    const eocd = honest.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    expect(eocd).toBeGreaterThan(-1);
+
+    const entries = honest.readUInt16LE(eocd + 10);
+    let offset = honest.readUInt32LE(eocd + 16);
+    for (let index = 0; index < entries; index += 1) {
+      honest.writeUInt32LE(40 * 1024 * 1024, offset + 24);
+      offset +=
+        46 +
+        honest.readUInt16LE(offset + 28) +
+        honest.readUInt16LE(offset + 30) +
+        honest.readUInt16LE(offset + 32);
+    }
+
+    expect(() => parseWorkbook(new Uint8Array(honest), 'bomba.xlsx')).toThrow(
+      /se descomprime/i,
+    );
+  });
+
+  it('lets an ordinary workbook through untouched', () => {
+    expect(() => parseWorkbook(readReference(), 'ejemplo.xlsx')).not.toThrow();
   });
 });

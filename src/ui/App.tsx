@@ -17,9 +17,16 @@ import { useProgram } from './hooks/useProgram';
 import { useSwipe } from './hooks/useSwipe';
 import { useTheme } from './hooks/useTheme';
 
-/** The token an emailed reset link carries, if this is one. */
+/**
+ * The token an emailed reset link carries, if this is one.
+ *
+ * The fragment is where new links put it, because a fragment never reaches a
+ * server and so never reaches a log. The query string is still read so that a
+ * link sent before this change still works for the hour it stays valid.
+ */
 function readResetToken(): string {
-  return new URLSearchParams(window.location.search).get('reset') ?? '';
+  const fromFragment = new URLSearchParams(window.location.hash.slice(1)).get('reset');
+  return fromFragment ?? new URLSearchParams(window.location.search).get('reset') ?? '';
 }
 
 export default function App() {
@@ -147,7 +154,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
               </span>
             ) : null}
           </p>
-        ) : state.pendingWrites > 0 ? (
+        ) : state.syncStalled && state.pendingWrites > 0 ? (
           <p role="status" className="rounded-xl border border-iron-700 px-3 py-2 text-sm text-iron-400">
             Enviando {state.pendingWrites} {state.pendingWrites === 1 ? 'cambio' : 'cambios'}…
           </p>

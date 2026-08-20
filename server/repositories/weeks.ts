@@ -13,7 +13,15 @@
  * the "Semana anterior" the template would have made them paste by hand.
  */
 
-import { emptySets, isSetEmpty, TEMPLATE_SET_COUNT, type SetEntry } from '../../src/domain/types';
+import {
+  emptySets,
+  isSetEmpty,
+  isSetWorked,
+  TEMPLATE_SET_COUNT,
+  type SetEntry,
+} from '../../src/domain/types';
+import { randomUUID } from 'node:crypto';
+
 import type { Database } from '../db/database';
 import { getProgram, type StoredProgram } from './programs';
 
@@ -47,6 +55,7 @@ interface DayRow {
 interface ExerciseRow {
   id: number;
   position: number;
+  lineage: string;
   name: string;
   video_url: string | null;
   protocol: string | null;
@@ -117,10 +126,24 @@ export async function appendWeek(
     // to insert week N. The unique index on (program_id, number) stops the
     // duplicate; without this the loser answered 500 and the user saw a crash
     // where the thing they had asked for did in fact just get created.
-    if (!isUniqueViolation(error)) throw error;
+    //
+    // But only THAT collision is forgivable. Swallowing every 23505 meant any
+    // other unique violation inside the clone rolled the transaction back and
+    // then reported success, so the button could go on answering 201 for ever
+    // while creating nothing. If week N is not there afterwards, the error was
+    // not the race and the caller has to hear about it.
+    if (!isUniqueViolation(error) || !(await weekExists(db, programId, number))) throw error;
   }
 
   return getProgram(db, programId, userId);
+}
+
+async function weekExists(db: Database, programId: number, number: number): Promise<boolean> {
+  const { rows } = await db.query<{ id: number }>(
+    'SELECT id FROM weeks WHERE program_id = $1 AND number = $2',
+    [programId, number],
+  );
+  return rows.length > 0;
 }
 
 /** PostgreSQL reports a unique index violation as SQLSTATE 23505. */
@@ -167,7 +190,7 @@ async function insertClonedWeek(
       if (sessionId === undefined) throw new Error('No se ha podido crear la sesión');
 
       const { rows: exercises } = await tx.query<ExerciseRow>(
-        `SELECT id, position, name, video_url, protocol, comments, planned_set_count
+        `SELECT id, position, lineage, name, video_url, protocol, comments, planned_set_count
            FROM exercises WHERE day_id = $1 ORDER BY position`,
         [day.id],
       );
@@ -175,13 +198,23 @@ async function insertClonedWeek(
       for (const exercise of exercises) {
         const { rows: copies } = await tx.query<{ id: number }>(
           `INSERT INTO exercises
-             (day_id, position, external_key, name, video_url, protocol, comments, planned_set_count)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             (day_id, position, external_key, lineage, name, video_url, protocol, comments,
+              planned_set_count)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
           [
             dayId,
             exercise.position,
-            `w${number}:d${day.number}:e${exercise.position}`,
+            // Not derived from the position. Two exercises in a day can share
+            // one (the template's "Nº" column is whatever was typed), and the
+            // resulting collision on UNIQUE (day_id, external_key) rolled back
+            // every future clone of that program. The key's job — matching
+            // sets across a re-import — does not apply to a week the app made
+            // anyway; `lineage` is what carries identity across weeks now.
+            `clone:${randomUUID()}`,
+            // Inherited, not regenerated: this is what makes week 9's third
+            // exercise the same movement as week 1's for the progress view.
+            exercise.lineage,
             exercise.name,
             exercise.video_url,
             exercise.protocol,
@@ -215,7 +248,12 @@ async function insertClonedWeek(
 }
 
 /** Why a week could not be removed, for the caller to turn into a status. */
-export type RemoveWeekOutcome = 'eliminada' | 'no existe' | 'tiene trabajo anotado' | 'es la unica';
+export type RemoveWeekOutcome =
+  | 'eliminada'
+  | 'no existe'
+  | 'tiene trabajo anotado'
+  | 'es la unica'
+  | 'no es la ultima';
 
 /**
  * Deletes a week, but only one nobody has trained.
@@ -250,42 +288,52 @@ export async function removeWeek(
 
   if (!target) return { outcome: 'no existe', program };
   if (weeks.length === 1) return { outcome: 'es la unica', program };
-  if (await hasLoggedWork(db, target.id)) return { outcome: 'tiene trabajo anotado', program };
 
-  // Days, exercises, sessions and sets all cascade from the week.
-  await db.query('DELETE FROM weeks WHERE id = $1', [target.id]);
+  // Only the newest week. Removing one from the middle leaves a gap that the
+  // week numbers cannot express — `appendWeek` counts from MAX(number), so the
+  // hole is permanent, and every "vs. la semana anterior" after it compares
+  // against a week that is no longer adjacent. The UI already offered only
+  // this one; nothing enforced it.
+  if (weekNumber !== weeks.at(-1)?.number) return { outcome: 'no es la ultima', program };
+
+  // Checked and deleted in ONE statement. As two, a set arriving from a phone
+  // flushing its offline queue between them was cascaded away by a delete that
+  // had already decided the week was untouched — the exact loss this guard
+  // exists to prevent, reported as success.
+  const { rowCount } = await db.query(
+    `DELETE FROM weeks
+      WHERE id = $1
+        AND NOT EXISTS (
+          SELECT 1
+            FROM workout_days d
+            JOIN workout_sessions s ON s.day_id = d.id
+            LEFT JOIN session_sets ss
+                   ON ss.session_id = s.id
+                  AND (ss.reps IS NOT NULL OR ss.rir IS NOT NULL)
+           WHERE d.week_id = $1
+             AND (ss.id IS NOT NULL OR s.completed OR s.notes <> '')
+        )`,
+    [target.id],
+  );
+
+  if (rowCount === 0) return { outcome: 'tiene trabajo anotado', program };
   return { outcome: 'eliminada', program: await getProgram(db, programId, userId) };
 }
 
-/**
- * Anything the user put there themselves: a set, a note, a completion.
+/*
+ * What counts as "this week was trained", i.e. the NOT EXISTS above: a set with
+ * reps or an RIR, a session note, or a day marked completed.
  *
- * A set counts only once it has reps or an RIR. A bare weight is what
- * `copyWeights` pre-fills, and treating that as training made a week started
- * with last week's loads impossible to delete for ever — the app's own
- * suggestion locking the door behind it. Same rule as everywhere else here:
- * reps are what turn a weight into work.
+ * A bare weight does not count. It is what `copyWeights` pre-fills, and
+ * treating it as training made a week started from last week's loads
+ * impossible to delete for ever — the app's own suggestion locking the door
+ * behind it. Same rule as everywhere else: reps are what turn a weight into
+ * work (see `isSetWorked`).
  *
  * The cost is that a weight typed but not yet completed goes with the week.
  * That is the right side to err on: the alternative refuses to delete weeks
  * nobody trained, which is precisely the case the button exists for.
  */
-async function hasLoggedWork(db: Database, weekId: number): Promise<boolean> {
-  const { rows } = await db.query<{ present: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1
-         FROM workout_days d
-         JOIN workout_sessions s ON s.day_id = d.id
-         LEFT JOIN session_sets ss
-                ON ss.session_id = s.id
-               AND (ss.reps IS NOT NULL OR ss.rir IS NOT NULL)
-        WHERE d.week_id = $1
-          AND (ss.id IS NOT NULL OR s.completed OR s.notes <> '')
-     ) AS present`,
-    [weekId],
-  );
-  return rows[0]?.present ?? false;
-}
 
 /**
  * What the new week should show as "semana anterior" for one exercise.
@@ -302,7 +350,11 @@ async function readReference(tx: Database, exerciseId: number): Promise<SetEntry
       WHERE exercise_id = $1 ORDER BY set_index`,
     exerciseId,
   );
-  if (logged.some((set) => !isSetEmpty(set))) return logged;
+  // Worked, not merely present. A week started with `copyWeights` holds
+  // weight-only rows; passing those on as "what you lifted last week" made the
+  // app suggest a progression on top of numbers nobody had lifted, and the
+  // error compounded with every further week.
+  if (logged.some(isSetWorked)) return logged;
 
   return readSets(
     tx,

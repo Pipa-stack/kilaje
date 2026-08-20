@@ -40,19 +40,61 @@ export type Grid = Cell[][];
 const MAX_ROWS = 5_000;
 const MAX_COLS = 200;
 
-/** Reads a worksheet into a dense grid, so the parser never re-derives addresses. */
-export function toGrid(sheet: XLSX.WorkSheet): Grid {
+/**
+ * How many cells the whole workbook may cost, across every sheet.
+ *
+ * The per-sheet cap above bounds one grid at a million cells. It says nothing
+ * about how many grids, and a `.xlsx` costs about 550 bytes per worksheet: a
+ * 2.7 MB upload can carry five thousand sheets, each declaring the full Excel
+ * canvas, and each one is a synchronous million-cell allocation on the single
+ * thread that serves everybody. Measured at ~0.86 s per sheet, that is over an
+ * hour of a completely blocked event loop from one request that passes every
+ * size check in the codebase.
+ *
+ * Two million is ten times the largest real template and bounds the worst case
+ * at a couple of seconds.
+ */
+export const MAX_WORKBOOK_CELLS = 2_000_000;
+
+/** Cells still available to a workbook being parsed. Mutable on purpose. */
+export interface CellBudget {
+  remaining: number;
+}
+
+export function createCellBudget(total = MAX_WORKBOOK_CELLS): CellBudget {
+  return { remaining: total };
+}
+
+/**
+ * Reads a worksheet into a dense grid, so the parser never re-derives addresses.
+ *
+ * @param budget Shared across every sheet of one workbook. A sheet is trimmed
+ *   to what is left rather than refused, so a legitimate file whose last sheet
+ *   overruns still parses everything before it.
+ */
+export function toGrid(sheet: XLSX.WorkSheet, budget?: CellBudget): Grid {
   const ref = sheet['!ref'];
   if (!ref) return [];
 
   const declared = XLSX.utils.decode_range(ref);
+  const columns = Math.min(declared.e.c, declared.s.c + MAX_COLS - 1) - declared.s.c + 1;
+  const affordableRows =
+    budget === undefined || columns <= 0
+      ? MAX_ROWS
+      : Math.max(0, Math.min(MAX_ROWS, Math.floor(budget.remaining / columns)));
+
   const range = {
     s: declared.s,
     e: {
-      r: Math.min(declared.e.r, declared.s.r + MAX_ROWS - 1),
+      r: Math.min(declared.e.r, declared.s.r + affordableRows - 1),
       c: Math.min(declared.e.c, declared.s.c + MAX_COLS - 1),
     },
   };
+
+  if (budget) {
+    const rows = Math.max(0, range.e.r - range.s.r + 1);
+    budget.remaining -= rows * columns;
+  }
   const grid: Grid = [];
 
   for (let row = range.s.r; row <= range.e.r; row += 1) {

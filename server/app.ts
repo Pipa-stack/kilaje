@@ -67,7 +67,7 @@ export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: A
   );
 
   app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl }));
-  app.use('/api/profile', requireUser, createProfileRouter(db));
+  app.use('/api/profile', requireUser, createProfileRouter(db, rateLimits));
   app.use('/api', requireUser, createApiRouter(db, rateLimits));
 
   app.use('/api', (_req, res) => {
@@ -81,6 +81,10 @@ export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: A
         // Hashed asset filenames can be cached hard; index.html cannot.
         setHeaders: (res, path) => {
           if (path.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+          // The worker decides what every other request is allowed to serve
+          // from cache, so a stale copy of it would pin the whole app to an
+          // old deploy. It is the one file that must always be revalidated.
+          else if (path.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache');
           else if (path.includes('/assets/')) {
             res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           }
@@ -128,5 +132,10 @@ function securityHeaders(
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // Isolates the browsing context: nothing this page opens (or that opens it)
+  // shares an agent cluster with it, and no other origin can embed its
+  // responses as a subresource.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   next();
 }
