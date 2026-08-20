@@ -15,6 +15,7 @@
     "start": "tsx server/index.ts",
     "db:migrate": "tsx server/scripts/migrate.ts",
     "db:seed": "tsx server/scripts/seed.ts",
+    "db:seed:demo": "tsx server/scripts/seedDemo.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

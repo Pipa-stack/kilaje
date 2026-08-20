@@ -102,9 +102,16 @@ describe('server boundaries', () => {
     const offenders = SERVER_FILES.filter(
       (file) =>
         /DATABASE_URL/.test(code(file)) &&
-        !['index.ts', 'scripts\\migrate.ts', 'scripts\\seed.ts', 'scripts/migrate.ts', 'scripts/seed.ts'].includes(
-          relative(SERVER, file),
-        ),
+        // Entry points only: the server itself and the CLI scripts.
+        ![
+          'index.ts',
+          'scripts\\migrate.ts',
+          'scripts\\seed.ts',
+          'scripts\\seedDemo.ts',
+          'scripts/migrate.ts',
+          'scripts/seed.ts',
+          'scripts/seedDemo.ts',
+        ].includes(relative(SERVER, file)),
     );
     expect(offenders.map((file) => relative(SERVER, file))).toEqual([]);
   });

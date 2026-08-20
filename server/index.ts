@@ -13,6 +13,7 @@ import { createApp } from './app';
 import { createSenderFromEnv } from './email/sender';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
+import { seedDemoAccount } from './db/demoAccount';
 import { seedReferenceProgram } from './db/seed';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,6 +41,26 @@ async function main(): Promise<void> {
   if (process.env.SEED_REFERENCE_PROGRAM === 'true') {
     const result = await seedReferenceProgram(db, join(ROOT, 'Ejemplo/ejemplo.xlsx'));
     console.log(`[server] seed: ${result}`);
+  }
+
+  // A fixed account to try the app with, rebuilt on every boot so a redeploy
+  // never leaves it broken. Opt-in, and with the password taken from the
+  // environment: see `db/demoAccount.ts`.
+  if (process.env.DEMO_ACCOUNT === 'true') {
+    const demo = await seedDemoAccount(db, {
+      email: process.env.DEMO_EMAIL,
+      password: process.env.DEMO_PASSWORD,
+      workbookPath: join(ROOT, 'Ejemplo/ejemplo.xlsx'),
+    });
+    console.log(
+      `[server] cuenta de prueba ${demo.email}: ${demo.account}, programa ${demo.program}`,
+    );
+    if (!process.env.DEMO_PASSWORD) {
+      console.warn(
+        '[server] la cuenta de prueba usa la contraseña por defecto del repositorio. ' +
+          'Define DEMO_PASSWORD si el despliegue es público.',
+      );
+    }
   }
 
   // Falls back to the Gmail account itself when sending over SMTP, which is
