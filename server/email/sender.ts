@@ -14,6 +14,8 @@
  * reaches anyone. The trade is that the From address is visibly a Gmail one.
  */
 
+import { resolve4 } from 'node:dns/promises';
+
 import { createTransport } from 'nodemailer';
 
 export interface Email {
@@ -101,6 +103,28 @@ export interface SmtpConfig {
 }
 
 /**
+ * Resolves a host to a single IPv4 literal, or null if it cannot.
+ *
+ * Nodemailer resolves both families, concatenates them and then picks one
+ * address *at random* (`lib/shared/index.js`). On a host with no IPv6 route —
+ * Railway's containers are one — that makes every send a coin flip: half land,
+ * half die with ENETUNREACH or hang until the connection timeout. Choosing the
+ * A record ourselves removes the randomness.
+ *
+ * Returning null on failure is deliberate: the caller then hands nodemailer the
+ * hostname it would have used anyway, so a resolver hiccup degrades to the old
+ * behaviour instead of failing the send outright.
+ */
+async function resolveIpv4(host: string): Promise<string | null> {
+  try {
+    const [address] = await resolve4(host);
+    return address ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Sends over SMTP. With Gmail's host this needs no domain of your own.
  *
  * Port 465 is implicit TLS; anything else is upgraded with STARTTLS. Both are
@@ -108,21 +132,31 @@ export interface SmtpConfig {
  * so `secure` is derived from the port rather than left to configuration.
  */
 export function createSmtpSender(config: SmtpConfig, from: string): EmailSender {
-  const transport = createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.port === 465,
-    requireTLS: config.port !== 465,
-    auth: { user: config.user, pass: config.password },
-    connectionTimeout: SEND_TIMEOUT_MS,
-    greetingTimeout: SEND_TIMEOUT_MS,
-    socketTimeout: SEND_TIMEOUT_MS,
-  });
+  // Resolved once and reused: the address is stable enough for this, and doing
+  // it per send would put a DNS round trip in front of every password reset.
+  let pending: Promise<string | null> | undefined;
+  const address = () => (pending ??= resolveIpv4(config.host));
+
+  const transportFor = (host: string) =>
+    createTransport({
+      host,
+      port: config.port,
+      secure: config.port === 465,
+      requireTLS: config.port !== 465,
+      // Certificates are issued for the name, not the literal we dialled, so
+      // TLS has to keep validating against the configured host.
+      tls: { servername: config.host },
+      auth: { user: config.user, pass: config.password },
+      connectionTimeout: SEND_TIMEOUT_MS,
+      greetingTimeout: SEND_TIMEOUT_MS,
+      socketTimeout: SEND_TIMEOUT_MS,
+    });
 
   return {
     configured: true,
     async send(email) {
       try {
+        const transport = transportFor((await address()) ?? config.host);
         await transport.sendMail({
           from,
           to: email.to,
