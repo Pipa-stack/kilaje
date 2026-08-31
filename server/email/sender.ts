@@ -1,17 +1,27 @@
 /**
- * Outbound email, through Resend or plain SMTP.
+ * Outbound email, through Brevo, Resend or plain SMTP.
  *
  * Behind an interface for two reasons: the tests must never make a network
  * call, and a missing configuration must not take the app down. Unconfigured,
  * the sender still "works" — it logs what it would have sent and reports
  * failure to the caller, which is enough for the caller to decide what to do.
  *
- * Two providers because they fail in opposite places. Resend needs a domain
- * you have verified by DNS; until you own one, it will only deliver to the
- * address that owns the Resend account, which is useless for password
- * recovery. Gmail's SMTP needs no domain at all: the message leaves Google's
- * own servers authenticated as the account, so SPF and DKIM align and it
- * reaches anyone. The trade is that the From address is visibly a Gmail one.
+ * Three providers because they fail in different places, and the one that works
+ * depends on what you own and where you are hosted.
+ *
+ * SMTP needs no domain — the message leaves Google's own servers authenticated
+ * as the account, so SPF and DKIM align and it reaches anyone. What it does
+ * need is an open SMTP port, and Railway disables outbound SMTP on every plan
+ * below Pro, where it does not refuse the connection but drops the packets, so
+ * the only symptom is a connection timeout. Nothing in this file can fix that.
+ *
+ * Resend and Brevo both leave over HTTPS, which is never blocked. Resend needs
+ * a domain verified by DNS; until you own one it will only deliver to the
+ * address that owns the account, which is useless for password recovery. Brevo
+ * will verify a single sender address instead, so it delivers to anyone with no
+ * domain at all — at the cost of a From that is visibly a personal mailbox and
+ * does not align with the sending domain, which reads slightly worse to spam
+ * filters.
  */
 
 import { resolve4 } from 'node:dns/promises';
@@ -34,6 +44,7 @@ export interface EmailSender {
 }
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
 /** A hung provider must not hang the request waiting behind it. */
 const SEND_TIMEOUT_MS = 10_000;
@@ -48,6 +59,74 @@ function unconfiguredSender(): EmailSender {
       // ever receives one.
       console.warn(`[email] sin proveedor configurado: no se ha enviado "${email.subject}"`);
       return false;
+    },
+  };
+}
+
+/**
+ * Splits `Kilaje <hola@ejemplo.com>` into its parts.
+ *
+ * Resend and SMTP take that whole string as a header; Brevo wants the name and
+ * the address as separate JSON fields, so it has to be taken apart. A bare
+ * address with no display name is valid and stays nameless.
+ */
+export function parseFrom(from: string): { name?: string; email: string } {
+  const match = /^\s*(.*?)\s*<\s*([^<>]+?)\s*>\s*$/.exec(from);
+  const email = match?.[2];
+  if (!email) return { email: from.trim() };
+
+  const name = (match?.[1] ?? '').replace(/^"|"$/g, '').trim();
+  return name ? { name, email } : { email };
+}
+
+/**
+ * Sends through Brevo's HTTP API.
+ *
+ * Chosen where SMTP is unavailable and no domain is owned: Brevo will verify a
+ * single sender mailbox, so this delivers to anybody without any DNS at all.
+ *
+ * @param apiKey Brevo key, from the environment. Absent in tests and in a local
+ *   checkout that has not configured mail.
+ * @param from Sender, verified in Brevo. Anything else is rejected with 400.
+ */
+export function createBrevoSender(apiKey: string | undefined, from: string): EmailSender {
+  if (!apiKey) return unconfiguredSender();
+
+  const sender = parseFrom(from);
+
+  return {
+    configured: true,
+    async send(email) {
+      try {
+        const response = await fetch(BREVO_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'api-key': apiKey,
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+          body: JSON.stringify({
+            sender,
+            to: [{ email: email.to }],
+            subject: email.subject,
+            textContent: email.text,
+            htmlContent: email.html,
+          }),
+          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+        });
+
+        if (!response.ok) {
+          // 401 is a bad key and 400 is almost always an unverified sender —
+          // worth separating, because the fix is in a different place. The body
+          // can quote the recipient, so only the status is logged.
+          console.error(`[email] Brevo ha respondido ${response.status}`);
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error('[email] Brevo no ha podido enviar:', error instanceof Error ? error.message : error);
+        return false;
+      }
     },
   };
 }
@@ -180,11 +259,16 @@ export function createSmtpSender(config: SmtpConfig, from: string): EmailSender 
 /**
  * Picks a provider from the environment.
  *
- * SMTP wins when it is configured because it is the one that works without a
- * verified domain — if both are set, the deliberate act was setting SMTP.
+ * Brevo goes first. It leaves over HTTPS, so it works on hosts that drop
+ * outbound SMTP, and it needs no domain — which makes it the only one of the
+ * three that delivers to arbitrary recipients from a plain Railway service.
+ * SMTP still outranks Resend behind it, because Resend without a verified
+ * domain silently narrows delivery to a single mailbox.
  */
 export function createSenderFromEnv(env: NodeJS.ProcessEnv, from: string): EmailSender {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, RESEND_API_KEY } = env;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, RESEND_API_KEY, BREVO_API_KEY } = env;
+
+  if (BREVO_API_KEY) return createBrevoSender(BREVO_API_KEY, from);
 
   if (SMTP_HOST && SMTP_USER && SMTP_PASSWORD) {
     const port = Number.parseInt(SMTP_PORT ?? '465', 10);

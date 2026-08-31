@@ -12,13 +12,15 @@ import { resolve } from 'node:path';
 
 import express from 'express';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../server/app';
 import { buildResetEmail } from '../server/email/resetEmail';
 import {
+  createBrevoSender,
   createEmailSender,
   createSenderFromEnv,
+  parseFrom,
   type Email,
   type EmailSender,
 } from '../server/email/sender';
@@ -277,6 +279,84 @@ describe('choosing a provider from the environment', () => {
 
   it('survives a port that is not a number', () => {
     expect(createSenderFromEnv({ ...SMTP, SMTP_PORT: 'ochenta' }, FROM).configured).toBe(true);
+  });
+
+  it('prefers Brevo over everything else', () => {
+    // Railway drops outbound SMTP below the Pro plan, so on this host Brevo is
+    // the only one of the three that reaches an arbitrary recipient at all.
+    const sender = createSenderFromEnv(
+      { ...SMTP, RESEND_API_KEY: 're_x', BREVO_API_KEY: 'xkeysib_x' },
+      FROM,
+    );
+    expect(sender.configured).toBe(true);
+    expect(String(sender.send)).toContain('BREVO_ENDPOINT');
+  });
+});
+
+describe('splitting the From header', () => {
+  it('separates the display name from the address', () => {
+    expect(parseFrom('Kilaje <hola@ejemplo.com>')).toEqual({
+      name: 'Kilaje',
+      email: 'hola@ejemplo.com',
+    });
+  });
+
+  it('keeps a bare address nameless rather than inventing a name', () => {
+    expect(parseFrom('hola@ejemplo.com')).toEqual({ email: 'hola@ejemplo.com' });
+  });
+
+  it('tolerates the spacing and quoting people actually write', () => {
+    expect(parseFrom('  "Kilaje"  < hola@ejemplo.com >  ')).toEqual({
+      name: 'Kilaje',
+      email: 'hola@ejemplo.com',
+    });
+  });
+});
+
+describe('the Brevo sender', () => {
+  const FROM = 'Kilaje <hola@ejemplo.com>';
+  const EMAIL = { to: 'ana@ejemplo.com', subject: 'Asunto', text: 'texto', html: '<p>texto</p>' };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts the shape Brevo expects, with the key in its own header', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await createBrevoSender('xkeysib_x', FROM).send(EMAIL)).toBe(true);
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.brevo.com/v3/smtp/email');
+    expect((init.headers as Record<string, string>)['api-key']).toBe('xkeysib_x');
+    expect(JSON.parse(init.body as string)).toEqual({
+      sender: { name: 'Kilaje', email: 'hola@ejemplo.com' },
+      to: [{ email: 'ana@ejemplo.com' }],
+      subject: 'Asunto',
+      textContent: 'texto',
+      htmlContent: '<p>texto</p>',
+    });
+  });
+
+  it('reports failure when the sender is not verified', async () => {
+    // A 400 here is almost always an unverified sender, and it must not be
+    // mistaken for delivery — that is the whole failure this file guards.
+    vi.stubGlobal('fetch', async () => new Response('{"code":"invalid_parameter"}', { status: 400 }));
+    expect(await createBrevoSender('xkeysib_x', FROM).send(EMAIL)).toBe(false);
+  });
+
+  it('reports failure when the network never answers', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('fetch failed');
+    });
+    expect(await createBrevoSender('xkeysib_x', FROM).send(EMAIL)).toBe(false);
+  });
+
+  it('sends nothing without a key', async () => {
+    const sender = createBrevoSender(undefined, FROM);
+    expect(sender.configured).toBe(false);
+    expect(await sender.send(EMAIL)).toBe(false);
   });
 });
 
