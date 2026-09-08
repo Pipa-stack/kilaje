@@ -135,9 +135,11 @@ export async function deleteSet(
 export interface SessionPatch {
   notes?: string;
   completed?: boolean;
+  elapsedSeconds?: number;
+  timerRunning?: boolean;
 }
 
-/** Updates session notes and/or the completed flag. */
+/** Updates session notes, the completed flag and/or the clock. */
 export async function updateSession(
   db: Database,
   dayId: number,
@@ -152,6 +154,27 @@ export async function updateSession(
       sessionId,
       patch.notes,
     ]);
+  }
+
+  // The elapsed total is the client's to compute: it is the only party that
+  // knows when the buttons were actually pressed, and a value stamped here
+  // would count the minutes a queued write spent waiting for signal as
+  // training. The range is enforced by the column's CHECK either way.
+  if (patch.elapsedSeconds !== undefined) {
+    await db.query(
+      'UPDATE workout_sessions SET elapsed_seconds = $2, updated_at = now() WHERE id = $1',
+      [sessionId, Math.round(patch.elapsedSeconds)],
+    );
+  }
+
+  if (patch.timerRunning !== undefined) {
+    await db.query(
+      `UPDATE workout_sessions
+          SET timer_started_at = CASE WHEN $2 THEN now() ELSE NULL END,
+              updated_at = now()
+        WHERE id = $1`,
+      [sessionId, patch.timerRunning],
+    );
   }
 
   if (patch.completed !== undefined) {
@@ -185,13 +208,97 @@ export async function resetSession(
 
   await db.transaction(async (tx) => {
     await tx.query('DELETE FROM session_sets WHERE session_id = $1', [sessionId]);
+    // The per-exercise notes and the clock are part of what was logged that
+    // day, so they go with the sets. The setup notes are not: they describe
+    // the movement and live on the template side, untouched.
+    await tx.query('DELETE FROM session_exercise_notes WHERE session_id = $1', [sessionId]);
     await tx.query(
       `UPDATE workout_sessions
-          SET notes = '', completed = FALSE, completed_at = NULL, updated_at = now()
+          SET notes = '', completed = FALSE, completed_at = NULL,
+              elapsed_seconds = 0, timer_started_at = NULL, updated_at = now()
         WHERE id = $1`,
       [sessionId],
     );
   });
+}
+
+/**
+ * Writes this session's note for one exercise. Empty deletes the row.
+ *
+ * A note nobody wrote and a note somebody deleted are the same thing, and
+ * keeping empty strings around would make every "has a note" check lie.
+ */
+export async function saveExerciseNote(
+  db: Database,
+  dayId: number,
+  exerciseId: number,
+  note: string,
+  userId: number,
+): Promise<void> {
+  await assertExerciseInDay(db, dayId, exerciseId, userId);
+  const sessionId = await requireSessionId(db, dayId);
+
+  if (note.trim() === '') {
+    await db.query(
+      'DELETE FROM session_exercise_notes WHERE session_id = $1 AND exercise_id = $2',
+      [sessionId, exerciseId],
+    );
+  } else {
+    await db.query(
+      `INSERT INTO session_exercise_notes (session_id, exercise_id, note)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (session_id, exercise_id) DO UPDATE
+          SET note = EXCLUDED.note, updated_at = now()`,
+      [sessionId, exerciseId, note],
+    );
+  }
+
+  await touchSession(db, sessionId);
+}
+
+/**
+ * Writes the permanent setup note for a movement.
+ *
+ * Keyed by the exercise's lineage within its program, so it reaches every week
+ * at once — which is what makes it permanent rather than a note that happens
+ * to sit on the week you were looking at. Ownership is re-derived from the
+ * exercise id, as everywhere else here.
+ */
+export async function saveExerciseSetup(
+  db: Database,
+  exerciseId: number,
+  note: string,
+  userId: number,
+): Promise<boolean> {
+  const { rows } = await db.query<{ program_id: number; lineage: string }>(
+    `SELECT w.program_id, e.lineage
+       FROM exercises e
+       JOIN workout_days d ON d.id = e.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE e.id = $1 AND p.user_id = $2`,
+    [exerciseId, userId],
+  );
+
+  const target = rows[0];
+  if (!target) return false;
+
+  if (note.trim() === '') {
+    await db.query('DELETE FROM exercise_setups WHERE program_id = $1 AND lineage = $2', [
+      target.program_id,
+      target.lineage,
+    ]);
+    return true;
+  }
+
+  await db.query(
+    `INSERT INTO exercise_setups (program_id, lineage, note)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (program_id, lineage) DO UPDATE
+        SET note = EXCLUDED.note, updated_at = now()`,
+    [target.program_id, target.lineage, note],
+  );
+  return true;
 }
 
 async function touchSession(db: Database, sessionId: number): Promise<void> {

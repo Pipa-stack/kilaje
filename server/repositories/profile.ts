@@ -7,6 +7,7 @@
  */
 
 import { loadHistory } from './history';
+import type { BestSet } from '../../src/domain/calculations';
 import type { Database } from '../db/database';
 
 export interface ProfileIdentity {
@@ -14,6 +15,25 @@ export interface ProfileIdentity {
   /** What to call you. Falls back to the part of the email before the @. */
   displayName: string;
   memberSince: string;
+}
+
+/** One movement, everything you have ever done on it. */
+export interface Lift {
+  exercise: string;
+  /** The heaviest set ever logged for it. */
+  best: BestSet;
+  /**
+   * Weight of the last session's best set minus the first session's.
+   *
+   * First against last, not against the all-time peak: this answers "where is
+   * this exercise going", so it can be negative, and that is the point. `null`
+   * with a single session — one session is not a trend.
+   */
+  gainKg: number | null;
+  sessions: number;
+  lastTrainedAt: string;
+  /** Whole weeks since the best set was performed. */
+  weeksSince: number;
 }
 
 export interface LifetimeStats {
@@ -25,14 +45,19 @@ export interface LifetimeStats {
   distinctExercises: number;
   totalSets: number;
   programs: number;
+  /**
+   * Mean length of the completed sessions that have one, in seconds.
+   *
+   * `null` until a session has been timed: an average over no data is not
+   * zero minutes of training, it is no answer.
+   */
+  averageSessionSeconds: number | null;
 }
 
 export interface PersonalRecord {
   exercise: string;
-  /** Best Epley estimate across every set ever logged for it. */
-  oneRepMax: number;
-  /** Heaviest weight moved for at least one rep. */
-  topWeight: number | null;
+  /** The heaviest set ever logged for it. */
+  best: BestSet;
   achievedAt: string;
   /**
    * Whole weeks since this record was set.
@@ -60,7 +85,7 @@ export interface TypeVolume {
 export interface Profile {
   identity: ProfileIdentity;
   stats: LifetimeStats;
-  /** Best lifts, heaviest estimate first. */
+  /** Best lifts, heaviest first. */
   records: PersonalRecord[];
   /** Exactly {@link ACTIVITY_WEEKS} entries, oldest first, gaps filled with zeroes. */
   weeklyActivity: WeekActivity[];
@@ -87,32 +112,33 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
   const user = rows[0];
   if (!user) return null;
 
-  const [history, sessions, totals, activity, volumeByType, lastSessionAt] = await Promise.all([
-    loadHistory(db, userId),
-    countSessions(db, userId),
-    loadTotals(db, userId),
-    loadWeeklyActivity(db, userId),
-    loadVolumeByType(db, userId),
-    loadLastSession(db, userId),
-  ]);
+  const [history, sessions, totals, activity, volumeByType, lastSessionAt, duration] =
+    await Promise.all([
+      loadHistory(db, userId),
+      countSessions(db, userId),
+      loadTotals(db, userId),
+      loadWeeklyActivity(db, userId),
+      loadVolumeByType(db, userId),
+      loadLastSession(db, userId),
+      loadAverageDuration(db, userId),
+    ]);
 
   const records = history
-    .filter((exercise): exercise is typeof exercise & { bestOneRepMax: number } =>
-      exercise.bestOneRepMax !== null,
-    )
+    .filter((exercise): exercise is typeof exercise & { best: BestSet } => exercise.best !== null)
     .map((exercise) => {
-      const best = exercise.entries.reduce((champion, entry) =>
-        (entry.oneRepMax ?? 0) > (champion.oneRepMax ?? 0) ? entry : champion,
+      // The session that produced it, so the date is the day it was lifted
+      // rather than the last time the movement was trained.
+      const session = exercise.entries.reduce((champion, entry) =>
+        (entry.best?.weight ?? -1) > (champion.best?.weight ?? -1) ? entry : champion,
       );
       return {
         exercise: exercise.name,
-        oneRepMax: exercise.bestOneRepMax,
-        topWeight: exercise.bestWeight,
-        achievedAt: best.performedAt,
-        weeksSince: weeksSince(best.performedAt),
+        best: exercise.best,
+        achievedAt: session.performedAt,
+        weeksSince: weeksSince(session.performedAt),
       };
     })
-    .sort((a, b) => b.oneRepMax - a.oneRepMax)
+    .sort((a, b) => b.best.weight - a.best.weight)
     .slice(0, MAX_RECORDS);
 
   return {
@@ -128,6 +154,7 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
       distinctExercises: totals.exercises,
       totalSets: totals.sets,
       programs: sessions.programs,
+      averageSessionSeconds: duration,
     },
     records,
     weeklyActivity: activity,
@@ -144,7 +171,7 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
  * says nothing when it stops. Past that the totals labelled "en total" would
  * quietly start shrinking — the one place where being approximately right is
  * worse than not showing a number. Pure aggregation, so nothing about the
- * domain is restated here; the estimated 1RM still comes from the one
+ * domain is restated here; the best set still comes from the one
  * implementation in `calculations.ts`.
  */
 async function loadTotals(
@@ -255,6 +282,64 @@ async function loadVolumeByType(db: Database, userId: number): Promise<TypeVolum
     volumeKg: numeric(row.volume),
     sessions: Number(row.sessions),
   }));
+}
+
+/**
+ * Every movement you have trained, for the rankings screen.
+ *
+ * Grouped by name rather than by lineage: a lineage identifies a movement
+ * inside one program, and this question spans all of them.
+ */
+export async function listLifts(db: Database, userId: number): Promise<Lift[]> {
+  const history = await loadHistory(db, userId);
+
+  return history
+    .filter((exercise): exercise is typeof exercise & { best: BestSet } => exercise.best !== null)
+    .map((exercise) => {
+      const timed = exercise.entries.filter((entry) => entry.best !== null);
+      const first = timed[0]?.best?.weight ?? null;
+      const last = timed.at(-1)?.best?.weight ?? null;
+      const achievedAt =
+        exercise.entries.reduce((champion, entry) =>
+          (entry.best?.weight ?? -1) > (champion.best?.weight ?? -1) ? entry : champion,
+        ).performedAt;
+
+      return {
+        exercise: exercise.name,
+        best: exercise.best,
+        gainKg:
+          first !== null && last !== null && timed.length > 1
+            ? Math.round((last - first) * 100) / 100
+            : null,
+        sessions: exercise.sessions,
+        lastTrainedAt: exercise.lastTrainedAt ?? achievedAt,
+        weeksSince: weeksSince(achievedAt),
+      };
+    });
+}
+
+/**
+ * Mean duration of the sessions that were actually timed.
+ *
+ * Sessions with a zero clock are left out rather than counted as instant: the
+ * timer is a button somebody has to press, and the ones they forgot would
+ * drag the average towards a number nobody trained.
+ */
+async function loadAverageDuration(db: Database, userId: number): Promise<number | null> {
+  const { rows } = await db.query<{ average: number | string | null }>(
+    `SELECT AVG(s.elapsed_seconds) AS average
+       FROM workout_sessions s
+       JOIN workout_days d ON d.id = s.day_id
+       JOIN weeks w        ON w.id = d.week_id
+       JOIN programs p     ON p.id = w.program_id
+      WHERE p.user_id = $1 AND s.completed AND s.elapsed_seconds > 0`,
+    [userId],
+  );
+
+  const average = rows[0]?.average;
+  if (average === null || average === undefined) return null;
+  const parsed = typeof average === 'number' ? average : Number.parseFloat(average);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
 async function loadLastSession(db: Database, userId: number): Promise<string | null> {

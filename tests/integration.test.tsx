@@ -166,10 +166,11 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     // --- Calculations update live ---------------------------------------
     const card = seeded.closest('article');
     expect(within(card!).getByText('970 kg')).toBeInTheDocument(); // 82.5x4 + 80x8
-    expect(within(card!).getByText('93.5 kg')).toBeInTheDocument(); // Epley on set 1
+    // The heaviest set actually performed, not an estimate derived from it.
+    expect(within(card!).getByText('82.5 kg × 4')).toBeInTheDocument();
 
     // --- Notes and completion -------------------------------------------
-    await user.type(screen.getByLabelText('Notas de la sesión'), 'buenas sensaciones');
+    await user.type(screen.getByLabelText('Notas de toda la sesión'), 'buenas sensaciones');
     await user.click(screen.getByRole('button', { name: 'Completar sesión' }));
 
     // --- It reached the database ----------------------------------------
@@ -188,7 +189,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
 
     await openDay(user, 1);
     expect(screen.getByLabelText(new RegExp(`Peso de la serie 2 de ${BENCH}`))).toHaveValue('80');
-    expect(screen.getByLabelText('Notas de la sesión')).toHaveValue('buenas sensaciones');
+    expect(screen.getByLabelText('Notas de toda la sesión')).toHaveValue('buenas sensaciones');
     expect(screen.getByText('Completada')).toBeInTheDocument();
 
     // --- Re-import: a new program, old history preserved -----------------
@@ -437,8 +438,8 @@ describe('the full training flow, persisted in PostgreSQL', () => {
 
     const trends = screen.getByRole('region', { name: /Cada ejercicio/i });
     expect(within(trends).getByText(BENCH)).toBeInTheDocument();
-    expect(within(trends).getByText('90 kg')).toBeInTheDocument();
-    expect(within(trends).getByText('82.5 kg')).toBeInTheDocument();
+    expect(within(trends).getByText('90 kg × 5')).toBeInTheDocument();
+    expect(within(trends).getByText('82.5 kg × 4')).toBeInTheDocument();
   }, 90_000);
 
   it('adds a set beyond the template and persists it', async () => {
@@ -556,10 +557,12 @@ describe('the app shell', () => {
 
     expect(screen.getByRole('heading', { name: 'Descanso' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '1:30' }));
-    expect(await screen.findByRole('timer')).toHaveTextContent(/1:2\d|1:30/);
+    expect(await screen.findByRole('timer', { name: 'Descanso restante' })).toHaveTextContent(
+      /1:2\d|1:30/,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Parar' }));
-    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('timer', { name: 'Descanso restante' })).toBeNull();
   }, 90_000);
 
   it('deletes a program and its history from Perfil', async () => {

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { sessionSeconds } from '../../domain/calculations';
 import type { Day, Program, Week } from '../../domain/types';
 import {
   addSet as addSetTo,
@@ -17,7 +18,10 @@ import {
   resetDay as resetDayIn,
   setDayCompleted,
   setDayNotes,
+  setDayTimer,
   setExerciseFields,
+  setExerciseNotes,
+  setExerciseSetup,
   updateSet as updateSetIn,
   type ExerciseFields,
   type SetPatch,
@@ -35,6 +39,7 @@ import {
 } from '../../storage/storage';
 import {
   enqueue,
+  operationKey,
   readOutbox,
   removeSent,
   type PendingOperation,
@@ -65,7 +70,15 @@ async function performOperation(operation: PendingOperation): Promise<void> {
       return api.updateSession(operation.dayId, {
         ...(operation.notes !== undefined ? { notes: operation.notes } : {}),
         ...(operation.completed !== undefined ? { completed: operation.completed } : {}),
+        ...(operation.elapsedSeconds !== undefined
+          ? { elapsedSeconds: operation.elapsedSeconds }
+          : {}),
+        ...(operation.timerRunning !== undefined ? { timerRunning: operation.timerRunning } : {}),
       });
+    case 'exerciseNote':
+      return api.saveExerciseNote(operation.dayId, operation.exerciseId, operation.note);
+    case 'exerciseSetup':
+      return api.saveExerciseSetup(operation.exerciseId, operation.note);
     case 'resetSession':
       return api.resetSession(operation.dayId);
   }
@@ -73,6 +86,9 @@ async function performOperation(operation: PendingOperation): Promise<void> {
 
 /** How long to wait after the last keystroke before writing notes to the API. */
 const NOTES_DEBOUNCE_MS = 600;
+
+/** 24 h, the same ceiling the column's CHECK enforces. */
+const MAX_SESSION_SECONDS = 86_400;
 
 export interface ProgramState {
   program: StoredProgram | null;
@@ -112,6 +128,14 @@ export interface ProgramState {
   addSet: (exerciseId: string) => void;
   removeSet: (exerciseId: string, setIndex: number) => void;
   updateNotes: (notes: string) => void;
+  /** What happened today on one exercise. Debounced like the day's notes. */
+  updateExerciseNotes: (exerciseId: string, notes: string) => void;
+  /** The permanent setup note, written to every week of the program. */
+  updateExerciseSetup: (exerciseId: string, setup: string) => void;
+  /** Starts or pauses the session clock, banking the seconds so far. */
+  setTimerRunning: (running: boolean) => void;
+  /** Throws the clock away, for one left running overnight. */
+  resetTimer: () => void;
   toggleCompleted: () => void;
   resetDay: () => void;
 }
@@ -446,28 +470,62 @@ export function useProgram(): ProgramState {
     [openProgram],
   );
 
-  // Notes fire on every keystroke; only the last one needs to reach the API.
-  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingNotes = useRef<{ dayId: string; notes: string } | null>(null);
+  /**
+   * Text fields fire on every keystroke; only the last one needs to be sent.
+   *
+   * Keyed by what is being written — the day's notes, one exercise's note,
+   * one setup note — rather than a single pending slot. With one slot, typing
+   * in a second box within the debounce window discarded the first, which
+   * then never reached the server and was lost on the next reload. Now every
+   * box waits its own 600 ms and none can evict another.
+   */
+  const noteTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const pendingText = useRef(new Map<string, PendingOperation>());
 
-  const flushNotes = useCallback(() => {
-    const pending = pendingNotes.current;
-    if (!pending) return;
-    pendingNotes.current = null;
-    send({ kind: 'session', dayId: pending.dayId, notes: pending.notes });
-  }, [send]);
+  const flushText = useCallback(
+    (key: string) => {
+      const timer = noteTimers.current.get(key);
+      if (timer) clearTimeout(timer);
+      noteTimers.current.delete(key);
 
+      const operation = pendingText.current.get(key);
+      if (!operation) return;
+      pendingText.current.delete(key);
+      send(operation);
+    },
+    [send],
+  );
+
+  const flushAllText = useCallback(() => {
+    for (const key of [...pendingText.current.keys()]) flushText(key);
+  }, [flushText]);
+
+  const debounceText = useCallback(
+    (operation: PendingOperation) => {
+      const key = operationKey(operation);
+      pendingText.current.set(key, operation);
+
+      const existing = noteTimers.current.get(key);
+      if (existing) clearTimeout(existing);
+      noteTimers.current.set(key, setTimeout(() => flushText(key), NOTES_DEBOUNCE_MS));
+    },
+    [flushText],
+  );
+
+  // Closing the tab or backgrounding the app must not eat what was typed in
+  // the last 600 ms.
   useEffect(() => {
-    const onHide = () => flushNotes();
+    const onHide = () => flushAllText();
     window.addEventListener('pagehide', onHide);
     document.addEventListener('visibilitychange', onHide);
+    const timers = noteTimers.current;
     return () => {
       window.removeEventListener('pagehide', onHide);
       document.removeEventListener('visibilitychange', onHide);
-      if (notesTimer.current) clearTimeout(notesTimer.current);
-      flushNotes();
+      for (const timer of timers.values()) clearTimeout(timer);
+      flushAllText();
     };
-  }, [flushNotes]);
+  }, [flushAllText]);
 
   const goToAdjacentDay = useCallback(
     (offset: number) => {
@@ -664,21 +722,101 @@ export function useProgram(): ProgramState {
         mutate(
           (current, dayId) => setDayNotes(current, dayId, notes),
           (_next, dayId) => {
-            // One pending note, not one per day: typing in another day's notes
-            // within the debounce window used to overwrite the first, which
-            // then never reached the server and was lost on the next reload.
-            if (pendingNotes.current && pendingNotes.current.dayId !== dayId) flushNotes();
-
-            // Notes are debounced separately; nothing to send right now.
-            pendingNotes.current = { dayId, notes };
-            if (notesTimer.current) clearTimeout(notesTimer.current);
-            notesTimer.current = setTimeout(flushNotes, NOTES_DEBOUNCE_MS);
+            debounceText({ kind: 'session', dayId, notes });
             return null;
           },
         );
       },
-      [flushNotes, mutate],
+      [debounceText, mutate],
     ),
+
+    updateExerciseNotes: useCallback(
+      (exerciseId: string, notes: string) => {
+        mutate(
+          (current, dayId) => setExerciseNotes(current, dayId, exerciseId, notes),
+          (_next, dayId) => {
+            debounceText({
+              kind: 'exerciseNote',
+              dayId,
+              exerciseId: Number(exerciseId),
+              note: notes,
+            });
+            return null;
+          },
+        );
+      },
+      [debounceText, mutate],
+    ),
+
+    /**
+     * The permanent setup note.
+     *
+     * Not routed through `mutate`, which edits within the day on screen: this
+     * one rewrites every week of the program at once, because it describes
+     * the movement rather than the session. The server does the same on its
+     * side, keyed by lineage.
+     */
+    updateExerciseSetup: useCallback(
+      (exerciseId: string, setup: string) => {
+        const current = latest.current;
+        const target = resolveDay(resolveWeek(current, selection), selection);
+        if (!current || !target) return;
+
+        const exercise = findExercise(current, target.id, exerciseId);
+        if (!exercise) return;
+
+        const next = setExerciseSetup(current, exercise.lineage, setup);
+        latest.current = next;
+        setProgram(next);
+
+        debounceText({
+          kind: 'exerciseSetup',
+          dayId: target.id,
+          exerciseId: Number(exerciseId),
+          note: setup,
+        });
+      },
+      [debounceText, selection],
+    ),
+
+    /**
+     * Starts or pauses the session clock.
+     *
+     * The seconds run so far are banked here, on the device that watched them
+     * pass. The server stores what it is told rather than stamping its own
+     * clock: a pause that waits an hour in the offline queue must not arrive
+     * as an hour of training.
+     */
+    setTimerRunning: useCallback(
+      (running: boolean) => {
+        const current = latest.current;
+        const target = resolveDay(resolveWeek(current, selection), selection);
+        if (!current || !target) return;
+
+        const elapsedSeconds = Math.min(sessionSeconds(target), MAX_SESSION_SECONDS);
+        const next = setDayTimer(current, target.id, {
+          elapsedSeconds,
+          timerStartedAt: running ? new Date().toISOString() : null,
+        });
+        latest.current = next;
+        setProgram(next);
+
+        send({ kind: 'session', dayId: target.id, elapsedSeconds, timerRunning: running });
+      },
+      [selection, send],
+    ),
+
+    resetTimer: useCallback(() => {
+      const current = latest.current;
+      const target = resolveDay(resolveWeek(current, selection), selection);
+      if (!current || !target) return;
+
+      const next = setDayTimer(current, target.id, { elapsedSeconds: 0, timerStartedAt: null });
+      latest.current = next;
+      setProgram(next);
+
+      send({ kind: 'session', dayId: target.id, elapsedSeconds: 0, timerRunning: false });
+    }, [selection, send]),
 
     toggleCompleted: useCallback(() => {
       const current = latest.current;
@@ -689,7 +827,16 @@ export function useProgram(): ProgramState {
       // The ref as well as the state. Every other local edit writes both, and
       // this one did not: a second change in the same React batch read the
       // program from before the toggle and wrote the flag back out.
-      const next = setDayCompleted(current, target.id, completed);
+      let next = setDayCompleted(current, target.id, completed);
+
+      // Finishing the session stops the clock. Left running, it would carry on
+      // counting the shower and the walk home as training.
+      if (completed && target.timerStartedAt !== null) {
+        const elapsedSeconds = Math.min(sessionSeconds(target), MAX_SESSION_SECONDS);
+        next = setDayTimer(next, target.id, { elapsedSeconds, timerStartedAt: null });
+        send({ kind: 'session', dayId: target.id, elapsedSeconds, timerRunning: false });
+      }
+
       latest.current = next;
       setProgram(next);
 

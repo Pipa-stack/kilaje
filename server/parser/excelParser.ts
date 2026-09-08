@@ -256,6 +256,10 @@ function parseDay(grid: Grid, headerRow: number, weekNumber: number, dayNumber: 
     exercises,
     notes: trailer ? readTrailerText(grid, trailer.start, trailer.end, /^notas/) : '',
     completed: trailer ? readCompleted(grid, trailer.start, trailer.end) : false,
+    // The workbook has no clock and no per-exercise notes of the user's own;
+    // both start empty and are filled in from the app.
+    elapsedSeconds: 0,
+    timerStartedAt: null,
   };
 }
 
@@ -360,6 +364,8 @@ function parseExercise(
     lineage: `d${dayNumber}:e${number}`,
     number,
     name,
+    setup: null,
+    notes: '',
     video: readVideo(grid, row, columns.video),
     protocol: readOptionalText(grid, row, columns.protocol),
     comments: readOptionalText(grid, row, columns.comments),

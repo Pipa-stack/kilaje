@@ -185,8 +185,9 @@ export function SettingsScreen({
           </Fact>
           <Fact label="Programa actual">{currentProgramName}</Fact>
           <Fact label="Cálculos">
-            1RM por Epley sobre la serie 1, volumen como Σ peso × reps, y progresión según el
-            RIR de la semana anterior — las mismas fórmulas del Excel.
+            Tu mejor serie es la más pesada que hayas hecho de verdad, sin estimar nada; a
+            igualdad de peso gana la de más repeticiones. El volumen es Σ peso × reps y la
+            progresión sigue el RIR de la semana anterior, como en el Excel.
           </Fact>
         </ul>
       </section>

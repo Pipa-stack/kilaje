@@ -1,10 +1,10 @@
 import {
-  bestEstimated1RM,
+  bestLiftOfWeek,
   dayProgress,
   dayVolume,
   daySessionStatus,
   findNextDay,
-  formatNumber,
+  formatBestSet,
   weekSummary,
   type SessionStatus,
 } from '../../domain/calculations';
@@ -27,7 +27,7 @@ interface HomeScreenProps {
 export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
   const summary = weekSummary(week);
   const nextDay = findNextDay(week);
-  const best = bestEstimated1RM(week);
+  const best = bestLiftOfWeek(week);
 
   return (
     <div className="space-y-4">
@@ -95,8 +95,8 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
             note={summary.activeDays > 0 ? `${summary.activeDays} en curso` : 'completadas'}
           />
           <Metric
-            label="Mejor 1RM"
-            value={best ? `${formatNumber(best.oneRepMax)} kg` : '—'}
+            label="Mejor serie"
+            value={formatBestSet(best?.best ?? null)}
             note={best ? best.exerciseName : 'sin datos aún'}
           />
         </dl>

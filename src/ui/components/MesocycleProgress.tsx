@@ -1,5 +1,6 @@
 import {
   exerciseTrends,
+  formatBestSet,
   formatNumber,
   volumeByWeek,
   type ExerciseTrend,
@@ -133,7 +134,7 @@ function TrendRow({ trend }: { trend: ExerciseTrend }) {
             title={`Semana ${point.weekNumber}: ${Math.round(point.volume).toLocaleString('es-ES')} kg de volumen`}
           >
             <span className="text-iron-600">S{point.weekNumber}</span>{' '}
-            {point.topWeight !== null ? `${formatNumber(point.topWeight)} kg` : '—'}
+            {point.best !== null ? formatBestSet(point.best) : '—'}
           </li>
         ))}
       </ol>

@@ -20,6 +20,10 @@ export type IconName =
   | 'clock'
   | 'plus'
   | 'user'
+  | 'pencil'
+  | 'wrench'
+  | 'pause'
+  | 'star'
   | 'close';
 
 interface IconProps {
@@ -78,6 +82,19 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4.75 20c0-3.4 3.25-5.5 7.25-5.5s7.25 2.1 7.25 5.5" />
     </>
   ),
+  pencil: (
+    <>
+      <path d="M4.5 19.5h3.25L18.5 8.75a1.77 1.77 0 0 0 0-2.5l-.75-.75a1.77 1.77 0 0 0-2.5 0L4.5 16.25z" />
+      <path d="m14.25 7.25 2.5 2.5" />
+    </>
+  ),
+  wrench: (
+    <>
+      <path d="M15.5 3.5a5 5 0 0 0-4.6 7l-7 7 2.6 2.6 7-7a5 5 0 0 0 6.35-6.35L17 10.6l-2.6-2.6 3.85-3.85a5 5 0 0 0-2.75-.65z" />
+    </>
+  ),
+  pause: <path d="M9.5 5.5v13M14.5 5.5v13" />,
+  star: <path d="m12 4 2.35 5.1 5.4.65-4 3.85 1.05 5.4L12 16.4 7.2 19l1.05-5.4-4-3.85 5.4-.65z" />,
   close: <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />,
 };
 

@@ -72,6 +72,7 @@ export function RestTimer() {
         <div className="mt-2">
           <p
             role="timer"
+            aria-label="Descanso restante"
             aria-live="off"
             className="figure text-center text-6xl font-bold text-chalk"
           >

@@ -366,7 +366,7 @@ describe('the profile', () => {
     return body.profile as {
       identity: { displayName: string; email: string; memberSince: string };
       stats: { completedSessions: number; totalVolumeKg: number; distinctExercises: number };
-      records: { exercise: string; oneRepMax: number; weeksSince: number }[];
+      records: { exercise: string; best: { weight: number; reps: number | null }; weeksSince: number }[];
       weeklyActivity: { weekStart: string; sessions: number; volumeKg: number }[];
       streakWeeks: number;
       volumeByType: { type: string; volumeKg: number; sessions: number }[];
@@ -413,7 +413,7 @@ describe('the profile', () => {
     expect(stats.totalVolumeKg).toBe(330);
     expect(stats.distinctExercises).toBe(1);
     expect(records[0]?.exercise).toBe('PRESS DE BANCA PLANO CON BARRA LIBRE');
-    expect(records[0]?.oneRepMax).toBe(93.5);
+    expect(records[0]?.best).toMatchObject({ weight: 82.5, reps: 4 });
   }, 60_000);
 
   it('is empty, not broken, for an account that has logged nothing', async () => {

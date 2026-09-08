@@ -29,6 +29,8 @@ const TABLES = [
   'reference_sets',
   'workout_sessions',
   'session_sets',
+  'session_exercise_notes',
+  'exercise_setups',
 ];
 
 export interface TestDatabase extends Database {

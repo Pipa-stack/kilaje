@@ -14,7 +14,16 @@
 export type PendingOperation =
   | { kind: 'set'; dayId: string; exerciseId: number; setIndex: number; weight: number | null; reps: number | null; rir: number | null }
   | { kind: 'deleteSet'; dayId: string; exerciseId: number; setIndex: number }
-  | { kind: 'session'; dayId: string; notes?: string; completed?: boolean }
+  | {
+      kind: 'session';
+      dayId: string;
+      notes?: string;
+      completed?: boolean;
+      elapsedSeconds?: number;
+      timerRunning?: boolean;
+    }
+  | { kind: 'exerciseNote'; dayId: string; exerciseId: number; note: string }
+  | { kind: 'exerciseSetup'; dayId: string; exerciseId: number; note: string }
   | { kind: 'resetSession'; dayId: string };
 
 export interface PendingEntry {
@@ -56,10 +65,19 @@ export function operationKey(operation: PendingOperation): string {
     case 'deleteSet':
       return `set:${operation.dayId}:${operation.exerciseId}:${operation.setIndex}`;
     case 'session':
-      // Notes and completion are independent fields of the same row.
-      return operation.notes !== undefined
-        ? `notes:${operation.dayId}`
-        : `completed:${operation.dayId}`;
+      // Notes, completion and the clock are independent fields of the same
+      // row, so each gets its own key: collapsing them together would make a
+      // pause overwrite a note that had not been sent yet.
+      if (operation.notes !== undefined) return `notes:${operation.dayId}`;
+      if (operation.completed !== undefined) return `completed:${operation.dayId}`;
+      return `timer:${operation.dayId}`;
+    case 'exerciseNote':
+      return `exNote:${operation.dayId}:${operation.exerciseId}`;
+    case 'exerciseSetup':
+      // Keyed by exercise, not by lineage: two exercises of the same lineage
+      // are two different rows to write through, and the server resolves them
+      // to the one setup row either way.
+      return `exSetup:${operation.dayId}:${operation.exerciseId}`;
     case 'resetSession':
       return `reset:${operation.dayId}`;
   }
@@ -183,6 +201,8 @@ function isPendingEntry(value: unknown): value is PendingEntry {
     operation.kind === 'set' ||
     operation.kind === 'deleteSet' ||
     operation.kind === 'session' ||
+    operation.kind === 'exerciseNote' ||
+    operation.kind === 'exerciseSetup' ||
     operation.kind === 'resetSession'
   );
 }

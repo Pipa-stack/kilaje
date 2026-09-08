@@ -65,9 +65,8 @@ async function history() {
     sessions: number;
     programs: number;
     totalVolume: number;
-    bestOneRepMax: number | null;
-    bestWeight: number | null;
-    entries: { programName: string; oneRepMax: number | null; volume: number }[];
+    best: { weight: number; reps: number | null } | null;
+    entries: { programName: string; best: { weight: number } | null; volume: number }[];
   }[];
 }
 
@@ -85,8 +84,7 @@ describe('GET /api/history', () => {
     expect(bench?.programs).toBe(1);
     // 82.5 kg x 4 reps was recorded in the sheet.
     expect(bench?.totalVolume).toBe(330);
-    expect(bench?.bestOneRepMax).toBe(93.5);
-    expect(bench?.bestWeight).toBe(82.5);
+    expect(bench?.best).toMatchObject({ weight: 82.5, reps: 4 });
   }, 40_000);
 
   it('joins the same exercise across two programs', async () => {
@@ -105,9 +103,8 @@ describe('GET /api/history', () => {
     const bench = (await history()).find((exercise) => exercise.name === BENCH);
     expect(bench?.programs).toBe(2);
     expect(bench?.sessions).toBe(2);
-    // 90 x 3 -> Epley 99, better than the 93.5 of the first session.
-    expect(bench?.bestOneRepMax).toBe(99);
-    expect(bench?.bestWeight).toBe(90);
+    // 90 kg beats the 82.5 of the first session, so that is the best set.
+    expect(bench?.best).toMatchObject({ weight: 90, reps: 3 });
   }, 60_000);
 
   it('orders each exercise oldest first, so a chart reads left to right', async () => {

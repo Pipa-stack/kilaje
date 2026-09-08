@@ -28,6 +28,8 @@ function makeProgram(): Program {
             type: 'PUSH',
             notes: '',
             completed: false,
+            elapsedSeconds: 0,
+            timerStartedAt: null,
             exercises: [
               {
                 id: 'w1:d1:e1',
@@ -37,6 +39,8 @@ function makeProgram(): Program {
                 video: null,
                 protocol: '3 SETS X 4-6 REPS',
                 comments: null,
+                setup: null,
+                notes: '',
                 previousWeek: emptySets(4),
                 currentWeek: emptySets(4),
               },

@@ -7,14 +7,18 @@ import {
 } from '../../domain/calculations';
 import { useState } from 'react';
 
+import type { BestSet } from '../../domain/calculations';
 import type { ExerciseFields, SetPatch } from '../../domain/mutations';
 import type { Day } from '../../domain/types';
 import { ExerciseCard } from './ExerciseCard';
 import { Icon } from './Icon';
+import { SessionTimer } from './SessionTimer';
 import { PlanEditor } from './PlanEditor';
 
 interface DayViewProps {
   day: Day;
+  /** Best set per lineage in earlier weeks — the marks to beat today. */
+  previousBests: Map<string, BestSet>;
   hasPreviousDay: boolean;
   hasNextDay: boolean;
   onNavigate: (offset: number) => void;
@@ -22,6 +26,10 @@ interface DayViewProps {
   onAddSet: (exerciseId: string) => void;
   onRemoveSet: (exerciseId: string, setIndex: number) => void;
   onNotesChange: (notes: string) => void;
+  onExerciseNotesChange: (exerciseId: string, notes: string) => void;
+  onExerciseSetupChange: (exerciseId: string, setup: string) => void;
+  onSetTimerRunning: (running: boolean) => void;
+  onResetTimer: () => void;
   onToggleCompleted: () => void;
   onResetDay: () => void;
   /** True while a structural edit to the plan is in flight. */
@@ -35,6 +43,7 @@ interface DayViewProps {
 
 export function DayView({
   day,
+  previousBests,
   hasPreviousDay,
   hasNextDay,
   onNavigate,
@@ -42,6 +51,10 @@ export function DayView({
   onAddSet,
   onRemoveSet,
   onNotesChange,
+  onExerciseNotesChange,
+  onExerciseSetupChange,
+  onSetTimerRunning,
+  onResetTimer,
   onToggleCompleted,
   onResetDay,
   editingPlan,
@@ -75,7 +88,7 @@ export function DayView({
           ) : null}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-3">
           <div>
             <span className="eyebrow block">Volumen del día</span>
             <span className="figure text-4xl font-bold text-chalk">{formatVolume(volume)}</span>
@@ -90,6 +103,9 @@ export function DayView({
               {change}% vs. semana anterior
             </span>
           ) : null}
+          <div className="ml-auto">
+            <SessionTimer day={day} onSetRunning={onSetTimerRunning} onDiscard={onResetTimer} />
+          </div>
         </div>
 
         <div className="mt-4">
@@ -133,9 +149,12 @@ export function DayView({
               <li key={exercise.id}>
                 <ExerciseCard
                   exercise={exercise}
+                  previousBest={previousBests.get(exercise.lineage) ?? null}
                   onUpdateSet={onUpdateSet}
                   onAddSet={onAddSet}
                   onRemoveSet={onRemoveSet}
+                  onSetupChange={onExerciseSetupChange}
+                  onNotesChange={onExerciseNotesChange}
                 />
               </li>
             ))}
@@ -153,7 +172,7 @@ export function DayView({
 
       <section className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <label htmlFor={`${day.id}-notes`} className="mb-2 block font-semibold text-chalk">
-          Notas de la sesión
+          Notas de toda la sesión
         </label>
         <textarea
           id={`${day.id}-notes`}

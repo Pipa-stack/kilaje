@@ -7,6 +7,7 @@
  * data comes from.
  */
 
+import type { BestSet } from '../domain/calculations';
 import type { Program } from '../domain/types';
 
 /** A program as listed in the picker. */
@@ -220,9 +221,31 @@ export async function deleteSet(
 
 export async function updateSession(
   dayId: string,
-  patch: { notes?: string; completed?: boolean },
+  patch: {
+    notes?: string;
+    completed?: boolean;
+    elapsedSeconds?: number;
+    timerRunning?: boolean;
+  },
 ): Promise<void> {
   await callApi<void>(`/days/${dayId}/session`, { ...json(patch), method: 'PATCH' });
+}
+
+/** What happened today on one exercise. */
+export async function saveExerciseNote(
+  dayId: string,
+  exerciseId: number,
+  note: string,
+): Promise<void> {
+  await callApi<void>(`/days/${dayId}/exercises/${exerciseId}/note`, {
+    ...json({ note }),
+    method: 'PUT',
+  });
+}
+
+/** The permanent setup note. Lands on every week of the program. */
+export async function saveExerciseSetup(exerciseId: number, note: string): Promise<void> {
+  await callApi<void>(`/exercises/${exerciseId}/setup`, { ...json({ note }), method: 'PUT' });
 }
 
 export async function resetSession(dayId: string): Promise<void> {
@@ -281,8 +304,7 @@ export interface HistoryEntry {
   performedAt: string;
   sets: { weight: number | null; reps: number | null; rir: number | null }[];
   volume: number;
-  topWeight: number | null;
-  oneRepMax: number | null;
+  best: BestSet | null;
 }
 
 export interface ExerciseHistory {
@@ -290,8 +312,7 @@ export interface ExerciseHistory {
   sessions: number;
   programs: number;
   totalVolume: number;
-  bestOneRepMax: number | null;
-  bestWeight: number | null;
+  best: BestSet | null;
   firstTrainedAt: string | null;
   lastTrainedAt: string | null;
   entries: HistoryEntry[];
@@ -346,11 +367,11 @@ export interface Profile {
     distinctExercises: number;
     totalSets: number;
     programs: number;
+    averageSessionSeconds: number | null;
   };
   records: {
     exercise: string;
-    oneRepMax: number;
-    topWeight: number | null;
+    best: BestSet;
     achievedAt: string;
     weeksSince: number;
   }[];
@@ -359,6 +380,22 @@ export interface Profile {
   streakWeeks: number;
   volumeByType: { type: string; volumeKg: number; sessions: number }[];
   lastSessionAt: string | null;
+}
+
+export interface Lift {
+  exercise: string;
+  best: BestSet;
+  /** Kilos between the first session's best set and the last one's. */
+  gainKg: number | null;
+  sessions: number;
+  lastTrainedAt: string;
+  weeksSince: number;
+}
+
+/** Every movement ever trained, across every program. */
+export async function fetchLifts(): Promise<Lift[]> {
+  const { lifts } = await callApi<{ lifts: Lift[] }>('/profile/lifts');
+  return lifts;
 }
 
 export async function fetchProfile(): Promise<Profile> {

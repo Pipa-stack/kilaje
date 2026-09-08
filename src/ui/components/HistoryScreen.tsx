@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type ExerciseHistory, type HistoryEntry } from '../../api/client';
-import { formatNumber } from '../../domain/calculations';
+import { formatBestSet } from '../../domain/calculations';
 import { Icon } from './Icon';
 
 /**
@@ -119,10 +119,10 @@ function ExerciseRow({
 
         <span className="shrink-0 text-right">
           <span className="figure block text-lg font-bold text-chalk">
-            {exercise.bestOneRepMax !== null ? `${formatNumber(exercise.bestOneRepMax)}` : '—'}
+            {formatBestSet(exercise.best)}
           </span>
           <span className="block text-[10px] uppercase tracking-wide text-iron-600">
-            mejor 1RM
+            mejor serie
           </span>
         </span>
 
@@ -152,23 +152,23 @@ function ExerciseRow({
 }
 
 /**
- * Percentage change in estimated 1RM between the first and last session that
- * produced one. `null` when there is nothing to compare.
+ * Percentage change in the working weight between the first and last session
+ * that produced one. `null` when there is nothing to compare.
  */
 function computeTrend(entries: HistoryEntry[]): number | null {
-  const maxes = entries
-    .map((entry) => entry.oneRepMax)
-    .filter((value): value is number => value !== null);
+  const weights = entries
+    .map((entry) => entry.best?.weight)
+    .filter((value): value is number => value !== undefined);
 
-  const first = maxes[0];
-  const last = maxes.at(-1);
-  if (first === undefined || last === undefined || maxes.length < 2 || first === 0) return null;
+  const first = weights[0];
+  const last = weights.at(-1);
+  if (first === undefined || last === undefined || weights.length < 2 || first === 0) return null;
 
   return Math.round(((last - first) / first) * 100);
 }
 
 function Timeline({ entries }: { entries: HistoryEntry[] }) {
-  const peak = Math.max(...entries.map((entry) => entry.oneRepMax ?? 0), 1);
+  const peak = Math.max(...entries.map((entry) => entry.best?.weight ?? 0), 1);
   // Newest first: the last session is the one being compared against.
   const newestFirst = [...entries].reverse();
 
@@ -186,12 +186,12 @@ function Timeline({ entries }: { entries: HistoryEntry[] }) {
               <span aria-hidden="true" className="h-2.5 flex-1 overflow-hidden rounded-full bg-iron-800">
                 <span
                   className="block h-full rounded-full bg-signal-500"
-                  style={{ width: `${((entry.oneRepMax ?? 0) / peak) * 100}%` }}
+                  style={{ width: `${((entry.best?.weight ?? 0) / peak) * 100}%` }}
                 />
               </span>
 
-              <span className="figure w-16 shrink-0 text-right text-sm text-chalk">
-                {entry.oneRepMax !== null ? `${formatNumber(entry.oneRepMax)} kg` : '—'}
+              <span className="figure w-20 shrink-0 text-right text-sm text-chalk">
+                {formatBestSet(entry.best)}
               </span>
             </div>
 

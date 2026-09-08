@@ -36,7 +36,23 @@ export interface Exercise {
   name: string;
   video: string | null;
   protocol: string | null;
+  /** The coach's note, straight from the workbook. Not the user's. */
   comments: string | null;
+  /**
+   * How you set this movement up: "banco pin 4, agarre ancho".
+   *
+   * Yours, and permanent. Held per lineage rather than per weekly copy, so
+   * every week of the program shows the same one and correcting it anywhere
+   * corrects it everywhere. `null` when nothing has been written.
+   */
+  setup: string | null;
+  /**
+   * What happened today on this exercise.
+   *
+   * Belongs to the session, so it does not follow you into next week the way
+   * {@link setup} does. Empty string when there is none.
+   */
+  notes: string;
   /** Previous-week reference sets. Always `TEMPLATE_SET_COUNT` long. */
   previousWeek: SetEntry[];
   /** Sets logged for this week. At least `TEMPLATE_SET_COUNT`; user may add more. */
@@ -53,6 +69,16 @@ export interface Day {
   exercises: Exercise[];
   notes: string;
   completed: boolean;
+  /** Seconds of session already banked, not counting any running stretch. */
+  elapsedSeconds: number;
+  /**
+   * When the running stretch began, ISO 8601, or `null` when stopped.
+   *
+   * The timer runs if and only if this is set; the figure on screen is
+   * `elapsedSeconds` plus the time since. Anchoring to an instant rather than
+   * counting ticks is what survives a phone going to sleep mid-session.
+   */
+  timerStartedAt: string | null;
 }
 
 export interface Week {

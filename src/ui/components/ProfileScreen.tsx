@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type Profile } from '../../api/client';
-import { formatNumber } from '../../domain/calculations';
+import { formatBestSet, formatDuration } from '../../domain/calculations';
 import { Icon } from './Icon';
+import { LiftsScreen } from './LiftsScreen';
 
 /** A best lift nobody has beaten in this long is a stalled lift. */
 const STALE_WEEKS = 8;
@@ -19,6 +20,10 @@ const STALE_WEEKS = 8;
 export function ProfileScreen({ email }: { email: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A view of the profile rather than a fifth tab: four tabs are what fits
+  // comfortably under a thumb, and this is somewhere you visit, not somewhere
+  // you live.
+  const [showingLifts, setShowingLifts] = useState(false);
 
   /** False once unmounted, so a slow request cannot set state afterwards. */
   const alive = useRef(true);
@@ -81,6 +86,8 @@ export function ProfileScreen({ email }: { email: string }) {
   const { identity, stats, records, weeklyActivity, streakWeeks, volumeByType, lastSessionAt } =
     profile;
 
+  if (showingLifts) return <LiftsScreen onBack={() => setShowingLifts(false)} />;
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -129,7 +136,15 @@ export function ProfileScreen({ email }: { email: string }) {
             note="levantados"
           />
           <Stat label="Ejercicios" value={String(stats.distinctExercises)} note="distintos" />
-          <Stat label="Series" value={String(stats.totalSets)} note="registradas" />
+          <Stat
+            label="Duración"
+            value={
+              stats.averageSessionSeconds === null
+                ? '—'
+                : formatDuration(stats.averageSessionSeconds)
+            }
+            note={stats.averageSessionSeconds === null ? 'sin cronometrar' : 'de media'}
+          />
         </dl>
       </section>
 
@@ -147,7 +162,7 @@ export function ProfileScreen({ email }: { email: string }) {
           Récords personales
         </h2>
         <p className="mb-3 text-xs text-iron-600">
-          Mejor 1RM estimado de cada ejercicio, de todos tus programas.
+          Tu mejor serie en cada ejercicio, de todos tus programas.
         </p>
 
         {records.length === 0 ? (
@@ -166,7 +181,6 @@ export function ProfileScreen({ email }: { email: string }) {
                     {record.exercise}
                   </span>
                   <span className="block text-xs text-iron-600">
-                    {record.topWeight !== null ? `tope ${formatNumber(record.topWeight)} kg · ` : ''}
                     {formatMonth(record.achievedAt)}
                   </span>
                   {record.weeksSince >= STALE_WEEKS ? (
@@ -179,13 +193,23 @@ export function ProfileScreen({ email }: { email: string }) {
                   ) : null}
                 </span>
                 <span className="figure shrink-0 text-right text-lg font-bold text-chalk">
-                  {formatNumber(record.oneRepMax)}
-                  <span className="ml-1 text-xs font-normal text-iron-600">kg</span>
+                  {formatBestSet(record.best)}
                 </span>
               </li>
             ))}
           </ol>
         )}
+
+        {records.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowingLifts(true)}
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
+          >
+            Ver todos mis pesos
+            <Icon name="chevronRight" size={16} />
+          </button>
+        ) : null}
       </section>
 
       <NameForm displayName={identity.displayName} onSaved={reload} />

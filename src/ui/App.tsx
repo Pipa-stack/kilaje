@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+import { bestSetByLineage } from '../domain/calculations';
 
 import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
@@ -97,6 +99,14 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
     onSwipeLeft: () => state.goToAdjacentDay(1),
     onSwipeRight: () => state.goToAdjacentDay(-1),
   });
+
+  // Every earlier week's best, per movement. Computed once here rather than
+  // per card: a card recomputing this on each keystroke would walk the whole
+  // program between one digit of a weight and the next.
+  const previousBests = useMemo(
+    () => bestSetByLineage(state.program?.weeks ?? [], { exceptWeek: state.week?.number }),
+    [state.program, state.week],
+  );
 
   if (state.loading) {
     return (
@@ -228,6 +238,7 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
             <DayView
               key={day.id}
               day={day}
+              previousBests={previousBests}
               hasPreviousDay={dayIndex > 0}
               hasNextDay={dayIndex >= 0 && dayIndex < week.days.length - 1}
               onNavigate={state.goToAdjacentDay}
@@ -235,6 +246,10 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
               onAddSet={state.addSet}
               onRemoveSet={state.removeSet}
               onNotesChange={state.updateNotes}
+              onExerciseNotesChange={state.updateExerciseNotes}
+              onExerciseSetupChange={state.updateExerciseSetup}
+              onSetTimerRunning={state.setTimerRunning}
+              onResetTimer={state.resetTimer}
               onToggleCompleted={state.toggleCompleted}
               onResetDay={state.resetDay}
               editingPlan={state.editingPlan}

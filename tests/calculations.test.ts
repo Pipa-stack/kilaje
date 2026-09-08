@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  bestEstimated1RM,
+  bestLiftOfWeek,
+  bestSet,
+  bestSetByLineage,
   dayProgress,
   dayPreviousVolume,
   daySessionStatus,
   dayVolume,
-  epley1RM,
   exerciseProgress,
   exerciseTrends,
   findNextDay,
@@ -14,9 +15,9 @@ import {
   volumeByDay,
   weekSummary,
   excelRound,
-  exercise1RM,
   exerciseProgression,
   exerciseVolume,
+  formatBestSet,
   formatVolume,
   isExerciseStarted,
   loggedSetCount,
@@ -41,6 +42,8 @@ function exercise(overrides: Partial<Exercise> = {}): Exercise {
     video: null,
     protocol: null,
     comments: null,
+    setup: null,
+    notes: '',
     previousWeek: emptySets(4),
     currentWeek: emptySets(4),
     ...overrides,
@@ -48,7 +51,16 @@ function exercise(overrides: Partial<Exercise> = {}): Exercise {
 }
 
 function day(exercises: Exercise[]): Day {
-  return { id: 'w1:d1', number: 1, type: 'PUSH', exercises, notes: '', completed: false };
+  return {
+    id: 'w1:d1',
+    number: 1,
+    type: 'PUSH',
+    exercises,
+    notes: '',
+    completed: false,
+    elapsedSeconds: 0,
+    timerStartedAt: null,
+  };
 }
 
 describe('excelRound', () => {
@@ -85,27 +97,44 @@ describe('roundToPlate', () => {
   });
 });
 
-describe('epley1RM', () => {
-  it('matches the template formula ROUND(w*(1+r/30),1)', () => {
-    // The value actually seeded in the reference workbook: 82.5 kg x 4 reps.
-    expect(epley1RM(set(82.5, 4))).toBe(93.5);
-    expect(epley1RM(set(100, 1))).toBe(103.3);
-    expect(epley1RM(set(100, 30))).toBe(200);
+describe('bestSet', () => {
+  it('picks the heaviest set that was actually performed', () => {
+    expect(bestSet([set(80, 10), set(100, 3), set(90, 8)])).toEqual({
+      weight: 100,
+      reps: 3,
+      setIndex: 1,
+    });
   });
 
-  it('is blank unless both weight and reps are present', () => {
-    expect(epley1RM(set(82.5, null))).toBeNull();
-    expect(epley1RM(set(null, 4))).toBeNull();
-    expect(epley1RM(undefined)).toBeNull();
+  it('breaks a tie on weight with the reps', () => {
+    expect(bestSet([set(100, 5), set(100, 8), set(100, 2)])).toEqual({
+      weight: 100,
+      reps: 8,
+      setIndex: 1,
+    });
   });
 
-  it('treats zero as a value, not as blank, like Excel does', () => {
-    expect(epley1RM(set(0, 5))).toBe(0);
+  it('keeps the earliest set when weight and reps both tie', () => {
+    expect(bestSet([set(100, 5), set(100, 5)])?.setIndex).toBe(0);
   });
 
-  it('reads set 1 of the current week for an exercise', () => {
-    const ex = exercise({ currentWeek: [set(80, 5), set(100, 1), ...emptySets(2)] });
-    expect(exercise1RM(ex)).toBe(93.3);
+  it('ignores a weight nobody has lifted yet', () => {
+    // A week started from last week's loads: weights pre-filled, nothing done.
+    expect(bestSet([set(100, null), set(120, null)])).toBeNull();
+  });
+
+  it('counts a set logged with an RIR but no reps', () => {
+    expect(bestSet([set(100, null, 2)])).toEqual({ weight: 100, reps: null, setIndex: 0 });
+  });
+
+  it('has no best set when nothing is logged', () => {
+    expect(bestSet(emptySets(4))).toBeNull();
+  });
+
+  it('formats the set the way it is read out loud', () => {
+    expect(formatBestSet({ weight: 100, reps: 5, setIndex: 0 })).toBe('100 kg × 5');
+    expect(formatBestSet({ weight: 82.5, reps: null, setIndex: 0 })).toBe('82.5 kg');
+    expect(formatBestSet(null)).toBe('—');
   });
 });
 
@@ -315,7 +344,7 @@ describe('home screen summaries', () => {
     expect(findNextDay(done)).toBeNull();
   });
 
-  it('finds the best estimated 1RM of the week', () => {
+  it('finds the heaviest set of the week', () => {
     const heavy = exercise({
       id: 'w1:d2:e1',
       name: 'SENTADILLA',
@@ -326,18 +355,54 @@ describe('home screen summaries', () => {
       { ...day([heavy]), id: 'w1:d2', number: 2 },
     ]);
 
-    expect(bestEstimated1RM(week)).toEqual({ oneRepMax: 132, exerciseName: 'SENTADILLA' });
+    expect(bestLiftOfWeek(week)).toEqual({
+      best: { weight: 120, reps: 3, setIndex: 0 },
+      exerciseName: 'SENTADILLA',
+    });
   });
 
   it('has no best lift before anything is logged', () => {
-    expect(bestEstimated1RM(makeWeek([day([untouched])]))).toBeNull();
+    expect(bestLiftOfWeek(makeWeek([day([untouched])]))).toBeNull();
   });
 
   it('handles an empty week without dividing by zero', () => {
     const empty = makeWeek([]);
     expect(weekSummary(empty).ratio).toBe(0);
     expect(findNextDay(empty)).toBeNull();
-    expect(bestEstimated1RM(empty)).toBeNull();
+    expect(bestLiftOfWeek(empty)).toBeNull();
+  });
+});
+
+describe('bestSetByLineage', () => {
+  const weekOf = (number: number, weight: number, reps: number): Week => ({
+    number,
+    sheetName: `Semana ${number}`,
+    days: [
+      {
+        ...day([exercise({ currentWeek: [set(weight, reps), ...emptySets(3)] })]),
+        id: `w${number}:d1`,
+      },
+    ],
+  });
+
+  it('keeps the best of every week, keyed by lineage', () => {
+    const best = bestSetByLineage([weekOf(1, 100, 5), weekOf(2, 95, 10)]);
+    expect(best.get('d1:e1')).toEqual({ weight: 100, reps: 5, setIndex: 0 });
+  });
+
+  it('leaves out the week being trained, so today cannot be its own record', () => {
+    // Without the exclusion, today's 110 is in the history it is compared
+    // against, ties itself, and never reads as a record.
+    const weeks = [weekOf(1, 100, 5), weekOf(2, 110, 5)];
+    expect(bestSetByLineage(weeks, { exceptWeek: 2 }).get('d1:e1')).toEqual({
+      weight: 100,
+      reps: 5,
+      setIndex: 0,
+    });
+  });
+
+  it('has no mark to beat for the first week ever trained', () => {
+    expect(bestSetByLineage([weekOf(1, 100, 5)], { exceptWeek: 1 }).get('d1:e1')).toBeUndefined();
   });
 });
 
@@ -365,16 +430,16 @@ describe('progress screen data', () => {
     expect(rows.map((row) => row.volume)).toEqual([82.5 * 4 + 80 * 8, 500]);
   });
 
-  it('reports the top weight and 1RM per exercise', () => {
+  it('reports the best set per exercise', () => {
     const [benchRow] = exerciseProgress(week);
-    expect(benchRow).toMatchObject({ topWeight: 82.5, loggedSets: 2, dayNumber: 1 });
-    expect(benchRow?.oneRepMax).toBe(93.5);
+    expect(benchRow).toMatchObject({ loggedSets: 2, dayNumber: 1 });
+    expect(benchRow?.best).toEqual({ weight: 82.5, reps: 4, setIndex: 0 });
   });
 
-  it('ignores a weight recorded without reps when picking the top weight', () => {
+  it('ignores a weight recorded without reps when picking the best set', () => {
     const oddball = exercise({ currentWeek: [set(200, null), set(60, 10), ...emptySets(2)] });
     const [row] = exerciseProgress({ ...week, days: [day([oddball])] });
-    expect(row?.topWeight).toBe(60);
+    expect(row?.best?.weight).toBe(60);
   });
 
   it('gives volume per day for the chart, including empty days', () => {
@@ -440,7 +505,7 @@ describe('across the whole mesocycle', () => {
 
     expect(trend?.name).toBe('PRESS DE BANCA');
     expect(trend?.points.map((point) => point.weekNumber)).toEqual([1, 2]);
-    expect(trend?.points.map((point) => point.topWeight)).toEqual([100, 110]);
+    expect(trend?.points.map((point) => point.best?.weight)).toEqual([100, 110]);
     expect(trend?.latestTopWeight).toBe(110);
     expect(trend?.weightGain).toBe(10);
   });
@@ -474,7 +539,7 @@ describe('across the whole mesocycle', () => {
 
     const trends = exerciseTrends(weeks);
     expect(trends).toHaveLength(1);
-    expect(trends[0]?.points.map((point) => point.topWeight)).toEqual([100, 110]);
+    expect(trends[0]?.points.map((point) => point.best?.weight)).toEqual([100, 110]);
     // Labelled with what the person calls it now.
     expect(trends[0]?.name).toBe('PRESS BANCA');
     expect(trends[0]?.weightGain).toBe(10);

@@ -359,6 +359,8 @@ interface ContentRow {
   day_type: string | null;
   notes: string | null;
   completed: boolean | null;
+  elapsed_seconds: number | string | null;
+  timer_started_at: Date | string | null;
   exercise_id: number | null;
   position: number | null;
   external_key: string | null;
@@ -367,6 +369,8 @@ interface ContentRow {
   video_url: string | null;
   protocol: string | null;
   comments: string | null;
+  setup: string | null;
+  exercise_notes: string | null;
 }
 
 /**
@@ -389,13 +393,21 @@ export async function getProgram(
   const { rows: content } = await db.query<ContentRow>(
     `SELECT w.id AS week_id, w.number AS week_number, w.sheet_name,
             d.id AS day_id, d.number AS day_number, d.type AS day_type,
-            s.notes, s.completed,
+            s.notes, s.completed, s.elapsed_seconds, s.timer_started_at,
             e.id AS exercise_id, e.position, e.external_key, e.lineage, e.name,
-            e.video_url, e.protocol, e.comments
+            e.video_url, e.protocol, e.comments,
+            setup.note AS setup,
+            note.note   AS exercise_notes
        FROM weeks w
        LEFT JOIN workout_days d     ON d.week_id = w.id
        LEFT JOIN workout_sessions s ON s.day_id = d.id
        LEFT JOIN exercises e        ON e.day_id = d.id
+       -- The setup note follows the movement, so it is matched on lineage and
+       -- comes out identical on every week of the program.
+       LEFT JOIN exercise_setups setup
+              ON setup.program_id = w.program_id AND setup.lineage = e.lineage
+       LEFT JOIN session_exercise_notes note
+              ON note.session_id = s.id AND note.exercise_id = e.id
       WHERE w.program_id = $1
       ORDER BY w.number, d.number, e.position`,
     [programId],
@@ -489,6 +501,8 @@ function assembleWeeks(
         exercises: [],
         notes: row.notes ?? '',
         completed: row.completed ?? false,
+        elapsedSeconds: Number(row.elapsed_seconds ?? 0),
+        timerStartedAt: row.timer_started_at ? toIso(row.timer_started_at) : null,
       };
       days.set(row.day_id, day);
       week.days.push(day);
@@ -508,6 +522,8 @@ function assembleWeeks(
       video: row.video_url,
       protocol: row.protocol,
       comments: row.comments,
+      setup: row.setup,
+      notes: row.exercise_notes ?? '',
       previousWeek: pad(referenceSets.get(row.exercise_id)),
       currentWeek: pad(loggedSets.get(row.exercise_id)),
     });

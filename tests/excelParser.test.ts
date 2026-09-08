@@ -20,7 +20,7 @@ import {
   toNumber,
 } from '../server/parser/cells';
 import { buildWorkbook, exportFileName } from '../server/parser/excelExporter';
-import { exercise1RM, exerciseVolume } from '../src/domain/calculations';
+import { exerciseBestSet, exerciseVolume } from '../src/domain/calculations';
 import { TEMPLATE_SET_COUNT, type Program } from '../src/domain/types';
 
 /** The jsdom test environment has no file-scheme `import.meta.url`. */
@@ -159,7 +159,7 @@ describe('parseWorkbook against the real template', () => {
     const exercise = program.weeks[0]?.days[0]?.exercises[0];
     expect(exercise).toBeDefined();
     expect(exerciseVolume(exercise!.currentWeek)).toBe(82.5 * 4);
-    expect(exercise1RM(exercise!)).toBe(93.5);
+    expect(exerciseBestSet(exercise!)).toEqual({ weight: 82.5, reps: 4, setIndex: 0 });
   });
 
   it('recomputes volume instead of importing the workbook\'s broken formulas', () => {
@@ -243,7 +243,7 @@ describe('the second real template', () => {
 
   it('leaves no impossible value anywhere in the file', () => {
     // A date serial that slipped through would show up here as thousands of
-    // reps, and would poison every volume and 1RM computed from it.
+    // reps, and would poison every volume computed from it.
     const sets = program.weeks
       .flatMap((week) => week.days)
       .flatMap((day) => day.exercises)

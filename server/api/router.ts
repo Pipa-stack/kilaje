@@ -25,6 +25,8 @@ import {
   NotFoundError,
   deleteSet,
   resetSession,
+  saveExerciseNote,
+  saveExerciseSetup,
   saveSet,
   updateSession,
 } from '../repositories/sessions';
@@ -40,6 +42,7 @@ import {
   appendWeekBody,
   deleteSetBody,
   exerciseFieldsBody,
+  exerciseNoteBody,
   idParam,
   moveExerciseBody,
   newExerciseBody,
@@ -49,6 +52,7 @@ import {
 } from './schemas';
 import { currentUserId } from './authRouter';
 import { loadHistory } from '../repositories/history';
+import { listLifts } from '../repositories/profile';
 import {
   createImportLimiter,
   createPlanLimiter,
@@ -342,6 +346,20 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
     }),
   );
 
+  /**
+   * Every movement you have trained, with its best set and where it is going.
+   *
+   * Spans programs, like `/history`, because "how much do I press" is not a
+   * question about one spreadsheet.
+   */
+  router.get(
+    '/profile/lifts',
+    readLimiter,
+    handle(async (req, res) => {
+      res.json({ lifts: await listLifts(db, currentUserId(req)) });
+    }),
+  );
+
   /** Records one set of one exercise within a day. */
   router.put(
     '/days/:dayId/sets',
@@ -365,7 +383,41 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
     }),
   );
 
-  /** Session notes and the completed flag. */
+  /**
+   * The permanent setup note for a movement: "banco pin 4, agarre ancho".
+   *
+   * Written against one exercise but stored per lineage, so it lands on every
+   * week of the program at once. Answers 204: the client already has the text.
+   */
+  router.put(
+    '/exercises/:exerciseId/setup',
+    writeLimiter,
+    handle(async (req, res) => {
+      const exerciseId = idParam.parse(req.params.exerciseId);
+      const { note } = exerciseNoteBody.parse(req.body);
+      const saved = await saveExerciseSetup(db, exerciseId, note, currentUserId(req));
+      if (!saved) {
+        res.status(404).json({ error: 'Ese ejercicio no existe.' });
+        return;
+      }
+      res.status(204).end();
+    }),
+  );
+
+  /** What happened today on one exercise. Belongs to the session. */
+  router.put(
+    '/days/:dayId/exercises/:exerciseId/note',
+    writeLimiter,
+    handle(async (req, res) => {
+      const dayId = idParam.parse(req.params.dayId);
+      const exerciseId = idParam.parse(req.params.exerciseId);
+      const { note } = exerciseNoteBody.parse(req.body);
+      await saveExerciseNote(db, dayId, exerciseId, note, currentUserId(req));
+      res.status(204).end();
+    }),
+  );
+
+  /** Session notes, the completed flag and the clock. */
   router.patch(
     '/days/:dayId/session',
     writeLimiter,

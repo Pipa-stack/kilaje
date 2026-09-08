@@ -142,18 +142,75 @@ export function setDayNotes<T extends Program>(program: T, dayId: string, notes:
   return mapDay(program, dayId, (day) => ({ ...day, notes }));
 }
 
+/**
+ * Writes the permanent setup note for a movement.
+ *
+ * Applied to **every** copy of that lineage in the program, not just the one
+ * on screen: the note describes the movement, not the week, so seeing a
+ * different value after flipping back one week would mean it was never fixed
+ * in the first place.
+ */
+export function setExerciseSetup<T extends Program>(
+  program: T,
+  lineage: string,
+  setup: string | null,
+): T {
+  const value = setup?.trim() ? setup : null;
+
+  return {
+    ...program,
+    weeks: program.weeks.map((week) => ({
+      ...week,
+      days: week.days.map((day) => ({
+        ...day,
+        exercises: day.exercises.map((exercise) =>
+          exercise.lineage === lineage ? { ...exercise, setup: value } : exercise,
+        ),
+      })),
+    })),
+  };
+}
+
+/** Writes this session's note for one exercise. */
+export function setExerciseNotes<T extends Program>(
+  program: T,
+  dayId: string,
+  exerciseId: string,
+  notes: string,
+): T {
+  return mapExercise(program, dayId, exerciseId, (exercise) => ({ ...exercise, notes }));
+}
+
+/** Banks the timer, and says whether it keeps running. */
+export function setDayTimer<T extends Program>(
+  program: T,
+  dayId: string,
+  timer: { elapsedSeconds: number; timerStartedAt: string | null },
+): T {
+  return mapDay(program, dayId, (day) => ({ ...day, ...timer }));
+}
+
 export function setDayCompleted<T extends Program>(program: T, dayId: string, completed: boolean): T {
   return mapDay(program, dayId, (day) => ({ ...day, completed }));
 }
 
-/** Clears every logged set, note and completion flag for a day. */
+/**
+ * Clears every logged set, note, timer and completion flag for a day.
+ *
+ * The per-exercise notes and the clock go with the sets: they are all things
+ * that happened during that session. The setup note does not — it describes
+ * the movement, survives the session, and lives on the template side.
+ */
 export function resetDay<T extends Program>(program: T, dayId: string): T {
   return mapDay(program, dayId, (day) => ({
     ...day,
     notes: '',
     completed: false,
+    elapsedSeconds: 0,
+    timerStartedAt: null,
     exercises: day.exercises.map((exercise) => ({
       ...exercise,
+      notes: '',
       currentWeek: emptySets(TEMPLATE_SET_COUNT),
     })),
   }));

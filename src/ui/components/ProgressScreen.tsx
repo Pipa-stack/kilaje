@@ -1,9 +1,9 @@
 import { useState } from 'react';
 
 import {
-  bestEstimated1RM,
+  bestLiftOfWeek,
   exerciseProgress,
-  formatNumber,
+  formatBestSet,
   volumeByDay,
   weekSummary,
 } from '../../domain/calculations';
@@ -63,7 +63,7 @@ function WeekProgress({ week }: { week: Week }) {
   const summary = weekSummary(week);
   const days = volumeByDay(week);
   const exercises = exerciseProgress(week);
-  const best = bestEstimated1RM(week);
+  const best = bestLiftOfWeek(week);
   const peak = Math.max(...days.map((day) => day.volume), 1);
 
   if (summary.startedExercises === 0) {
@@ -103,8 +103,8 @@ function WeekProgress({ week }: { week: Week }) {
           />
           <Stat label="Sesiones completadas" value={`${summary.completedDays}/${summary.totalDays}`} />
           <Stat
-            label="Mejor 1RM estimado"
-            value={best ? `${formatNumber(best.oneRepMax)} kg` : '—'}
+            label="Mejor serie"
+            value={formatBestSet(best?.best ?? null)}
             note={best?.exerciseName}
           />
         </dl>
@@ -157,16 +157,15 @@ function WeekProgress({ week }: { week: Week }) {
                 <span className="block text-xs text-iron-600">
                   Día {row.dayNumber} · {row.loggedSets}{' '}
                   {row.loggedSets === 1 ? 'serie' : 'series'}
-                  {row.topWeight !== null ? ` · tope ${formatNumber(row.topWeight)} kg` : ''}
                 </span>
               </span>
               <span className="shrink-0 text-right">
                 <span className="block text-sm font-semibold tabular-nums text-chalk">
                   {Math.round(row.volume).toLocaleString('es-ES')} kg
                 </span>
-                {row.oneRepMax !== null ? (
+                {row.best !== null ? (
                   <span className="block text-xs tabular-nums text-iron-600">
-                    1RM {formatNumber(row.oneRepMax)}
+                    {formatBestSet(row.best)}
                   </span>
                 ) : null}
               </span>

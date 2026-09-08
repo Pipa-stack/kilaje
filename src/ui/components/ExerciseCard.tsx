@@ -1,40 +1,67 @@
 import { useMemo, useState } from 'react';
 
 import {
-  exercise1RM,
+  exerciseBestSet,
   exerciseProgression,
   exerciseVolume,
-  formatNumber,
+  formatBestSet,
   formatVolume,
+  isBetterSet,
   isExerciseStarted,
   parseProtocolSetCount,
+  type BestSet,
 } from '../../domain/calculations';
 import { MAX_SETS, type SetPatch } from '../../domain/mutations';
-import { TEMPLATE_SET_COUNT, isSetEmpty, type Exercise } from '../../domain/types';
+import { TEMPLATE_SET_COUNT, isSetEmpty, isSetWorked, type Exercise } from '../../domain/types';
 import { Icon } from './Icon';
 import { PlateMath } from './PlateMath';
 import { NumberField } from './NumberField';
 
 interface ExerciseCardProps {
   exercise: Exercise;
+  /**
+   * The best set logged for this movement in *earlier* weeks.
+   *
+   * The mark to beat. It excludes the week on screen, or the set being typed
+   * would be part of the history it is compared against and nothing could
+   * ever be a record.
+   */
+  previousBest: BestSet | null;
   onUpdateSet: (exerciseId: string, setIndex: number, patch: SetPatch) => void;
   onAddSet: (exerciseId: string) => void;
   onRemoveSet: (exerciseId: string, setIndex: number) => void;
+  /** The permanent setup note, shared by every week of the program. */
+  onSetupChange: (exerciseId: string, setup: string) => void;
+  /** This session's note for this exercise. */
+  onNotesChange: (exerciseId: string, notes: string) => void;
 }
 
 export function ExerciseCard({
   exercise,
+  previousBest,
   onUpdateSet,
   onAddSet,
   onRemoveSet,
+  onSetupChange,
+  onNotesChange,
 }: ExerciseCardProps) {
   const [showHistory, setShowHistory] = useState(false);
+  // Opened by a tap rather than always shown: on a phone, four exercises each
+  // carrying an open text box push the sets you came here to fill off screen.
+  const [editingSetup, setEditingSetup] = useState(false);
+  const [showNote, setShowNote] = useState(false);
 
-  const oneRepMax = exercise1RM(exercise);
+  const best = exerciseBestSet(exercise);
   const volume = exerciseVolume(exercise.currentWeek);
   const progression = exerciseProgression(exercise);
   const started = isExerciseStarted(exercise);
   const plannedSets = parseProtocolSetCount(exercise.protocol);
+
+  // Which set, if any, is the one that broke the record. Only the best set of
+  // the day gets the mark: three sets over the old best are one record, not
+  // three, and starring all of them would say the opposite.
+  const recordIndex =
+    best !== null && (previousBest === null || isBetterSet(best, previousBest)) ? best.setIndex : null;
 
   const hasHistory = useMemo(
     () => exercise.previousWeek.some((set) => !isSetEmpty(set)),
@@ -81,10 +108,47 @@ export function ExerciseCard({
 
       {exercise.comments ? (
         <p className="border-b border-iron-800 bg-iron-850 px-4 py-2 text-sm text-iron-100">
-          <span className="font-semibold text-iron-400">Nota: </span>
+          <span className="font-semibold text-iron-400">Del entrenador: </span>
           {exercise.comments}
         </p>
       ) : null}
+
+      <div className="border-b border-iron-800 px-4 py-2">
+        {editingSetup ? (
+          <>
+            <label htmlFor={`${exercise.id}-setup`} className="eyebrow mb-1 block">
+              Cómo lo montas
+            </label>
+            <textarea
+              id={`${exercise.id}-setup`}
+              autoFocus
+              rows={2}
+              maxLength={1000}
+              value={exercise.setup ?? ''}
+              onChange={(event) => onSetupChange(exercise.id, event.target.value)}
+              onBlur={() => setEditingSetup(false)}
+              placeholder="Banco pin 4, agarre ancho…"
+              className="w-full resize-y rounded-xl border border-iron-700 bg-iron-850 px-3 py-2 text-sm text-chalk placeholder:text-iron-600 focus:border-signal-400 focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-iron-600">
+              Se guarda para todas las semanas de este programa.
+            </p>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditingSetup(true)}
+            className="flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-sm text-iron-400 hover:text-iron-100"
+          >
+            <Icon name="wrench" size={15} className="shrink-0" />
+            {exercise.setup ? (
+              <span className="text-iron-100">{exercise.setup}</span>
+            ) : (
+              <span>Añadir cómo montas este ejercicio</span>
+            )}
+          </button>
+        )}
+      </div>
 
       <div className="px-4 py-3">
         <div className="eyebrow mb-2 flex items-center gap-2 px-1">
@@ -145,10 +209,52 @@ export function ExerciseCard({
                 </button>
                 </div>
                 <PlateMath weightKg={set.weight} />
+                {index === recordIndex && isSetWorked(set) ? (
+                  <p className="mt-1 flex items-center gap-1.5 pl-10 text-xs font-semibold text-signal-300">
+                    <Icon name="star" size={14} />
+                    <span>
+                      Récord
+                      {previousBest ? (
+                        <span className="font-normal text-iron-400">
+                          {' '}— antes {formatBestSet(previousBest)}
+                        </span>
+                      ) : (
+                        <span className="font-normal text-iron-400"> — tu primera marca</span>
+                      )}
+                    </span>
+                  </p>
+                ) : null}
               </li>
             );
           })}
         </ul>
+
+        {showNote || exercise.notes ? (
+          <div className="mt-3">
+            <label htmlFor={`${exercise.id}-note`} className="eyebrow mb-1 block">
+              Nota de hoy
+            </label>
+            <textarea
+              id={`${exercise.id}-note`}
+              autoFocus={showNote && exercise.notes === ''}
+              rows={2}
+              maxLength={1000}
+              value={exercise.notes}
+              onChange={(event) => onNotesChange(exercise.id, event.target.value)}
+              placeholder="Cómo ha ido, molestias, qué cambiar…"
+              className="w-full resize-y rounded-xl border border-iron-700 bg-iron-850 px-3 py-2 text-sm text-chalk placeholder:text-iron-600 focus:border-signal-400 focus:outline-none"
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowNote(true)}
+            className="mt-3 flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-sm text-iron-400 hover:text-iron-100"
+          >
+            <Icon name="pencil" size={15} className="shrink-0" />
+            Anotar algo de hoy
+          </button>
+        )}
 
         <button
           type="button"
@@ -162,7 +268,15 @@ export function ExerciseCard({
 
       <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-iron-800 bg-iron-850 px-4 py-3 text-sm">
         <Stat label="Volumen" value={volume > 0 ? formatVolume(volume) : '—'} />
-        <Stat label="1RM est." value={oneRepMax !== null ? `${formatNumber(oneRepMax)} kg` : '—'} />
+        <Stat
+          label="Mejor serie"
+          value={formatBestSet(best ?? previousBest)}
+          hint={
+            best === null && previousBest !== null
+              ? 'Tu mejor serie hasta ahora en este ejercicio'
+              : 'La serie más pesada que has hecho hoy aquí'
+          }
+        />
         <Stat label="Progresión" value={progression.text} hint="Sugerido según el RIR de la semana anterior" />
         {hasHistory ? (
           <button

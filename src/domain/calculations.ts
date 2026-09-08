@@ -30,20 +30,66 @@ export function roundToPlate(weight: number, increment = 2.5): number {
   return excelRound(weight / increment, 0) * increment;
 }
 
-/**
- * Estimated 1RM from a single set, Epley: `weight × (1 + reps / 30)`.
- *
- * The template only ever applies this to set 1 and leaves the cell blank
- * unless both weight and reps are present — `null` here is that blank.
- */
-export function epley1RM(set: SetEntry | undefined): number | null {
-  if (!set || set.weight === null || set.reps === null) return null;
-  return excelRound(set.weight * (1 + set.reps / 30), 1);
+/** The heaviest set actually performed, and what it was. */
+export interface BestSet {
+  weight: number;
+  /** May be absent: a set logged with an RIR and no reps is still work. */
+  reps: number | null;
+  /** Position within the exercise, 0-based. */
+  setIndex: number;
 }
 
-/** The exercise's estimated 1RM, taken from set 1 as the template does. */
-export function exercise1RM(exercise: Exercise): number | null {
-  return epley1RM(exercise.currentWeek[0]);
+/**
+ * The best set of the lot — the one number the app calls "your best".
+ *
+ * There used to be an estimated 1RM here (Epley, over set 1, as the
+ * spreadsheet does). It is gone. An estimate is a weight nobody has lifted,
+ * and it sat where the real one belongs: the ranking, the record notice and
+ * the exercise card all have to agree on what "best" means, and the only
+ * answer that survives being checked against a training log is the set that
+ * actually happened.
+ *
+ * Weight decides it, because that is what "my best press" means to the person
+ * asking. Reps only break a tie, so 100×8 beats 100×5 and 100×1 beats 95×12 —
+ * the second is arguable, the alternative was arithmetic nobody performed.
+ *
+ * Only sets that count as work are eligible, so a week pre-filled with last
+ * week's loads is not a set of records waiting to be claimed.
+ */
+export function bestSet(sets: readonly SetEntry[]): BestSet | null {
+  let best: BestSet | null = null;
+
+  sets.forEach((set, setIndex) => {
+    if (set.weight === null || !isSetWorked(set)) return;
+    const candidate: BestSet = { weight: set.weight, reps: set.reps, setIndex };
+    if (!best || isBetterSet(candidate, best)) best = candidate;
+  });
+
+  return best;
+}
+
+/**
+ * Strictly better: heavier, or the same weight for more reps.
+ *
+ * Exported because the comparison must be identical everywhere — the card,
+ * the record notice, the ranking and the profile all rank the same sets, and
+ * three private copies of this rule is three chances for them to disagree.
+ */
+export function isBetterSet(candidate: BestSet, incumbent: BestSet): boolean {
+  if (candidate.weight !== incumbent.weight) return candidate.weight > incumbent.weight;
+  return (candidate.reps ?? 0) > (incumbent.reps ?? 0);
+}
+
+/** This week's best set for the exercise. */
+export function exerciseBestSet(exercise: Exercise): BestSet | null {
+  return bestSet(exercise.currentWeek);
+}
+
+/** `"100 kg × 5"`, or `"100 kg"` when the reps were never written down. */
+export function formatBestSet(best: BestSet | null): string {
+  if (!best) return '—';
+  const weight = `${formatNumber(best.weight)} kg`;
+  return best.reps === null ? weight : `${weight} × ${best.reps}`;
 }
 
 /** Σ weight × reps across the given sets. Missing values count as zero. */
@@ -147,6 +193,49 @@ export function dayProgress(day: Day): DayProgress {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* The session clock                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Longer than any session, short enough to still be today.
+ *
+ * Past this the clock was left running, not left training: the phone went in
+ * a bag with the timer on. Counting it would put a four-hour session into the
+ * average and quietly ruin every duration the app ever reports.
+ */
+export const RUNAWAY_TIMER_SECONDS = 4 * 60 * 60;
+
+/**
+ * How long the session has lasted: banked seconds plus the stretch running.
+ *
+ * Derived from a wall-clock instant rather than counted, so a phone that
+ * slept through three sets comes back with the right number.
+ */
+export function sessionSeconds(day: Day, now: number = Date.now()): number {
+  if (day.timerStartedAt === null) return day.elapsedSeconds;
+
+  const started = Date.parse(day.timerStartedAt);
+  if (Number.isNaN(started)) return day.elapsedSeconds;
+
+  return day.elapsedSeconds + Math.max(0, Math.floor((now - started) / 1000));
+}
+
+/** True when the clock has clearly been left running rather than used. */
+export function isTimerRunaway(day: Day, now: number = Date.now()): boolean {
+  return day.timerStartedAt !== null && sessionSeconds(day, now) > RUNAWAY_TIMER_SECONDS;
+}
+
+/** `"42:15"`, and `"1h 12min"` once it passes the hour. */
+export function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}min`;
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 /** Where a session stands, for the home screen. */
 export type SessionStatus = 'completed' | 'in-progress' | 'pending';
 
@@ -219,25 +308,25 @@ export function findNextDay(week: Week): Day | null {
 }
 
 export interface TopLift {
-  oneRepMax: number;
+  best: BestSet;
   exerciseName: string;
 }
 
-/** The best estimated 1RM logged in the week, for the summary. */
-export function bestEstimated1RM(week: Week): TopLift | null {
-  let best: TopLift | null = null;
+/** The heaviest set logged anywhere in the week, for the summary. */
+export function bestLiftOfWeek(week: Week): TopLift | null {
+  let top: TopLift | null = null;
 
   for (const day of week.days) {
     for (const exercise of day.exercises) {
-      const oneRepMax = exercise1RM(exercise);
-      if (oneRepMax === null) continue;
-      if (!best || oneRepMax > best.oneRepMax) {
-        best = { oneRepMax, exerciseName: exercise.name };
+      const best = exerciseBestSet(exercise);
+      if (!best) continue;
+      if (!top || isBetterSet(best, top.best)) {
+        top = { best, exerciseName: exercise.name };
       }
     }
   }
 
-  return best;
+  return top;
 }
 
 export interface ExerciseProgressRow {
@@ -245,9 +334,8 @@ export interface ExerciseProgressRow {
   name: string;
   dayNumber: number;
   volume: number;
-  oneRepMax: number | null;
-  /** Heaviest weight lifted for at least one rep. */
-  topWeight: number | null;
+  /** The heaviest set performed on it this week. */
+  best: BestSet | null;
   loggedSets: number;
 }
 
@@ -265,17 +353,12 @@ export function exerciseProgress(week: Week): ExerciseProgressRow[] {
       const logged = loggedSetCount(exercise.currentWeek);
       if (logged === 0) continue;
 
-      const weights = exercise.currentWeek
-        .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
-        .map((set) => set.weight as number);
-
       rows.push({
         exerciseId: exercise.id,
         name: exercise.name,
         dayNumber: day.number,
         volume: exerciseVolume(exercise.currentWeek),
-        oneRepMax: exercise1RM(exercise),
-        topWeight: weights.length > 0 ? Math.max(...weights) : null,
+        best: exerciseBestSet(exercise),
         loggedSets: logged,
       });
     }
@@ -325,9 +408,8 @@ export function volumeByWeek(weeks: readonly Week[]): WeekVolumeRow[] {
 export interface TrendPoint {
   weekNumber: number;
   volume: number;
-  /** Heaviest weight moved for at least one rep that week. */
-  topWeight: number | null;
-  oneRepMax: number | null;
+  /** The heaviest set performed that week. */
+  best: BestSet | null;
 }
 
 export interface ExerciseTrend {
@@ -364,17 +446,12 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
         const name = exercise.name.trim();
         if (name === '' || loggedSetCount(exercise.currentWeek) === 0) continue;
 
-        const weights = exercise.currentWeek
-          .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
-          .map((set) => set.weight as number);
-
         const entry = byLineage.get(exercise.lineage) ?? { name, points: [] };
         // Weeks arrive in order, so the last one to write wins the label.
         entry.name = name;
 
         const volume = exerciseVolume(exercise.currentWeek);
-        const topWeight = weights.length > 0 ? Math.max(...weights) : null;
-        const oneRepMax = exercise1RM(exercise);
+        const best = exerciseBestSet(exercise);
 
         // One point per week, never one per occurrence. An upper/lower split
         // hits the same movement twice a week, and two entries for one week
@@ -383,10 +460,9 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
         const existing = entry.points.find((point) => point.weekNumber === week.number);
         if (existing) {
           existing.volume += volume;
-          existing.topWeight = maxOrNull(existing.topWeight, topWeight);
-          existing.oneRepMax = maxOrNull(existing.oneRepMax, oneRepMax);
+          existing.best = betterOrNull(existing.best, best);
         } else {
-          entry.points.push({ weekNumber: week.number, volume, topWeight, oneRepMax });
+          entry.points.push({ weekNumber: week.number, volume, best });
         }
 
         byLineage.set(exercise.lineage, entry);
@@ -398,9 +474,9 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
 
   for (const [key, { name, points }] of byLineage) {
     points.sort((a, b) => a.weekNumber - b.weekNumber);
-    const withWeight = points.filter((point) => point.topWeight !== null);
-    const first = withWeight[0]?.topWeight ?? null;
-    const last = withWeight.at(-1)?.topWeight ?? null;
+    const withWeight = points.filter((point) => point.best !== null);
+    const first = withWeight[0]?.best?.weight ?? null;
+    const last = withWeight.at(-1)?.best?.weight ?? null;
 
     trends.push({
       key,
@@ -415,10 +491,40 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
   return trends.sort((a, b) => b.points.length - a.points.length || a.name.localeCompare(b.name));
 }
 
-function maxOrNull(left: number | null, right: number | null): number | null {
+function betterOrNull(left: BestSet | null, right: BestSet | null): BestSet | null {
   if (left === null) return right;
   if (right === null) return left;
-  return Math.max(left, right);
+  return isBetterSet(right, left) ? right : left;
+}
+
+/**
+ * The best set for every movement of the program, keyed by lineage.
+ *
+ * `exceptWeek` is what makes a record notice possible. Without it the set you
+ * are typing right now is part of the history it is being compared against,
+ * so the first weight of the day always ties its own record and nothing is
+ * ever beaten. Leaving the current week out asks the only useful question:
+ * is today better than everything before it?
+ */
+export function bestSetByLineage(
+  weeks: readonly Week[],
+  options: { exceptWeek?: number } = {},
+): Map<string, BestSet> {
+  const best = new Map<string, BestSet>();
+
+  for (const week of weeks) {
+    if (week.number === options.exceptWeek) continue;
+    for (const day of week.days) {
+      for (const exercise of day.exercises) {
+        const candidate = exerciseBestSet(exercise);
+        if (!candidate) continue;
+        const incumbent = best.get(exercise.lineage);
+        if (!incumbent || isBetterSet(candidate, incumbent)) best.set(exercise.lineage, candidate);
+      }
+    }
+  }
+
+  return best;
 }
 
 export interface DayVolumeRow {

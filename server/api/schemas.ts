@@ -56,12 +56,28 @@ export const sessionPatchBody = z
     // Bounded so a paste cannot fill the database with one request.
     notes: z.string().max(4000).optional(),
     completed: z.boolean().optional(),
+    // 86 400 = 24 h, matching the column's CHECK. The client owns this number
+    // (see `updateSession`); the bound is what stops a broken clock or a
+    // forged request storing a week-long session.
+    elapsedSeconds: z.number().int().min(0).max(86_400).optional(),
+    timerRunning: z.boolean().optional(),
   })
   .strict()
   .refine(
-    (body) => body.notes !== undefined || body.completed !== undefined,
-    'Indica al menos "notes" o "completed"',
+    (body) =>
+      body.notes !== undefined ||
+      body.completed !== undefined ||
+      body.elapsedSeconds !== undefined ||
+      body.timerRunning !== undefined,
+    'Indica al menos "notes", "completed", "elapsedSeconds" o "timerRunning"',
   );
+
+/** A note the user typed on one exercise — a setup note or a session one. */
+export const exerciseNoteBody = z
+  .object({
+    note: z.string().max(1000, 'La nota es demasiado larga'),
+  })
+  .strict();
 
 /** How a new week is started. */
 export const appendWeekBody = z

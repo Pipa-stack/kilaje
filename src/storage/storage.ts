@@ -214,6 +214,9 @@ function normalizeDay(input: unknown, weekNumber: number): Day | null {
     exercises,
     notes: typeof input.notes === 'string' ? input.notes : '',
     completed: input.completed === true,
+    // A cache written before the timer existed has neither field.
+    elapsedSeconds: finiteNumber(input.elapsedSeconds) ?? 0,
+    timerStartedAt: typeof input.timerStartedAt === 'string' ? input.timerStartedAt : null,
   };
 }
 
@@ -231,6 +234,8 @@ function normalizeExercise(input: unknown, dayId: string, dayNumber: number): Ex
     lineage: typeof input.lineage === 'string' ? input.lineage : `d${dayNumber}:e${number}`,
     number,
     name: typeof input.name === 'string' ? input.name : '',
+    setup: typeof input.setup === 'string' ? input.setup : null,
+    notes: typeof input.notes === 'string' ? input.notes : '',
     video: typeof input.video === 'string' ? input.video : null,
     protocol: typeof input.protocol === 'string' ? input.protocol : null,
     comments: typeof input.comments === 'string' ? input.comments : null,

@@ -7,12 +7,12 @@
  * template's own `w1:d1:e1` keys repeat in every file.
  *
  * Rows are fetched once and grouped in TypeScript rather than aggregated in
- * SQL, so the 1RM and volume figures come from the same tested functions the
- * rest of the app uses. A personal log is a few thousand rows at most; the
+ * SQL, so the best-set and volume figures come from the same tested functions
+ * the rest of the app uses. A personal log is a few thousand rows at most; the
  * query is capped so a pathological account cannot pull the server over.
  */
 
-import { epley1RM, exerciseVolume } from '../../src/domain/calculations';
+import { bestSet, exerciseVolume, isBetterSet, type BestSet } from '../../src/domain/calculations';
 import type { SetEntry } from '../../src/domain/types';
 import type { Database } from '../db/database';
 
@@ -28,17 +28,13 @@ export interface HistoryEntry {
   performedAt: string;
   sets: SetEntry[];
   volume: number;
-  /** Heaviest weight moved for at least one rep. */
-  topWeight: number | null;
   /**
-   * Best Epley estimate across **all** the sets of that session.
+   * The heaviest set of that session.
    *
-   * The exercise card shows the estimate from set 1, because that is what the
-   * spreadsheet does. History asks a different question — "what is the best
-   * you have estimated?" — and a heavy single on the third set is exactly the
-   * answer, so here every set is considered.
+   * Every set is considered, not just the first: a heavy single on the third
+   * set is exactly what "the best you did that day" means.
    */
-  oneRepMax: number | null;
+  best: BestSet | null;
 }
 
 export interface ExerciseHistory {
@@ -48,8 +44,8 @@ export interface ExerciseHistory {
   /** Distinct programs it appears in. */
   programs: number;
   totalVolume: number;
-  bestOneRepMax: number | null;
-  bestWeight: number | null;
+  /** The heaviest set ever logged for it, across every program. */
+  best: BestSet | null;
   firstTrainedAt: string | null;
   lastTrainedAt: string | null;
   /** Oldest first, so a chart reads left to right. */
@@ -119,8 +115,7 @@ function groupByExercise(rows: Row[]): ExerciseHistory[] {
         performedAt: toIso(row.performed_at),
         sets: [],
         volume: 0,
-        topWeight: null,
-        oneRepMax: null,
+        best: null,
       } satisfies HistoryEntry);
     instances.set(row.exercise_id, entry);
 
@@ -139,38 +134,19 @@ function groupByExercise(rows: Row[]): ExerciseHistory[] {
 
   for (const [name, instances] of byName) {
     const entries = [...instances.values()]
-      .map((entry) => {
-        const weights = entry.sets
-          .filter((set) => set.weight !== null && (set.reps ?? 0) > 0)
-          .map((set) => set.weight as number);
-
-        const estimates = entry.sets
-          .map((set) => epley1RM(set))
-          .filter((value): value is number => value !== null);
-
-        return {
-          ...entry,
-          volume: exerciseVolume(entry.sets),
-          topWeight: weights.length > 0 ? Math.max(...weights) : null,
-          oneRepMax: estimates.length > 0 ? Math.max(...estimates) : null,
-        };
-      })
+      .map((entry) => ({
+        ...entry,
+        volume: exerciseVolume(entry.sets),
+        best: bestSet(entry.sets),
+      }))
       .sort((a, b) => Date.parse(a.performedAt) - Date.parse(b.performedAt));
-
-    const oneRepMaxes = entries
-      .map((entry) => entry.oneRepMax)
-      .filter((value): value is number => value !== null);
-    const topWeights = entries
-      .map((entry) => entry.topWeight)
-      .filter((value): value is number => value !== null);
 
     history.push({
       name,
       sessions: entries.length,
       programs: new Set(entries.map((entry) => entry.programId)).size,
       totalVolume: entries.reduce((sum, entry) => sum + entry.volume, 0),
-      bestOneRepMax: oneRepMaxes.length > 0 ? Math.max(...oneRepMaxes) : null,
-      bestWeight: topWeights.length > 0 ? Math.max(...topWeights) : null,
+      best: bestOf(entries),
       firstTrainedAt: entries[0]?.performedAt ?? null,
       lastTrainedAt: entries.at(-1)?.performedAt ?? null,
       entries,
@@ -179,6 +155,24 @@ function groupByExercise(rows: Row[]): ExerciseHistory[] {
 
   // Most trained first: that is what somebody looking for progress wants.
   return history.sort((a, b) => b.sessions - a.sessions || b.totalVolume - a.totalVolume);
+}
+
+/**
+ * The best of the per-session bests.
+ *
+ * Ties are settled the same way `bestSet` settles them, so the number on the
+ * ranking screen and the number on the exercise card can never disagree.
+ */
+function bestOf(entries: readonly HistoryEntry[]): BestSet | null {
+  let champion: BestSet | null = null;
+
+  for (const entry of entries) {
+    const candidate = entry.best;
+    if (!candidate) continue;
+    if (!champion || isBetterSet(candidate, champion)) champion = candidate;
+  }
+
+  return champion;
 }
 
 function numeric(value: number | string | null): number | null {
