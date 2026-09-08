@@ -6,24 +6,28 @@ import {
   type ExerciseTrend,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { Delta, Sparkline, TrendChart } from './Chart';
 import { Icon } from './Icon';
 
 interface MesocycleProgressProps {
   weeks: Week[];
 }
 
+const kilos = (value: number) => `${Math.round(value).toLocaleString('es-ES')} kg`;
+
 /**
  * The whole program, week by week.
  *
  * "Esta semana" answers whether today went well; this answers whether the
- * block is working — which is the question a mesocycle exists to ask, and the
- * one the app could not answer while a program was a single imported week.
+ * block is working — the question a mesocycle exists to ask. It used to
+ * answer it with a column of horizontal bars and a wall of chips, which is
+ * the data without the shape: you had to read every number and hold them in
+ * your head to see a trend that a line states in one glance.
  */
 export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
   const rows = volumeByWeek(weeks);
   const trends = exerciseTrends(weeks);
   const trained = rows.filter((row) => row.volume > 0);
-  const peak = Math.max(...rows.map((row) => row.volume), 1);
 
   if (trained.length === 0) {
     return (
@@ -38,54 +42,38 @@ export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
     );
   }
 
+  const last = trained.at(-1);
+  const climbing = trends.filter((trend) => (trend.weightGain ?? 0) > 0).length;
+
   return (
     <div className="space-y-4">
       <section
         aria-labelledby="weeks-title"
         className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
-        <h2 id="weeks-title" className="mb-1 text-sm font-semibold text-chalk">
-          Volumen por semana
-        </h2>
-        <p className="mb-3 text-xs text-iron-600">
-          {trained.length} {trained.length === 1 ? 'semana entrenada' : 'semanas entrenadas'} de{' '}
-          {rows.length}.
-        </p>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 id="weeks-title" className="text-sm font-semibold text-chalk">
+            Volumen por semana
+          </h2>
+          <Delta value={last?.changePercent ?? null} />
+        </div>
 
-        <ul className="space-y-2">
-          {rows.map((row) => (
-            <li key={row.number} className="flex items-center gap-3">
-              <span className="figure w-20 shrink-0 text-sm font-semibold text-iron-400">
-                Semana {row.number}
-              </span>
-              <span aria-hidden="true" className="h-3 flex-1 overflow-hidden rounded-full bg-iron-800">
-                <span
-                  className={`block h-full rounded-full ${
-                    row.completedDays === row.totalDays && row.totalDays > 0
-                      ? 'bg-done-500'
-                      : 'bg-signal-500'
-                  }`}
-                  style={{ width: `${Math.max((row.volume / peak) * 100, row.volume > 0 ? 4 : 0)}%` }}
-                />
-              </span>
-              <span className="w-28 shrink-0 text-right">
-                <span className="figure block text-sm text-iron-100">
-                  {row.volume > 0 ? `${Math.round(row.volume).toLocaleString('es-ES')} kg` : '—'}
-                </span>
-                {row.changePercent !== null ? (
-                  <span
-                    className={`block text-xs tabular-nums ${
-                      row.changePercent >= 0 ? 'text-done-300' : 'text-amber-300'
-                    }`}
-                  >
-                    {row.changePercent >= 0 ? '+' : ''}
-                    {row.changePercent}%
-                  </span>
-                ) : null}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <TrendChart
+          label={`Volumen de cada semana del programa, de la semana ${rows[0]?.number ?? 1} a la ${
+            rows.at(-1)?.number ?? 1
+          }`}
+          points={trained.map((row) => ({
+            label: `S${row.number}`,
+            value: row.volume,
+            detail: `${row.completedDays}/${row.totalDays} sesiones`,
+          }))}
+          format={kilos}
+        />
+
+        <p className="mt-1 text-xs text-iron-600">
+          {trained.length} {trained.length === 1 ? 'semana entrenada' : 'semanas entrenadas'} de{' '}
+          {rows.length}. Toca un punto para ver esa semana.
+        </p>
       </section>
 
       <section
@@ -96,7 +84,9 @@ export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
           Cada ejercicio, semana a semana
         </h2>
         <p className="mb-3 text-xs text-iron-600">
-          El peso más alto que moviste cada semana. Las semanas sin anotar no aparecen.
+          {climbing > 0
+            ? `${climbing} ${climbing === 1 ? 'ejercicio sube' : 'ejercicios suben'} de peso en el bloque.`
+            : 'El peso más alto que moviste cada semana.'}
         </p>
 
         <ul className="divide-y divide-iron-800">
@@ -109,35 +99,45 @@ export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
   );
 }
 
+/**
+ * One movement across the block: name, shape, and where it ended up.
+ *
+ * The sparkline is the point of the row — twenty of these scroll past and the
+ * three that are climbing announce themselves without a number being read.
+ */
 function TrendRow({ trend }: { trend: ExerciseTrend }) {
-  return (
-    <li className="py-3">
-      <div className="flex items-baseline gap-3">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-chalk">{trend.name}</span>
-        {trend.weightGain !== null && trend.weightGain !== 0 ? (
-          <span
-            className={`shrink-0 text-xs font-semibold tabular-nums ${
-              trend.weightGain > 0 ? 'text-done-300' : 'text-amber-300'
-            }`}
-          >
-            {trend.weightGain > 0 ? '+' : ''}
-            {formatNumber(trend.weightGain)} kg
-          </span>
-        ) : null}
-      </div>
+  const weights = trend.points
+    .map((point) => point.best?.weight)
+    .filter((weight): weight is number => weight !== undefined);
 
-      <ol className="mt-1.5 flex flex-wrap gap-1.5">
-        {trend.points.map((point) => (
-          <li
-            key={point.weekNumber}
-            className="rounded-lg bg-iron-850 px-2 py-1 text-xs tabular-nums text-iron-100"
-            title={`Semana ${point.weekNumber}: ${Math.round(point.volume).toLocaleString('es-ES')} kg de volumen`}
-          >
-            <span className="text-iron-600">S{point.weekNumber}</span>{' '}
-            {point.best !== null ? formatBestSet(point.best) : '—'}
-          </li>
-        ))}
-      </ol>
+  const latest = trend.points.at(-1)?.best ?? null;
+
+  return (
+    <li className="flex items-center gap-3 py-2.5">
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-1 text-sm font-medium text-chalk">{trend.name}</span>
+        <span className="block text-xs text-iron-600">
+          {trend.points.length} {trend.points.length === 1 ? 'semana' : 'semanas'} ·{' '}
+          {formatBestSet(latest)}
+        </span>
+      </span>
+
+      {weights.length > 1 ? (
+        <Sparkline
+          values={weights}
+          label={`Evolución del peso de ${trend.name}: ${weights.map(formatNumber).join(', ')} kg`}
+        />
+      ) : (
+        <span className="w-16" />
+      )}
+
+      <span className="w-16 shrink-0 text-right">
+        {trend.weightGain !== null ? (
+          <Delta value={trend.weightGain} unit=" kg" />
+        ) : (
+          <span className="text-xs text-iron-600">1ª vez</span>
+        )}
+      </span>
     </li>
   );
 }

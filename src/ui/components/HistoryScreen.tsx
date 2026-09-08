@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import * as api from '../../api/client';
 import { ApiError, type ExerciseHistory, type HistoryEntry } from '../../api/client';
 import { formatBestSet } from '../../domain/calculations';
+import { Delta, Sparkline, TrendChart } from './Chart';
 import { Icon } from './Icon';
 
 /**
@@ -99,6 +100,9 @@ function ExerciseRow({
   onToggle: () => void;
 }) {
   const trend = computeTrend(exercise.entries);
+  const weights = exercise.entries
+    .map((entry) => entry.best?.weight)
+    .filter((weight): weight is number => weight !== undefined);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-iron-800 bg-iron-900">
@@ -126,18 +130,18 @@ function ExerciseRow({
           </span>
         </span>
 
-        {trend !== null ? (
-          <span
-            className={`figure w-14 shrink-0 text-right text-sm font-semibold ${
-              trend >= 0 ? 'text-done-300' : 'text-effort-300'
-            }`}
-          >
-            {trend >= 0 ? '+' : ''}
-            {trend}%
-          </span>
+        {weights.length > 1 ? (
+          <Sparkline
+            values={weights}
+            label={`Evolución de ${exercise.name} a lo largo de ${weights.length} sesiones`}
+          />
         ) : (
-          <span className="w-14 shrink-0" />
+          <span className="w-16 shrink-0" />
         )}
+
+        <span className="w-14 shrink-0 text-right">
+          <Delta value={trend} />
+        </span>
 
         <Icon
           name="chevronRight"
@@ -167,38 +171,52 @@ function computeTrend(entries: HistoryEntry[]): number | null {
   return Math.round(((last - first) / first) * 100);
 }
 
+/**
+ * One exercise, session by session.
+ *
+ * The line is the answer to "is this going up"; the list under it is the
+ * evidence. It used to be only the list — a bar per session, longest wins —
+ * which shows which day was heaviest but not whether the last two months went
+ * anywhere.
+ */
 function Timeline({ entries }: { entries: HistoryEntry[] }) {
-  const peak = Math.max(...entries.map((entry) => entry.best?.weight ?? 0), 1);
-  // Newest first: the last session is the one being compared against.
+  const plotted = entries.filter((entry) => entry.best !== null);
+  // Newest first in the list: the most recent session is the one you are
+  // comparing against. The chart stays chronological, left to right.
   const newestFirst = [...entries].reverse();
 
   return (
     <div className="border-t border-iron-800 px-4 py-3">
+      {plotted.length > 1 ? (
+        <div className="mb-4">
+          <TrendChart
+            label={`Peso de la mejor serie en cada una de las ${plotted.length} sesiones`}
+            height={130}
+            baseline="fit"
+            points={plotted.map((entry) => ({
+              label: formatDate(entry.performedAt),
+              value: entry.best?.weight ?? 0,
+              detail: formatBestSet(entry.best),
+            }))}
+            format={(value) => `${value} kg`}
+          />
+        </div>
+      ) : null}
+
       <h3 className="eyebrow mb-2 block">Sesión a sesión</h3>
       <ol className="space-y-2">
         {newestFirst.map((entry, index) => (
-          <li key={`${entry.programId}-${entry.weekNumber}-${entry.dayNumber}-${index}`}>
-            <div className="flex items-center gap-3">
-              <span className="w-20 shrink-0 text-xs text-iron-600">
-                {formatDate(entry.performedAt)}
-              </span>
-
-              <span aria-hidden="true" className="h-2.5 flex-1 overflow-hidden rounded-full bg-iron-800">
-                <span
-                  className="block h-full rounded-full bg-signal-500"
-                  style={{ width: `${((entry.best?.weight ?? 0) / peak) * 100}%` }}
-                />
-              </span>
-
-              <span className="figure w-20 shrink-0 text-right text-sm text-chalk">
-                {formatBestSet(entry.best)}
-              </span>
-            </div>
-
-            <p className="mt-0.5 pl-20 text-xs text-iron-600">
-              {entry.programName} · semana {entry.weekNumber}, día {entry.dayNumber} ·{' '}
-              {describeSets(entry)}
-            </p>
+          <li
+            key={`${entry.programId}-${entry.weekNumber}-${entry.dayNumber}-${index}`}
+            className="flex items-baseline gap-3"
+          >
+            <span className="w-16 shrink-0 text-xs text-iron-600">
+              {formatDate(entry.performedAt)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="figure block text-sm text-chalk">{formatBestSet(entry.best)}</span>
+              <span className="block text-xs text-iron-600">{describeSets(entry)}</span>
+            </span>
           </li>
         ))}
       </ol>

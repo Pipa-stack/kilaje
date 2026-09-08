@@ -8,6 +8,7 @@ import {
   weekSummary,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { Bars, Delta } from './Chart';
 import { HistoryScreen } from './HistoryScreen';
 import { Icon } from './Icon';
 import { MesocycleProgress } from './MesocycleProgress';
@@ -64,7 +65,6 @@ function WeekProgress({ week }: { week: Week }) {
   const days = volumeByDay(week);
   const exercises = exerciseProgress(week);
   const best = bestLiftOfWeek(week);
-  const peak = Math.max(...days.map((day) => day.volume), 1);
 
   if (summary.startedExercises === 0) {
     return (
@@ -79,66 +79,66 @@ function WeekProgress({ week }: { week: Week }) {
     );
   }
 
+  const heaviestVolume = Math.max(...exercises.map((row) => row.volume), 1);
+
   return (
     <div className="space-y-4">
+      {/* The headline is one number and its direction. Four equal tiles made
+          the reader hunt for which one mattered; the volume and whether it is
+          climbing is the answer to "how is the week going". */}
       <section
         aria-labelledby="totals-title"
         className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
       >
-        <h2 id="totals-title" className="text-lg font-bold text-chalk">
-          Semana {week.number}
-        </h2>
-        <dl className="mt-3 grid grid-cols-2 gap-3">
-          <Stat label="Volumen total" value={`${Math.round(summary.volume).toLocaleString('es-ES')} kg`} />
-          <Stat
-            label="Frente a la anterior"
-            value={summary.changePercent === null ? '—' : `${summary.changePercent >= 0 ? '+' : ''}${summary.changePercent}%`}
-            tone={
-              summary.changePercent === null
-                ? 'neutral'
-                : summary.changePercent >= 0
-                  ? 'positive'
-                  : 'warning'
-            }
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="totals-title" className="text-sm font-semibold text-chalk">
+            Semana {week.number}
+          </h2>
+          <span className="text-xs text-iron-600">
+            {summary.completedDays}/{summary.totalDays} sesiones completadas
+          </span>
+        </div>
+
+        <div className="mt-1 flex items-baseline gap-3">
+          <span className="figure text-4xl font-bold text-chalk">
+            {Math.round(summary.volume).toLocaleString('es-ES')} kg
+          </span>
+          <Delta value={summary.changePercent} />
+        </div>
+        <p className="text-xs text-iron-600">
+          de volumen{summary.changePercent !== null ? ' frente a la semana anterior' : ''}
+        </p>
+
+        <div className="mt-4">
+          <h3 className="eyebrow mb-2 block">Volumen por sesión</h3>
+          <Bars
+            label={`Volumen de cada sesión de la semana ${week.number}`}
+            legend={{ done: 'completada', pending: 'sin terminar' }}
+            format={(value) => Math.round(value).toLocaleString('es-ES')}
+            points={days.map((day) => ({
+              label: `D${day.dayNumber}`,
+              value: day.volume,
+              done: day.completed,
+            }))}
           />
-          <Stat label="Sesiones completadas" value={`${summary.completedDays}/${summary.totalDays}`} />
-          <Stat
-            label="Mejor serie"
-            value={formatBestSet(best?.best ?? null)}
-            note={best?.exerciseName}
-          />
-        </dl>
+        </div>
       </section>
 
-      <section
-        aria-labelledby="by-day-title"
-        className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
-      >
-        <h2 id="by-day-title" className="mb-3 text-sm font-semibold text-chalk">
-          Volumen por sesión
-        </h2>
-        <ul className="space-y-2">
-          {days.map((day) => (
-            <li key={day.dayNumber} className="flex items-center gap-3">
-              <span className="figure w-14 shrink-0 text-sm font-semibold text-iron-400">
-                Día {day.dayNumber}
-              </span>
-              {/* The bar is decorative; the figure beside it carries the value. */}
-              <span aria-hidden="true" className="h-3 flex-1 overflow-hidden rounded-full bg-iron-800">
-                <span
-                  className={`block h-full rounded-full ${
-                    day.completed ? 'bg-done-500' : 'bg-signal-500'
-                  }`}
-                  style={{ width: `${Math.max((day.volume / peak) * 100, day.volume > 0 ? 4 : 0)}%` }}
-                />
-              </span>
-              <span className="figure w-24 shrink-0 text-right text-sm text-iron-100">
-                {day.volume > 0 ? `${Math.round(day.volume).toLocaleString('es-ES')} kg` : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {best ? (
+        <section
+          aria-label="Mejor levantamiento de la semana"
+          className="flex items-center gap-3 rounded-2xl border border-signal-500/30 bg-signal-500/5 px-4 py-3"
+        >
+          <Icon name="star" size={20} className="shrink-0 text-signal-400" />
+          <div className="min-w-0">
+            <span className="eyebrow block">Lo más pesado de la semana</span>
+            <span className="figure block text-lg font-bold text-chalk">
+              {formatBestSet(best.best)}
+            </span>
+            <span className="line-clamp-1 text-xs text-iron-400">{best.exerciseName}</span>
+          </div>
+        </section>
+      ) : null}
 
       <section
         aria-labelledby="by-exercise-title"
@@ -149,55 +149,38 @@ function WeekProgress({ week }: { week: Week }) {
         </h2>
         <p className="mb-3 text-xs text-iron-600">Ordenados por volumen acumulado.</p>
 
-        <ul className="divide-y divide-iron-800">
+        <ul className="space-y-2.5">
           {exercises.map((row) => (
-            <li key={row.exerciseId} className="flex items-baseline gap-3 py-2">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-chalk">{row.name}</span>
-                <span className="block text-xs text-iron-600">
-                  Día {row.dayNumber} · {row.loggedSets}{' '}
+            <li key={row.exerciseId}>
+              <div className="flex items-baseline gap-3">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-chalk">
+                  {row.name}
+                </span>
+                <span className="figure shrink-0 text-sm font-semibold tabular-nums text-chalk">
+                  {formatBestSet(row.best)}
+                </span>
+              </div>
+              {/* The bar is the comparison; the figures beside it are the
+                  values. Neither has to be read to get the other. */}
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 flex-1 overflow-hidden rounded-full bg-iron-850"
+                >
+                  <span
+                    className="block h-full rounded-full bg-signal-500/70"
+                    style={{ width: `${Math.max((row.volume / heaviestVolume) * 100, 3)}%` }}
+                  />
+                </span>
+                <span className="figure w-28 shrink-0 text-right text-xs text-iron-600">
+                  {Math.round(row.volume).toLocaleString('es-ES')} kg · {row.loggedSets}{' '}
                   {row.loggedSets === 1 ? 'serie' : 'series'}
                 </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block text-sm font-semibold tabular-nums text-chalk">
-                  {Math.round(row.volume).toLocaleString('es-ES')} kg
-                </span>
-                {row.best !== null ? (
-                  <span className="block text-xs tabular-nums text-iron-600">
-                    {formatBestSet(row.best)}
-                  </span>
-                ) : null}
-              </span>
+              </div>
             </li>
           ))}
         </ul>
       </section>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  note,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  tone?: 'neutral' | 'positive' | 'warning';
-}) {
-  const color =
-    tone === 'positive' ? 'text-done-300' : tone === 'warning' ? 'text-amber-300' : 'text-chalk';
-
-  return (
-    <div className="min-w-0">
-      <dt className="eyebrow block">{label}</dt>
-      <dd className={`figure mt-0.5 truncate text-2xl font-bold ${color}`}>
-        {value}
-        {note ? <span className="block truncate text-xs font-normal text-iron-600">{note}</span> : null}
-      </dd>
     </div>
   );
 }

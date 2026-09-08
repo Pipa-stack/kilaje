@@ -433,13 +433,20 @@ describe('the full training flow, persisted in PostgreSQL', () => {
 
     // Both weeks are listed, and the exercise carries its top weight per week.
     const block = await screen.findByRole('region', { name: /Volumen por semana/i }, WAIT);
-    expect(within(block).getByText('Semana 1')).toBeInTheDocument();
-    expect(within(block).getByText('Semana 2')).toBeInTheDocument();
+    // The weeks are points on a line now, labelled on the axis.
+    expect(within(block).getByText('S1')).toBeInTheDocument();
+    expect(within(block).getByText('S2')).toBeInTheDocument();
 
     const trends = screen.getByRole('region', { name: /Cada ejercicio/i });
     expect(within(trends).getByText(BENCH)).toBeInTheDocument();
-    expect(within(trends).getByText('90 kg × 5')).toBeInTheDocument();
-    expect(within(trends).getByText('82.5 kg × 4')).toBeInTheDocument();
+    // The row now states where the exercise ended up and draws the shape of
+    // how it got there, instead of listing a chip per week.
+    expect(within(trends).getByText(/2 semanas · 90 kg × 5/)).toBeInTheDocument();
+    expect(
+      within(trends).getByRole('img', { name: new RegExp(`Evolución del peso de ${BENCH}`) }),
+    ).toBeInTheDocument();
+    // 82.5 → 90 across the block.
+    expect(within(trends).getByText(/\+7\.5 kg/)).toBeInTheDocument();
   }, 90_000);
 
   it('adds a set beyond the template and persists it', async () => {
