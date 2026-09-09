@@ -13,6 +13,9 @@ interface PlanEditorProps {
   onRemove: (exerciseId: string) => void;
   onAdd: (name: string) => void;
   onClose: () => void;
+  onDeleteDay: () => void;
+  /** False for the last session left: a week cannot have none. */
+  canDeleteDay: boolean;
 }
 
 /**
@@ -31,6 +34,8 @@ export function PlanEditor({
   onRemove,
   onAdd,
   onClose,
+  onDeleteDay,
+  canDeleteDay,
 }: PlanEditorProps) {
   const [newName, setNewName] = useState('');
 
@@ -202,6 +207,23 @@ export function PlanEditor({
           Sin conexión no se puede cambiar el plan. Lo que anotes en las series sí se guarda.
         </p>
       ) : null}
+
+      {/* Last, and quiet. Removing the whole session is a bigger decision than
+          anything above it, and the server refuses outright if the day has
+          training logged — so the confirmation here is about intent, not about
+          protecting the data. */}
+      <div className="border-t border-iron-800 pt-3">
+        <button
+          type="button"
+          disabled={!canDeleteDay || busy || offline}
+          onClick={() => {
+            if (confirm(`¿Quitar el día ${day.number} de esta semana?`)) onDeleteDay();
+          }}
+          className="min-h-11 w-full rounded-xl text-sm font-semibold text-iron-600 hover:bg-iron-850 hover:text-effort-300 disabled:pointer-events-none disabled:opacity-40"
+        >
+          {canDeleteDay ? `Quitar el día ${day.number}` : 'Es la única sesión de la semana'}
+        </button>
+      </div>
     </section>
   );
 }

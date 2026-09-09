@@ -238,6 +238,18 @@ function SignedIn({
                   </button>
                 </li>
               ))}
+              <li>
+                <button
+                  type="button"
+                  onClick={() => void state.addDay()}
+                  disabled={state.editingPlan || state.offline || week.days.length >= 7}
+                  title="Añadir una sesión a esta semana"
+                  className="flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-xl border border-dashed border-iron-700 px-4 text-sm font-semibold text-iron-400 hover:border-signal-400 hover:text-iron-100 disabled:opacity-30"
+                >
+                  <Icon name="plus" size={14} />
+                  Día
+                </button>
+              </li>
             </ul>
           </nav>
         ) : null}
@@ -274,6 +286,8 @@ function SignedIn({
               onMoveExercise={(exerciseId, offset) => void state.moveExercise(exerciseId, offset)}
               onRemoveExercise={(exerciseId) => void state.removeExercise(exerciseId)}
               onAddExercise={(name) => void state.addExercise(name)}
+              onDeleteDay={() => void state.deleteDay(day.id)}
+              canDeleteDay={week.days.length > 1}
             />
           </div>
         ) : null}

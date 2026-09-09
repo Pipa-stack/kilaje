@@ -32,6 +32,7 @@ import {
   updateSession,
 } from '../repositories/sessions';
 import { appendWeek, removeWeek, WeekLimitError } from '../repositories/weeks';
+import { addDay, removeDay } from '../repositories/days';
 import {
   addExercise,
   moveExercise,
@@ -53,6 +54,7 @@ import {
   sessionPatchBody,
 } from './schemas';
 import { currentUserId } from './authRouter';
+import { SILENT_ALERTER, type Alerter } from '../email/alerts';
 import { loadHistory } from '../repositories/history';
 import { listLifts } from '../repositories/profile';
 import {
@@ -239,6 +241,60 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /* ------------------------------------------------------------------ */
   /* Editing the plan                                                    */
   /* ------------------------------------------------------------------ */
+
+  /** Adds a session to the end of a week. */
+  router.post(
+    '/programs/:programId/weeks/:weekNumber/days',
+    planLimiter,
+    handle(async (req, res) => {
+      const programId = idParam.parse(req.params.programId);
+      const weekNumber = idParam.parse(req.params.weekNumber);
+      const { outcome, program } = await addDay(db, programId, weekNumber, currentUserId(req));
+
+      if (outcome === 'no existe') {
+        res.status(404).json({ error: 'Esa semana no existe.' });
+        return;
+      }
+      if (outcome === 'semana llena') {
+        res.status(409).json({ error: 'Una semana no puede tener más de 7 sesiones.' });
+        return;
+      }
+      res.status(201).json({ program });
+    }),
+  );
+
+  /**
+   * Removes a session nobody has trained.
+   *
+   * Refuses rather than cascades when there is work logged against it: one tap
+   * created the day and one tap must not be able to erase a session.
+   */
+  router.delete(
+    '/days/:dayId',
+    planLimiter,
+    handle(async (req, res) => {
+      const dayId = idParam.parse(req.params.dayId);
+      const userId = currentUserId(req);
+      const { outcome, programId } = await removeDay(db, dayId, userId);
+
+      if (outcome === 'no existe') {
+        res.status(404).json({ error: 'Ese día no existe.' });
+        return;
+      }
+      if (outcome === 'es el unico') {
+        res.status(409).json({ error: 'Es la única sesión de la semana.' });
+        return;
+      }
+      if (outcome === 'tiene trabajo anotado') {
+        res.status(409).json({
+          error: 'Ese día tiene entrenamiento anotado. Vacíalo antes de borrarlo.',
+        });
+        return;
+      }
+
+      res.json({ program: await getProgram(db, programId!, userId) });
+    }),
+  );
 
   router.post(
     '/days/:dayId/exercises',
@@ -476,11 +532,24 @@ function isBodyError(error: unknown, type: string): boolean {
   );
 }
 
+/**
+ * Builds the error middleware, wired to whatever raises the alarm.
+ *
+ * A parameter rather than an import so tests get silence for free and no
+ * network call can escape from a suite.
+ */
+export function createApiErrorHandler(alerter: Alerter = SILENT_ALERTER) {
+  return (error: unknown, req: Request, res: Response, next: NextFunction): void => {
+    apiErrorHandler(error, req, res, next, alerter);
+  };
+}
+
 export function apiErrorHandler(
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
+  alerter: Alerter = SILENT_ALERTER,
 ): void {
   if (error instanceof ZodError) {
     res.status(400).json({
@@ -522,6 +591,10 @@ export function apiErrorHandler(
     return;
   }
 
+  // Everything above is a request the server understood and refused. Reaching
+  // here means the server itself is wrong, which is the only class of failure
+  // worth waking somebody for.
   console.error('[api] error no controlado:', error);
+  alerter.report({ method: req.method, path: req.path, error });
   res.status(500).json({ error: 'Error interno del servidor.' });
 }

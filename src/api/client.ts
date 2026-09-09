@@ -153,6 +153,23 @@ export async function createBlankProgram(days: number): Promise<StoredProgram> {
   return program;
 }
 
+/** Adds a session to the end of a week. */
+export async function addDay(programId: number, weekNumber: number): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(
+    `/programs/${programId}/weeks/${weekNumber}/days`,
+    { method: 'POST' },
+  );
+  return program;
+}
+
+/** Deletes a day. The server refuses if anything was logged against it. */
+export async function removeDay(dayId: string): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(`/days/${dayId}`, {
+    method: 'DELETE',
+  });
+  return program;
+}
+
 /** Deletes a week. The server refuses if anything was logged against it. */
 export async function removeWeek(programId: number, weekNumber: number): Promise<StoredProgram> {
   const { program } = await callApi<{ program: StoredProgram }>(

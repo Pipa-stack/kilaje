@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createApp } from './app';
 import { createSenderFromEnv } from './email/sender';
+import { createAlerter, SILENT_ALERTER } from './email/alerts';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
 import { generateDemoPassword, seedDemoAccount } from './db/demoAccount';
@@ -76,10 +77,21 @@ async function main(): Promise<void> {
     );
   }
 
+  // Nobody reads a log they have no reason to open, so a 500 in the middle of
+  // somebody's session used to go unnoticed. Needs an address to write to and
+  // a provider to write with; without either it stays quiet rather than
+  // pretending to watch.
+  const alertTo = process.env.ALERT_EMAIL?.trim();
+  const alerter = alertTo && email.configured ? createAlerter(email, alertTo) : SILENT_ALERTER;
+  if (!alertTo) {
+    console.warn('[server] sin ALERT_EMAIL: los errores del servidor no avisarán a nadie');
+  }
+
   const app = createApp({
     db,
     staticDir: join(ROOT, 'dist'),
     email,
+    alerter,
     appUrl: process.env.APP_URL ?? '',
   });
 

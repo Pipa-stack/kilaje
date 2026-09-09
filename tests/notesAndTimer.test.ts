@@ -377,3 +377,94 @@ describe('the imported program name', () => {
     expect((body.program as StoredProgram).name).toBe('Cristian Jaén');
   }, 60_000);
 });
+
+describe('the days of a week', () => {
+  async function days(programId: number): Promise<number[]> {
+    const program = await reload(programId);
+    return program.weeks[0]?.days.map((day) => day.number) ?? [];
+  }
+
+  it('adds a session to the end of the week', async () => {
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 3 }).expect(201);
+    const program = created.program as StoredProgram;
+
+    const { body } = await agent
+      .post(`/api/programs/${program.id}/weeks/1/days`)
+      .expect(201);
+
+    expect((body.program as StoredProgram).weeks[0]?.days.map((day) => day.number)).toEqual([
+      1, 2, 3, 4,
+    ]);
+  }, 60_000);
+
+  it('closes the gap when one is removed from the middle', async () => {
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 4 }).expect(201);
+    const program = created.program as StoredProgram;
+    const second = program.weeks[0]?.days[1];
+
+    await agent.delete(`/api/days/${second!.id}`).expect(200);
+
+    // Not 1, 3, 4: a week with a hole in the middle reads as a bug.
+    expect(await days(program.id)).toEqual([1, 2, 3]);
+  }, 60_000);
+
+  it('refuses to remove a day that has training logged', async () => {
+    const imported = await importReference();
+    const { day, exercise } = firstExercise(imported);
+
+    await agent
+      .put(`/api/days/${day.id}/sets`)
+      .send({ exerciseId: Number(exercise.id), setIndex: 0, weight: 100, reps: 5, rir: 1 })
+      .expect(204);
+
+    const { body } = await agent.delete(`/api/days/${day.id}`).expect(409);
+    expect(body.error).toContain('entrenamiento anotado');
+
+    // And it is still there, with its set.
+    const loaded = await reload(imported.id);
+    expect(loaded.weeks[0]?.days.some((candidate) => candidate.id === day.id)).toBe(true);
+  }, 60_000);
+
+  it('refuses to leave a week with no sessions at all', async () => {
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 1 }).expect(201);
+    const program = created.program as StoredProgram;
+    const only = program.weeks[0]?.days[0];
+
+    const { body } = await agent.delete(`/api/days/${only!.id}`).expect(409);
+    expect(body.error).toContain('única sesión');
+  }, 60_000);
+
+  it('caps a week at seven', async () => {
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 7 }).expect(201);
+    const program = created.program as StoredProgram;
+
+    await agent.post(`/api/programs/${program.id}/weeks/1/days`).expect(409);
+  }, 60_000);
+
+  it("will not touch another account's day", async () => {
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 3 }).expect(201);
+    const day = (created.program as StoredProgram).weeks[0]?.days[0];
+
+    const stranger = request.agent(app);
+    await stranger
+      .post('/api/auth/register')
+      .send({ email: 'otro@ejemplo.com', password: 'otra-contrasena-larga' })
+      .expect(201);
+
+    await stranger.delete(`/api/days/${day!.id}`).expect(404);
+  }, 60_000);
+
+  it('keeps the sessions of the other weeks as they were', async () => {
+    // One week is edited at a time, on purpose: the weeks already trained
+    // must keep the shape they were trained in.
+    const { body: created } = await agent.post('/api/programs/blank').send({ days: 3 }).expect(201);
+    const program = created.program as StoredProgram;
+
+    await agent.post(`/api/programs/${program.id}/weeks`).send({}).expect(201);
+    await agent.post(`/api/programs/${program.id}/weeks/1/days`).expect(201);
+
+    const loaded = await reload(program.id);
+    expect(loaded.weeks[0]?.days).toHaveLength(4);
+    expect(loaded.weeks[1]?.days).toHaveLength(3);
+  }, 60_000);
+});

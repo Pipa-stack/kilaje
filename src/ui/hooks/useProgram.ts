@@ -116,6 +116,10 @@ export interface ProgramState {
   addWeek: (options?: { copyWeights?: boolean }) => Promise<void>;
   /** Deletes a week. Refused by the server if it has training logged. */
   deleteWeek: (weekNumber: number) => Promise<void>;
+  /** Adds a session to the end of the week on screen, and opens it. */
+  addDay: () => Promise<void>;
+  /** Deletes a session. Refused by the server if it has training logged. */
+  deleteDay: (dayId: string) => Promise<void>;
   addExercise: (name: string) => Promise<void>;
   updateExercise: (exerciseId: string, fields: ExerciseFields) => void;
   moveExercise: (exerciseId: string, offset: -1 | 1) => Promise<void>;
@@ -613,6 +617,38 @@ export function useProgram(): ProgramState {
         });
       },
       [editPlan, select],
+    ),
+
+    addDay: useCallback(async () => {
+      const current = latest.current;
+      const target = resolveWeek(current, selection);
+      if (!current || !target) return;
+
+      await editPlan(async (program) => {
+        const next = await api.addDay(program.id, target.number);
+        // Open what was just created: adding a day you then have to go and
+        // find is a second step nobody asked for.
+        const added = next.weeks.find((week) => week.number === target.number)?.days.at(-1);
+        if (added) select({ weekNumber: target.number, dayNumber: added.number });
+        return next;
+      });
+    }, [editPlan, select, selection]),
+
+    deleteDay: useCallback(
+      async (dayId: string) => {
+        const week = resolveWeek(latest.current, selection);
+        await editPlan(async () => {
+          const next = await api.removeDay(dayId);
+          // The day on screen may be the one that just went, and the ones
+          // after it have been renumbered. Fall back to the first that is
+          // left rather than pointing at a number nothing answers to.
+          const current = next.weeks.find((candidate) => candidate.number === week?.number);
+          const first = current?.days[0];
+          if (current && first) select({ weekNumber: current.number, dayNumber: first.number });
+          return next;
+        });
+      },
+      [editPlan, select, selection],
     ),
 
     addExercise: useCallback(

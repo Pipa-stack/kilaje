@@ -39,6 +39,9 @@ interface DayViewProps {
   onMoveExercise: (exerciseId: string, offset: -1 | 1) => void;
   onRemoveExercise: (exerciseId: string) => void;
   onAddExercise: (name: string) => void;
+  onDeleteDay: () => void;
+  /** False for the last session left: a week cannot have none. */
+  canDeleteDay: boolean;
 }
 
 export function DayView({
@@ -63,6 +66,8 @@ export function DayView({
   onMoveExercise,
   onRemoveExercise,
   onAddExercise,
+  onDeleteDay,
+  canDeleteDay,
 }: DayViewProps) {
   const [editing, setEditing] = useState(false);
   const volume = dayVolume(day);
@@ -140,6 +145,8 @@ export function DayView({
           onMove={onMoveExercise}
           onRemove={onRemoveExercise}
           onAdd={onAddExercise}
+          onDeleteDay={onDeleteDay}
+          canDeleteDay={canDeleteDay}
           onClose={() => setEditing(false)}
         />
       ) : (

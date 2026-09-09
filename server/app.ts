@@ -12,10 +12,11 @@ import express, { type Express } from 'express';
 
 import { MAX_FILE_BYTES } from '../src/domain/upload';
 import { ping, type Database } from './db/database';
-import { apiErrorHandler, createApiRouter } from './api/router';
+import { createApiErrorHandler, createApiRouter } from './api/router';
 import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
 import { createProfileRouter } from './api/profileRouter';
 import type { EmailSender } from './email/sender';
+import { SILENT_ALERTER, type Alerter } from './email/alerts';
 
 export interface AppOptions {
   db: Database;
@@ -32,9 +33,18 @@ export interface AppOptions {
   email?: EmailSender;
   /** Origin used to build absolute links in emails. */
   appUrl?: string;
+  /** Raises the alarm on a 500. Silent unless the server wires one up. */
+  alerter?: Alerter;
 }
 
-export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: AppOptions): Express {
+export function createApp({
+  db,
+  staticDir,
+  rateLimits = true,
+  email,
+  appUrl,
+  alerter = SILENT_ALERTER,
+}: AppOptions): Express {
   const app = express();
 
   // Behind Railway's proxy; needed for correct protocol detection.
@@ -73,7 +83,7 @@ export function createApp({ db, staticDir, rateLimits = true, email, appUrl }: A
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Endpoint no encontrado.' });
   });
-  app.use('/api', apiErrorHandler);
+  app.use('/api', createApiErrorHandler(alerter));
 
   if (staticDir && existsSync(staticDir)) {
     app.use(
