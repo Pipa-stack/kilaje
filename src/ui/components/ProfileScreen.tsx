@@ -17,7 +17,13 @@ const STALE_WEEKS = 8;
  * is derived from sets already logged — no field to fill in for the screen to
  * be worth opening.
  */
-export function ProfileScreen({ email }: { email: string }) {
+interface ProfileScreenProps {
+  email: string;
+  /** Opens the settings screen, which used to be stapled below this one. */
+  onOpenSettings: () => void;
+}
+
+export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A view of the profile rather than a fifth tab: four tabs are what fits
@@ -88,6 +94,10 @@ export function ProfileScreen({ email }: { email: string }) {
 
   if (showingLifts) return <LiftsScreen onBack={() => setShowingLifts(false)} />;
 
+  // Records set in the last seven days. `weeksSince` counts whole weeks, so
+  // zero is "this week" — the window in which a record is still news.
+  const fresh = records.filter((record) => record.weeksSince === 0);
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -104,22 +114,46 @@ export function ProfileScreen({ email }: { email: string }) {
         </p>
       ) : null}
 
-      <section className="flex items-center gap-4 rounded-2xl border border-iron-800 bg-iron-900 p-4">
-        <span
-          aria-hidden="true"
-          className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-signal-500 font-condensed text-2xl font-bold text-iron-950"
-        >
-          {initials(identity.displayName)}
-        </span>
-        <div className="min-w-0">
-          <h2 className="truncate text-2xl font-bold text-chalk">{identity.displayName}</h2>
-          <p className="truncate text-sm text-iron-400">{email}</p>
-          <p className="text-xs text-iron-600">
-            Desde {formatMonth(identity.memberSince)}
-            {lastSessionAt ? ` · última sesión ${sinceLabel(lastSessionAt)}` : ''}
-          </p>
+      <section className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+        <div className="flex items-center gap-4">
+          <span
+            aria-hidden="true"
+            className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-signal-500 font-condensed text-2xl font-bold text-iron-950"
+          >
+            {initials(identity.displayName)}
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <NameField displayName={identity.displayName} onSaved={reload} />
+            <p className="truncate text-sm text-iron-400">{email}</p>
+            {/* Wraps rather than truncates: with a long month and a recent
+                session this is two lines, and cutting it with an ellipsis
+                loses the half that says when you last trained. */}
+            <p className="text-xs leading-snug text-iron-600">
+              Desde {formatMonth(identity.memberSince)}
+              {lastSessionAt ? ` · última sesión ${sinceLabel(lastSessionAt)}` : ''}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl text-iron-400 hover:bg-iron-850 hover:text-iron-100"
+          >
+            <Icon name="sliders" size={20} />
+            <span className="sr-only">Ajustes</span>
+          </button>
         </div>
+
+        {/* The one line in the app that talks to you rather than reporting at
+            you. Everything else here is a figure; this says what the figures
+            add up to, which is the thing you actually came to find out. */}
+        <p className="mt-3 border-t border-iron-800 pt-3 text-sm text-iron-100">
+          {greet(profile)}
+        </p>
       </section>
+
+      {fresh.length > 0 ? <FreshRecords records={fresh} /> : null}
 
       <section
         aria-labelledby="totals-title"
@@ -133,7 +167,15 @@ export function ProfileScreen({ email }: { email: string }) {
           <Stat
             label="Volumen"
             value={`${Math.round(stats.totalVolumeKg).toLocaleString('es-ES')} kg`}
-            note="levantados"
+            // A lifetime total is a number nobody has a feel for. Per session
+            // is one you can compare against the session you just did.
+            note={
+              stats.startedSessions > 0
+                ? `${Math.round(
+                    stats.totalVolumeKg / stats.startedSessions,
+                  ).toLocaleString('es-ES')} kg por sesión`
+                : 'levantados'
+            }
           />
           <Stat label="Ejercicios" value={String(stats.distinctExercises)} note="distintos" />
           <Stat
@@ -143,7 +185,9 @@ export function ProfileScreen({ email }: { email: string }) {
                 ? '—'
                 : formatDuration(stats.averageSessionSeconds)
             }
-            note={stats.averageSessionSeconds === null ? 'sin cronometrar' : 'de media'}
+            note={
+              stats.averageSessionSeconds === null ? 'dale a Empezar y sale' : 'de media'
+            }
           />
         </dl>
       </section>
@@ -167,7 +211,7 @@ export function ProfileScreen({ email }: { email: string }) {
 
         {records.length === 0 ? (
           <p className="py-4 text-center text-sm text-iron-400">
-            Cuando registres tu primera serie aparecerán aquí.
+            Anota tu primera serie y tu primer récord es esa misma.
           </p>
         ) : (
           <ol className="divide-y divide-iron-800">
@@ -212,8 +256,81 @@ export function ProfileScreen({ email }: { email: string }) {
         ) : null}
       </section>
 
-      <NameForm displayName={identity.displayName} onSaved={reload} />
     </div>
+  );
+}
+
+/**
+ * What the numbers add up to, in a sentence.
+ *
+ * Ordered by what matters most to say. A long absence outranks a streak,
+ * because a streak that ended three weeks ago is not news you want first;
+ * and a live streak outranks "trained this week", which it already implies.
+ */
+function greet(profile: Profile): string {
+  const { stats, streakWeeks, lastSessionAt, weeklyActivity } = profile;
+
+  if (stats.startedSessions === 0) {
+    return 'Todavía no has anotado ninguna serie. En cuanto lo hagas, esto se llena solo.';
+  }
+
+  const days = daysSince(lastSessionAt);
+  if (days !== null && days >= 10) {
+    return `Hace ${days} días que no entrenas. Cuando vuelvas, seguimos donde lo dejaste.`;
+  }
+
+  if (streakWeeks >= 2) {
+    return `Llevas ${streakWeeks} semanas seguidas entrenando. Sigue así.`;
+  }
+
+  const thisWeek = weeklyActivity.at(-1)?.sessions ?? 0;
+  if (thisWeek > 0) {
+    return `Ya has entrenado ${thisWeek} ${thisWeek === 1 ? 'vez' : 'veces'} esta semana.`;
+  }
+
+  return 'Esta semana todavía no has entrenado.';
+}
+
+function daysSince(iso: string | null): number | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  return Math.floor((Date.now() - then) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Records set in the last week, said out loud.
+ *
+ * They were always in the list below, indistinguishable from a record set
+ * eight months ago. This is the only place in the app that can give you good
+ * news without you going looking for it, so it goes at the top and it says so.
+ */
+function FreshRecords({ records }: { records: Profile['records'] }) {
+  return (
+    <section
+      aria-labelledby="fresh-title"
+      className="rounded-2xl border border-signal-500/30 bg-signal-500/5 p-4"
+    >
+      <h2 id="fresh-title" className="flex items-center gap-2 font-semibold text-signal-300">
+        <Icon name="star" size={18} />
+        {records.length === 1
+          ? 'Has batido un récord esta semana'
+          : `Has batido ${records.length} récords esta semana`}
+      </h2>
+
+      <ul className="mt-2 space-y-1.5">
+        {records.map((record) => (
+          <li key={record.exercise} className="flex items-baseline gap-3">
+            <span className="line-clamp-1 min-w-0 flex-1 text-sm text-chalk">
+              {record.exercise}
+            </span>
+            <span className="figure shrink-0 text-sm font-bold text-chalk">
+              {formatBestSet(record.best)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -345,55 +462,67 @@ function VolumeSplit({ entries }: { entries: Profile['volumeByType'] }) {
   );
 }
 
-function NameForm({ displayName, onSaved }: { displayName: string; onSaved: () => void }) {
+/**
+ * Your name, edited where it is shown.
+ *
+ * It used to be a titled card with its own Save button, sitting at the very
+ * bottom — the last thing you scrolled past and the least interesting thing
+ * on the screen. Editing a name is not a form; it is correcting a word.
+ */
+function NameField({ displayName, onSaved }: { displayName: string; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(displayName);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+
+  const commit = () => {
+    setEditing(false);
+    const next = name.trim();
+    // Nothing typed, or nothing changed: no request, no spinner, no fuss.
+    if (next === displayName || next === '') {
+      setName(displayName);
+      return;
+    }
+    setBusy(true);
+    api
+      .updateProfile({ displayName: next })
+      .then(onSaved)
+      .catch(() => setName(displayName))
+      .finally(() => setBusy(false));
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        aria-label="Tu nombre"
+        value={name}
+        maxLength={60}
+        disabled={busy}
+        onChange={(event) => setName(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit();
+          if (event.key === 'Escape') {
+            setName(displayName);
+            setEditing(false);
+          }
+        }}
+        placeholder="Cómo quieres que te llamemos"
+        className="w-full rounded-lg border border-signal-400 bg-iron-850 px-2 py-1 text-2xl font-bold text-chalk focus:outline-none"
+      />
+    );
+  }
 
   return (
-    <form
-      aria-labelledby="name-title"
-      className="space-y-3 rounded-2xl border border-iron-800 bg-iron-900 p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setBusy(true);
-        setSaved(false);
-        api
-          .updateProfile({ displayName: name })
-          .then(() => {
-            setSaved(true);
-            onSaved();
-          })
-          .catch(() => undefined)
-          .finally(() => setBusy(false));
-      }}
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="flex max-w-full items-center gap-1.5 rounded-lg text-left hover:text-signal-300"
     >
-      <label htmlFor="profile-name" className="block">
-        <h2 id="name-title" className="mb-1 font-semibold text-chalk">
-          Tu nombre
-        </h2>
-      </label>
-      <input
-        id="profile-name"
-        value={name}
-        onChange={(event) => {
-          setName(event.target.value);
-          setSaved(false);
-        }}
-        maxLength={60}
-        placeholder="Cómo quieres que te llamemos"
-        className="w-full rounded-xl border border-iron-700 bg-iron-850 px-3 py-2.5 text-chalk placeholder:text-iron-600 focus:border-signal-400 focus:outline-none"
-      />
-
-      <button
-        type="submit"
-        disabled={busy || name === displayName}
-        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850 disabled:opacity-40"
-      >
-        {saved ? <Icon name="check" size={16} /> : null}
-        {busy ? 'Guardando…' : saved ? 'Guardado' : 'Guardar'}
-      </button>
-    </form>
+      <h2 className="truncate text-2xl font-bold text-chalk">{displayName}</h2>
+      <Icon name="pencil" size={14} className="shrink-0 text-iron-600" />
+      <span className="sr-only">Cambiar tu nombre</span>
+    </button>
   );
 }
 

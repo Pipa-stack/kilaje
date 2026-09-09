@@ -35,6 +35,9 @@ export default function App() {
   const auth = useAccount();
   const theme = useTheme();
   const [tab, setTab] = useState<Tab>('home');
+  // Settings used to be stapled under the profile, which made that tab one
+  // very long scroll of two unrelated screens.
+  const [showSettings, setShowSettings] = useState(false);
   const [resetToken, setResetToken] = useState(readResetToken);
 
   // A reset link outranks everything: the person following it cannot sign in,
@@ -75,6 +78,8 @@ export default function App() {
       email={auth.account?.email ?? 'sin conexión'}
       tab={tab}
       setTab={setTab}
+      showSettings={showSettings}
+      setShowSettings={setShowSettings}
     />
   );
 }
@@ -85,10 +90,20 @@ interface SignedInProps {
   email: string;
   tab: Tab;
   setTab: (tab: Tab) => void;
+  showSettings: boolean;
+  setShowSettings: (open: boolean) => void;
 }
 
 /** The app proper. Mounted only once there is a session. */
-function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
+function SignedIn({
+  theme,
+  onSignOut,
+  email,
+  tab,
+  setTab,
+  showSettings,
+  setShowSettings,
+}: SignedInProps) {
   const state = useProgram();
 
   // Swiping left goes forward, the way pages turn. Declared before any early
@@ -264,9 +279,20 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
         {tab === 'progress' ? <ProgressScreen week={week} weeks={program.weeks} /> : null}
 
-        {tab === 'settings' ? (
+        {tab === 'settings' && !showSettings ? (
+          <ProfileScreen email={email} onOpenSettings={() => setShowSettings(true)} />
+        ) : null}
+
+        {tab === 'settings' && showSettings ? (
           <div className="space-y-4">
-            <ProfileScreen email={email} />
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100"
+            >
+              <Icon name="chevronRight" size={18} className="rotate-180" />
+              Perfil
+            </button>
             <SettingsScreen
             programs={state.programs}
             currentProgramId={program.id}
@@ -294,7 +320,13 @@ function SignedIn({ theme, onSignOut, email, tab, setTab }: SignedInProps) {
 
       <BottomNav
         current={tab}
-        onChange={setTab}
+        // Tapping Perfil always lands on the profile. Without this, coming
+        // back to the tab while settings were open did nothing visible, and
+        // the tab you pressed appeared to be broken.
+        onChange={(next) => {
+          if (next === 'settings') setShowSettings(false);
+          setTab(next);
+        }}
         dayLabel={day.type ? `Día ${day.number}` : `Día ${day.number}`}
       />
     </div>

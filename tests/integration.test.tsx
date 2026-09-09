@@ -107,6 +107,18 @@ function referenceFile(name = 'ejemplo.xlsx', extra = 0): File {
   return file;
 }
 
+/**
+ * Opens the settings screen, which lives behind the gear on the profile.
+ *
+ * They used to be one long scroll; now the profile is what the tab shows and
+ * importing, programs, theme and signing out are one tap further in.
+ */
+async function openSettings(user: ReturnType<typeof userEvent.setup>) {
+  const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
+  await user.click(tabs.getByRole('button', { name: /Perfil/ }));
+  await user.click(await screen.findByRole('button', { name: 'Ajustes' }, WAIT));
+}
+
 async function importFile(user: ReturnType<typeof userEvent.setup>, file: File) {
   // The app shows a loading state first; the file input only exists after it.
   const input = await waitFor(() => {
@@ -193,11 +205,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     expect(screen.getByText('Completada')).toBeInTheDocument();
 
     // --- Re-import: a new program, old history preserved -----------------
-    await user.click(
-      within(screen.getByRole('navigation', { name: 'Secciones' })).getByRole('button', {
-        name: /Perfil/,
-      }),
-    );
+    await openSettings(user);
     await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
 
     await waitFor(async () => {
@@ -522,6 +530,9 @@ describe('the app shell', () => {
     expect(screen.getByRole('heading', { name: 'Ejercicios entrenados' })).toBeInTheDocument();
 
     await user.click(tabs.getByRole('button', { name: /Perfil/ }));
+    // The tab shows the profile; the settings are behind the gear.
+    expect(await screen.findByRole('heading', { name: /Récords personales/ })).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Ajustes' }, WAIT));
     expect(await screen.findByRole('heading', { name: 'Programas guardados' })).toBeInTheDocument();
     expect(screen.getByText('En uso')).toBeInTheDocument();
 
@@ -580,13 +591,12 @@ describe('the app shell', () => {
     await screen.findByRole('heading', { name: /Semana 1/ }, WAIT);
 
     // A second program, so deletion is allowed.
-    const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
-    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
+    await openSettings(user);
     await importFile(user, referenceFile('mesociclo-2.xlsx', 1));
 
     await waitFor(async () => expect(await allPrograms()).toHaveLength(2), WAIT);
 
-    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
+    await openSettings(user);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     try {
       const [firstDelete] = await screen.findAllByRole('button', { name: 'Borrar' }, WAIT);
@@ -610,8 +620,7 @@ describe('signing out', () => {
     await waitFor(() => expect(localStorage.getItem('kilaje.program.v1')).not.toBeNull(), WAIT);
     localStorage.setItem('kilaje.outbox.v1', JSON.stringify([{ key: 'k', queuedAt: Date.now(), operation: { kind: 'resetSession', dayId: '1' } }]));
 
-    const tabs = within(screen.getByRole('navigation', { name: 'Secciones' }));
-    await user.click(tabs.getByRole('button', { name: /Perfil/ }));
+    await openSettings(user);
     await user.click(await screen.findByRole('button', { name: 'Cerrar sesión' }, WAIT));
 
     // Back at the login screen, with nothing of the previous account left:
