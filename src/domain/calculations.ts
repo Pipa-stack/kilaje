@@ -85,6 +85,20 @@ export function exerciseBestSet(exercise: Exercise): BestSet | null {
   return bestSet(exercise.currentWeek);
 }
 
+/**
+ * The top weight of each session that produced one, in order.
+ *
+ * Sessions without a best set are dropped rather than counted as zero: a week
+ * you did not train is missing data, and a zero in a progression would read as
+ * a lift that collapsed. Shared because the sparklines, the trend charts and
+ * the gain figures must all be drawn from the same series.
+ */
+export function topWeights(sessions: readonly { best: BestSet | null }[]): number[] {
+  return sessions
+    .map((session) => session.best?.weight)
+    .filter((weight): weight is number => weight !== undefined);
+}
+
 /** `"100 kg × 5"`, or `"100 kg"` when the reps were never written down. */
 export function formatBestSet(best: BestSet | null): string {
   if (!best) return '—';
@@ -474,16 +488,19 @@ export function exerciseTrends(weeks: readonly Week[]): ExerciseTrend[] {
 
   for (const [key, { name, points }] of byLineage) {
     points.sort((a, b) => a.weekNumber - b.weekNumber);
-    const withWeight = points.filter((point) => point.best !== null);
-    const first = withWeight[0]?.best?.weight ?? null;
-    const last = withWeight.at(-1)?.best?.weight ?? null;
+    const weights = topWeights(points);
+    const first = weights[0];
+    const last = weights.at(-1);
 
     trends.push({
       key,
       name,
       points,
-      latestTopWeight: last,
-      weightGain: first !== null && last !== null && withWeight.length > 1 ? excelRound(last - first, 1) : null,
+      latestTopWeight: last ?? null,
+      weightGain:
+        first !== undefined && last !== undefined && weights.length > 1
+          ? excelRound(last - first, 1)
+          : null,
     });
   }
 

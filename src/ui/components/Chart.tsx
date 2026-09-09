@@ -189,7 +189,7 @@ export function TrendChart({
               key={`${point.label}-label`}
               x={scaleX(index)}
               y={height - 6}
-              textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'}
+              textAnchor={labelAnchor(index, points.length)}
               fontSize="10"
               fill={index === active ? DATA : INK}
             >
@@ -200,6 +200,18 @@ export function TrendChart({
       </svg>
     </figure>
   );
+}
+
+/**
+ * Anchors the end labels inwards so they cannot overhang the plot.
+ *
+ * The first and last points sit on the frame, and a centred label there is
+ * half outside the SVG — where it is clipped rather than drawn small.
+ */
+function labelAnchor(index: number, count: number): 'start' | 'middle' | 'end' {
+  if (index === 0) return 'start';
+  if (index === count - 1) return 'end';
+  return 'middle';
 }
 
 /* ------------------------------------------------------------------ */
@@ -296,15 +308,9 @@ export function Bars({ points, format, label, height = 130, legend }: BarsProps)
               <span className="figure truncate text-center text-[10px] tabular-nums text-iron-400">
                 {point.value > 0 ? format(point.value) : ''}
               </span>
-              {/* One background class, chosen here: two utilities in the same
-                  attribute do not resolve by their order in the string, they
-                  resolve by their order in the stylesheet — so an untrained
-                  day could come out signal yellow. */}
               <span
                 title={`${point.label}: ${format(point.value)}`}
-                className={`w-full rounded-t ${
-                  point.value === 0 ? 'bg-iron-800' : point.done ? 'bg-done-500' : 'bg-signal-500'
-                }`}
+                className={`w-full rounded-t ${barColor(point)}`}
                 // A trained day never shrinks to nothing: a 2px stub says "some",
                 // an empty column says "none", and they must not look alike.
                 style={{ height: `${Math.max(ratio * 100, point.value > 0 ? 3 : 1)}%` }}
@@ -335,6 +341,18 @@ export function Bars({ points, format, label, height = 130, legend }: BarsProps)
 }
 
 /**
+ * The bar's background, resolved to exactly one class.
+ *
+ * Two utilities in the same `class` attribute do not resolve by their order in
+ * the string, they resolve by their order in the stylesheet — so an untrained
+ * day could come out signal yellow.
+ */
+function barColor(point: { value: number; done?: boolean }): string {
+  if (point.value === 0) return 'bg-iron-800';
+  return point.done ? 'bg-done-500' : 'bg-signal-500';
+}
+
+/**
  * A change, stated so it survives without colour.
  *
  * The arrow and the sign carry the direction; the green and the amber only
@@ -344,17 +362,22 @@ export function Bars({ points, format, label, height = 130, legend }: BarsProps)
 export function Delta({ value, unit = '%' }: { value: number | null; unit?: string }) {
   if (value === null) return <span className="text-xs text-iron-600">—</span>;
 
-  const up = value >= 0;
+  const { arrow, tone } = deltaLook(value);
   return (
     <span
-      className={`figure inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums ${
-        value === 0 ? 'text-iron-400' : up ? 'text-done-300' : 'text-amber-300'
-      }`}
+      className={`figure inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums ${tone}`}
     >
-      <span aria-hidden="true">{value === 0 ? '=' : up ? '▲' : '▼'}</span>
-      {up && value !== 0 ? '+' : ''}
+      <span aria-hidden="true">{arrow}</span>
+      {value > 0 ? '+' : ''}
       {value}
       {unit}
     </span>
   );
+}
+
+/** The arrow first, the colour second: the arrow is what survives on any screen. */
+function deltaLook(value: number): { arrow: string; tone: string } {
+  if (value === 0) return { arrow: '=', tone: 'text-iron-400' };
+  if (value > 0) return { arrow: '▲', tone: 'text-done-300' };
+  return { arrow: '▼', tone: 'text-amber-300' };
 }

@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from '../../domain/calculations';
 import type { Day, Week } from '../../domain/types';
+import { kilos } from '../format';
 import { Icon } from './Icon';
 
 interface HomeScreenProps {
@@ -70,7 +71,7 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
           <Metric
             lead
             label="Volumen"
-            value={`${Math.round(summary.volume).toLocaleString('es-ES')} kg`}
+            value={kilos(summary.volume)}
             note={
               summary.changePercent !== null
                 ? `${summary.changePercent >= 0 ? '+' : ''}${summary.changePercent}% vs. anterior`
@@ -236,7 +237,7 @@ function DayCard({ day, onOpen }: { day: Day; onOpen: () => void }) {
         </span>
         <span className="mt-0.5 block truncate text-xs text-iron-400">
           {progress.startedExercises}/{progress.totalExercises} ejercicios
-          {volume > 0 ? ` · ${Math.round(volume).toLocaleString('es-ES')} kg` : ''}
+          {volume > 0 ? ` · ${kilos(volume)}` : ''}
           {day.notes.trim() !== '' ? ' · con notas' : ''}
         </span>
       </span>

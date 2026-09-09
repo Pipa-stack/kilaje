@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type ExerciseHistory, type HistoryEntry } from '../../api/client';
-import { formatBestSet } from '../../domain/calculations';
+import { formatBestSet, topWeights } from '../../domain/calculations';
+import { kilos, shortDate } from '../format';
 import { Delta, Sparkline, TrendChart } from './Chart';
 import { Icon } from './Icon';
 
@@ -99,10 +100,8 @@ function ExerciseRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const trend = computeTrend(exercise.entries);
-  const weights = exercise.entries
-    .map((entry) => entry.best?.weight)
-    .filter((weight): weight is number => weight !== undefined);
+  const weights = topWeights(exercise.entries);
+  const trend = weightTrend(weights);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-iron-800 bg-iron-900">
@@ -117,7 +116,7 @@ function ExerciseRow({
           <span className="mt-0.5 block text-xs text-iron-600">
             {exercise.sessions} {exercise.sessions === 1 ? 'sesión' : 'sesiones'} ·{' '}
             {exercise.programs} {exercise.programs === 1 ? 'programa' : 'programas'} ·{' '}
-            {Math.round(exercise.totalVolume).toLocaleString('es-ES')} kg
+            {kilos(exercise.totalVolume)}
           </span>
         </span>
 
@@ -159,11 +158,7 @@ function ExerciseRow({
  * Percentage change in the working weight between the first and last session
  * that produced one. `null` when there is nothing to compare.
  */
-function computeTrend(entries: HistoryEntry[]): number | null {
-  const weights = entries
-    .map((entry) => entry.best?.weight)
-    .filter((value): value is number => value !== undefined);
-
+function weightTrend(weights: readonly number[]): number | null {
   const first = weights[0];
   const last = weights.at(-1);
   if (first === undefined || last === undefined || weights.length < 2 || first === 0) return null;
@@ -194,7 +189,7 @@ function Timeline({ entries }: { entries: HistoryEntry[] }) {
             height={130}
             baseline="fit"
             points={plotted.map((entry) => ({
-              label: formatDate(entry.performedAt),
+              label: shortDate(entry.performedAt),
               value: entry.best?.weight ?? 0,
               detail: formatBestSet(entry.best),
             }))}
@@ -211,7 +206,7 @@ function Timeline({ entries }: { entries: HistoryEntry[] }) {
             className="flex items-baseline gap-3"
           >
             <span className="w-16 shrink-0 text-xs text-iron-600">
-              {formatDate(entry.performedAt)}
+              {shortDate(entry.performedAt)}
             </span>
             <span className="min-w-0 flex-1">
               <span className="figure block text-sm text-chalk">{formatBestSet(entry.best)}</span>
@@ -230,10 +225,4 @@ function describeSets(entry: HistoryEntry): string {
     .filter((set) => set.weight !== null || set.reps !== null)
     .map((set) => `${set.weight ?? '—'}×${set.reps ?? '—'}`);
   return logged.length > 0 ? logged.join(' · ') : 'sin series';
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 }

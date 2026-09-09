@@ -8,6 +8,7 @@ import {
   weekSummary,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { grouped, kilos } from '../format';
 import { Bars, Delta } from './Chart';
 import { HistoryScreen } from './HistoryScreen';
 import { Icon } from './Icon';
@@ -101,7 +102,7 @@ function WeekProgress({ week }: { week: Week }) {
 
         <div className="mt-1 flex items-baseline gap-3">
           <span className="figure text-4xl font-bold text-chalk">
-            {Math.round(summary.volume).toLocaleString('es-ES')} kg
+            {kilos(summary.volume)}
           </span>
           <Delta value={summary.changePercent} />
         </div>
@@ -114,7 +115,7 @@ function WeekProgress({ week }: { week: Week }) {
           <Bars
             label={`Volumen de cada sesión de la semana ${week.number}`}
             legend={{ done: 'completada', pending: 'sin terminar' }}
-            format={(value) => Math.round(value).toLocaleString('es-ES')}
+            format={grouped}
             points={days.map((day) => ({
               label: `D${day.dayNumber}`,
               value: day.volume,
@@ -173,7 +174,7 @@ function WeekProgress({ week }: { week: Week }) {
                   />
                 </span>
                 <span className="figure w-28 shrink-0 text-right text-xs text-iron-600">
-                  {Math.round(row.volume).toLocaleString('es-ES')} kg · {row.loggedSets}{' '}
+                  {kilos(row.volume)} · {row.loggedSets}{' '}
                   {row.loggedSets === 1 ? 'serie' : 'series'}
                 </span>
               </div>

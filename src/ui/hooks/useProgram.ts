@@ -249,6 +249,31 @@ export function useProgram(): ProgramState {
   );
 
   /**
+   * The program on screen and the day within it that an edit applies to.
+   *
+   * Read from the ref rather than from `program`, so a callback captured a
+   * render ago still edits the state as it is now.
+   */
+  const currentTarget = useCallback((): { program: StoredProgram; day: Day } | null => {
+    const current = latest.current;
+    const day = resolveDay(resolveWeek(current, selection), selection);
+    return current && day ? { program: current, day } : null;
+  }, [selection]);
+
+  /**
+   * Puts a new program on the screen.
+   *
+   * The ref as well as the state, always. A second change in the same React
+   * batch reads the program from the ref, and a ref left behind hands it the
+   * state from before this edit — which is how a completed flag once wrote
+   * itself straight back out.
+   */
+  const publish = useCallback((next: StoredProgram) => {
+    latest.current = next;
+    setProgram(next);
+  }, []);
+
+  /**
    * Applies a change locally first, then sends it.
    *
    * `send` receives the *already updated* program. Reading it back from the
@@ -260,19 +285,16 @@ export function useProgram(): ProgramState {
       apply: (current: StoredProgram, dayId: string) => StoredProgram,
       describe: (next: StoredProgram, dayId: string) => PendingOperation | null,
     ) => {
-      const current = latest.current;
-      if (!current) return;
-      const target = resolveDay(resolveWeek(current, selection), selection);
+      const target = currentTarget();
       if (!target) return;
 
-      const next = apply(current, target.id);
-      latest.current = next;
-      setProgram(next);
+      const next = apply(target.program, target.day.id);
+      publish(next);
 
-      const operation = describe(next, target.id);
+      const operation = describe(next, target.day.id);
       if (operation) send(operation);
     },
-    [selection, send],
+    [currentTarget, publish, send],
   );
 
   const load = useCallback(async () => {
@@ -406,8 +428,7 @@ export function useProgram(): ProgramState {
     setError(null);
     try {
       const next = await api.addWeek(current.id, options);
-      setProgram(next);
-      latest.current = next;
+      publish(next);
 
       const added = next.weeks.at(-1);
       const firstDay = added?.days[0];
@@ -424,7 +445,7 @@ export function useProgram(): ProgramState {
     } finally {
       setAddingWeek(false);
     }
-  }, [addingWeek, select]);
+  }, [addingWeek, publish, select]);
 
   /**
    * Applies a structural change to the plan.
@@ -442,16 +463,14 @@ export function useProgram(): ProgramState {
       setEditingPlan(true);
       setError(null);
       try {
-        const next = await change(current);
-        latest.current = next;
-        setProgram(next);
+        publish(await change(current));
       } catch (cause) {
         setError(cause instanceof ApiError ? cause.message : 'No se ha podido cambiar el plan.');
       } finally {
         setEditingPlan(false);
       }
     },
-    [editingPlan],
+    [editingPlan, publish],
   );
 
   const selectProgram = useCallback(
@@ -598,11 +617,11 @@ export function useProgram(): ProgramState {
 
     addExercise: useCallback(
       async (name: string) => {
-        const target = resolveDay(resolveWeek(latest.current, selection), selection);
+        const target = currentTarget();
         if (!target) return;
-        await editPlan((_program) => api.addExercise(target.id, { name }));
+        await editPlan(() => api.addExercise(target.day.id, { name }));
       },
-      [editPlan, selection],
+      [currentTarget, editPlan],
     ),
 
     /**
@@ -613,13 +632,10 @@ export function useProgram(): ProgramState {
      */
     updateExercise: useCallback(
       (exerciseId: string, fields: ExerciseFields) => {
-        const current = latest.current;
-        const target = resolveDay(resolveWeek(current, selection), selection);
-        if (!current || !target) return;
+        const target = currentTarget();
+        if (!target) return;
 
-        const next = setExerciseFields(current, target.id, exerciseId, fields);
-        latest.current = next;
-        setProgram(next);
+        publish(setExerciseFields(target.program, target.day.id, exerciseId, fields));
 
         // Not queued, unlike a set: the plan is structural and replaying a
         // rename over a plan that has since been reorganised is worse than
@@ -631,17 +647,14 @@ export function useProgram(): ProgramState {
             cause instanceof ApiError ? cause.message : 'No se ha podido guardar el ejercicio.',
           );
           api
-            .fetchProgram(current.id)
-            .then((server) => {
-              latest.current = server;
-              setProgram(server);
-            })
+            .fetchProgram(target.program.id)
+            .then(publish)
             .catch(() => {
               /* offline too: the banner already says so */
             });
         });
       },
-      [selection],
+      [currentTarget, publish],
     ),
 
     moveExercise: useCallback(
@@ -780,25 +793,22 @@ export function useProgram(): ProgramState {
      */
     updateExerciseSetup: useCallback(
       (exerciseId: string, setup: string) => {
-        const current = latest.current;
-        const target = resolveDay(resolveWeek(current, selection), selection);
-        if (!current || !target) return;
+        const target = currentTarget();
+        if (!target) return;
 
-        const exercise = findExercise(current, target.id, exerciseId);
+        const exercise = findExercise(target.program, target.day.id, exerciseId);
         if (!exercise) return;
 
-        const next = setExerciseSetup(current, exercise.lineage, setup);
-        latest.current = next;
-        setProgram(next);
+        publish(setExerciseSetup(target.program, exercise.lineage, setup));
 
         debounceText({
           kind: 'exerciseSetup',
-          dayId: target.id,
+          dayId: target.day.id,
           exerciseId: Number(exerciseId),
           note: setup,
         });
       },
-      [debounceText, selection],
+      [currentTarget, debounceText, publish],
     ),
 
     /**
@@ -811,59 +821,53 @@ export function useProgram(): ProgramState {
      */
     setTimerRunning: useCallback(
       (running: boolean) => {
-        const current = latest.current;
-        const target = resolveDay(resolveWeek(current, selection), selection);
-        if (!current || !target) return;
+        const target = currentTarget();
+        if (!target) return;
 
-        const elapsedSeconds = Math.min(sessionSeconds(target), MAX_SESSION_SECONDS);
-        const next = setDayTimer(current, target.id, {
-          elapsedSeconds,
-          timerStartedAt: running ? new Date().toISOString() : null,
-        });
-        latest.current = next;
-        setProgram(next);
+        const elapsedSeconds = Math.min(sessionSeconds(target.day), MAX_SESSION_SECONDS);
+        publish(
+          setDayTimer(target.program, target.day.id, {
+            elapsedSeconds,
+            timerStartedAt: running ? new Date().toISOString() : null,
+          }),
+        );
 
-        send({ kind: 'session', dayId: target.id, elapsedSeconds, timerRunning: running });
+        send({ kind: 'session', dayId: target.day.id, elapsedSeconds, timerRunning: running });
       },
-      [selection, send],
+      [currentTarget, publish, send],
     ),
 
     resetTimer: useCallback(() => {
-      const current = latest.current;
-      const target = resolveDay(resolveWeek(current, selection), selection);
-      if (!current || !target) return;
+      const target = currentTarget();
+      if (!target) return;
 
-      const next = setDayTimer(current, target.id, { elapsedSeconds: 0, timerStartedAt: null });
-      latest.current = next;
-      setProgram(next);
+      publish(
+        setDayTimer(target.program, target.day.id, { elapsedSeconds: 0, timerStartedAt: null }),
+      );
 
-      send({ kind: 'session', dayId: target.id, elapsedSeconds: 0, timerRunning: false });
-    }, [selection, send]),
+      send({ kind: 'session', dayId: target.day.id, elapsedSeconds: 0, timerRunning: false });
+    }, [currentTarget, publish, send]),
 
     toggleCompleted: useCallback(() => {
-      const current = latest.current;
-      const target = resolveDay(resolveWeek(current, selection), selection);
-      if (!current || !target) return;
-      const completed = !target.completed;
+      const target = currentTarget();
+      if (!target) return;
 
-      // The ref as well as the state. Every other local edit writes both, and
-      // this one did not: a second change in the same React batch read the
-      // program from before the toggle and wrote the flag back out.
-      let next = setDayCompleted(current, target.id, completed);
+      const { program: current, day } = target;
+      const completed = !day.completed;
+      let next = setDayCompleted(current, day.id, completed);
 
       // Finishing the session stops the clock. Left running, it would carry on
       // counting the shower and the walk home as training.
-      if (completed && target.timerStartedAt !== null) {
-        const elapsedSeconds = Math.min(sessionSeconds(target), MAX_SESSION_SECONDS);
-        next = setDayTimer(next, target.id, { elapsedSeconds, timerStartedAt: null });
-        send({ kind: 'session', dayId: target.id, elapsedSeconds, timerRunning: false });
+      if (completed && day.timerStartedAt !== null) {
+        const elapsedSeconds = Math.min(sessionSeconds(day), MAX_SESSION_SECONDS);
+        next = setDayTimer(next, day.id, { elapsedSeconds, timerStartedAt: null });
+        send({ kind: 'session', dayId: day.id, elapsedSeconds, timerRunning: false });
       }
 
-      latest.current = next;
-      setProgram(next);
+      publish(next);
 
-      send({ kind: 'session', dayId: target.id, completed });
-    }, [selection, send]),
+      send({ kind: 'session', dayId: day.id, completed });
+    }, [currentTarget, publish, send]),
 
     resetDay: useCallback(() => {
       mutate(
@@ -919,7 +923,6 @@ function findSet(program: Program | null, dayId: string, exerciseId: string, ind
   return findExercise(program, dayId, exerciseId)?.currentWeek[index] ?? null;
 }
 
-/** Re-sends every set of an exercise after indexes have shifted. */
 function validateFile(file: File): void {
   const name = file.name.toLowerCase();
   if (!ACCEPTED_EXTENSIONS.some((extension) => name.endsWith(extension))) {

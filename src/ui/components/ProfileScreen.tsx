@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as api from '../../api/client';
 import { ApiError, type Profile } from '../../api/client';
 import { formatBestSet, formatDuration } from '../../domain/calculations';
+import { kilos, shortDate } from '../format';
 import { Icon } from './Icon';
 import { LiftsScreen } from './LiftsScreen';
 
@@ -166,14 +167,12 @@ export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
           <Stat label="Sesiones" value={String(stats.completedSessions)} note="completadas" />
           <Stat
             label="Volumen"
-            value={`${Math.round(stats.totalVolumeKg).toLocaleString('es-ES')} kg`}
+            value={kilos(stats.totalVolumeKg)}
             // A lifetime total is a number nobody has a feel for. Per session
             // is one you can compare against the session you just did.
             note={
               stats.startedSessions > 0
-                ? `${Math.round(
-                    stats.totalVolumeKg / stats.startedSessions,
-                  ).toLocaleString('es-ES')} kg por sesión`
+                ? `${kilos(stats.totalVolumeKg / stats.startedSessions)} por sesión`
                 : 'levantados'
             }
           />
@@ -255,7 +254,6 @@ export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
           </button>
         ) : null}
       </section>
-
     </div>
   );
 }
@@ -384,7 +382,7 @@ function Consistency({ weeks, streak }: { weeks: Profile['weeklyActivity']; stre
         {weeks.map((week) => (
           <span
             key={week.weekStart}
-            title={`${formatDay(week.weekStart)}: ${week.sessions} ${
+            title={`${shortDate(week.weekStart)}: ${week.sessions} ${
               week.sessions === 1 ? 'sesión' : 'sesiones'
             }`}
             className="flex h-full flex-1 items-end rounded-t-[4px] bg-iron-800/60"
@@ -398,7 +396,7 @@ function Consistency({ weeks, streak }: { weeks: Profile['weeklyActivity']; stre
       </div>
 
       <p className="mt-1 flex justify-between text-xs text-iron-600">
-        <span>{first ? formatDay(first.weekStart) : ''}</span>
+        <span>{first ? shortDate(first.weekStart) : ''}</span>
         <span>esta semana</span>
       </p>
 
@@ -406,7 +404,7 @@ function Consistency({ weeks, streak }: { weeks: Profile['weeklyActivity']; stre
       <ul className="sr-only">
         {weeks.map((week) => (
           <li key={week.weekStart}>
-            Semana del {formatDay(week.weekStart)}: {week.sessions} sesiones
+            Semana del {shortDate(week.weekStart)}: {week.sessions} sesiones
           </li>
         ))}
       </ul>
@@ -442,7 +440,7 @@ function VolumeSplit({ entries }: { entries: Profile['volumeByType'] }) {
               <span className="figure shrink-0 text-sm text-iron-100">
                 {Math.round((entry.volumeKg / total) * 100)}%
                 <span className="ml-2 text-xs text-iron-600">
-                  {Math.round(entry.volumeKg).toLocaleString('es-ES')} kg
+                  {kilos(entry.volumeKg)}
                 </span>
               </span>
             </div>
@@ -537,12 +535,6 @@ function formatMonth(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-}
-
-function formatDay(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 }
 
 /** "hoy", "hace 3 días", "hace 2 semanas" — a raw date needs arithmetic to read. */

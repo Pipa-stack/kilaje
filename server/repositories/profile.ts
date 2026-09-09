@@ -6,8 +6,8 @@
  * not to collect fields nobody looks at twice.
  */
 
-import { loadHistory } from './history';
-import type { BestSet } from '../../src/domain/calculations';
+import { loadHistory, type ExerciseHistory, type HistoryEntry } from './history';
+import { topWeights, type BestSet } from '../../src/domain/calculations';
 import type { Database } from '../db/database';
 
 export interface ProfileIdentity {
@@ -124,18 +124,14 @@ export async function getProfile(db: Database, userId: number): Promise<Profile 
     ]);
 
   const records = history
-    .filter((exercise): exercise is typeof exercise & { best: BestSet } => exercise.best !== null)
+    .filter(hasBest)
     .map((exercise) => {
-      // The session that produced it, so the date is the day it was lifted
-      // rather than the last time the movement was trained.
-      const session = exercise.entries.reduce((champion, entry) =>
-        (entry.best?.weight ?? -1) > (champion.best?.weight ?? -1) ? entry : champion,
-      );
+      const achievedAt = sessionOfBest(exercise).performedAt;
       return {
         exercise: exercise.name,
         best: exercise.best,
-        achievedAt: session.performedAt,
-        weeksSince: weeksSince(session.performedAt),
+        achievedAt,
+        weeksSince: weeksSince(achievedAt),
       };
     })
     .sort((a, b) => b.best.weight - a.best.weight)
@@ -293,29 +289,43 @@ async function loadVolumeByType(db: Database, userId: number): Promise<TypeVolum
 export async function listLifts(db: Database, userId: number): Promise<Lift[]> {
   const history = await loadHistory(db, userId);
 
-  return history
-    .filter((exercise): exercise is typeof exercise & { best: BestSet } => exercise.best !== null)
-    .map((exercise) => {
-      const timed = exercise.entries.filter((entry) => entry.best !== null);
-      const first = timed[0]?.best?.weight ?? null;
-      const last = timed.at(-1)?.best?.weight ?? null;
-      const achievedAt =
-        exercise.entries.reduce((champion, entry) =>
-          (entry.best?.weight ?? -1) > (champion.best?.weight ?? -1) ? entry : champion,
-        ).performedAt;
+  return history.filter(hasBest).map((exercise) => {
+    const weights = topWeights(exercise.entries);
+    const first = weights[0];
+    const last = weights.at(-1);
+    const achievedAt = sessionOfBest(exercise).performedAt;
 
-      return {
-        exercise: exercise.name,
-        best: exercise.best,
-        gainKg:
-          first !== null && last !== null && timed.length > 1
-            ? Math.round((last - first) * 100) / 100
-            : null,
-        sessions: exercise.sessions,
-        lastTrainedAt: exercise.lastTrainedAt ?? achievedAt,
-        weeksSince: weeksSince(achievedAt),
-      };
-    });
+    return {
+      exercise: exercise.name,
+      best: exercise.best,
+      gainKg:
+        first !== undefined && last !== undefined && weights.length > 1
+          ? Math.round((last - first) * 100) / 100
+          : null,
+      sessions: exercise.sessions,
+      lastTrainedAt: exercise.lastTrainedAt ?? achievedAt,
+      weeksSince: weeksSince(achievedAt),
+    };
+  });
+}
+
+/** An exercise with at least one set worth ranking. */
+function hasBest(exercise: ExerciseHistory): exercise is ExerciseHistory & { best: BestSet } {
+  return exercise.best !== null;
+}
+
+/**
+ * The session that produced the exercise's best set.
+ *
+ * So the date reported is the day the weight was actually lifted, rather than
+ * the last time the movement happened to be trained. Safe to call without an
+ * initial value only because {@link hasBest} has already established that one
+ * of these sessions has a best set.
+ */
+function sessionOfBest(exercise: ExerciseHistory): HistoryEntry {
+  return exercise.entries.reduce((champion, entry) =>
+    (entry.best?.weight ?? -1) > (champion.best?.weight ?? -1) ? entry : champion,
+  );
 }
 
 /**

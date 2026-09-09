@@ -2,18 +2,18 @@ import {
   exerciseTrends,
   formatBestSet,
   formatNumber,
+  topWeights,
   volumeByWeek,
   type ExerciseTrend,
 } from '../../domain/calculations';
 import type { Week } from '../../domain/types';
+import { kilos } from '../format';
 import { Delta, Sparkline, TrendChart } from './Chart';
 import { Icon } from './Icon';
 
 interface MesocycleProgressProps {
   weeks: Week[];
 }
-
-const kilos = (value: number) => `${Math.round(value).toLocaleString('es-ES')} kg`;
 
 /**
  * The whole program, week by week.
@@ -106,10 +106,7 @@ export function MesocycleProgress({ weeks }: MesocycleProgressProps) {
  * three that are climbing announce themselves without a number being read.
  */
 function TrendRow({ trend }: { trend: ExerciseTrend }) {
-  const weights = trend.points
-    .map((point) => point.best?.weight)
-    .filter((weight): weight is number => weight !== undefined);
-
+  const weights = topWeights(trend.points);
   const latest = trend.points.at(-1)?.best ?? null;
 
   return (
