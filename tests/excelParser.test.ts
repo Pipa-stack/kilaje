@@ -502,6 +502,43 @@ describe('exporting back to Excel', () => {
     expect(again.weeks[0]?.days[0]?.completed).toBe(true);
   });
 
+  it('carries the two per-exercise notes and the session clock across', () => {
+    const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const day = original.weeks[0]?.days[0];
+    const exercise = day?.exercises[0];
+    expect(exercise).toBeDefined();
+
+    exercise!.setup = 'Banco pin 4, agarre ancho';
+    exercise!.notes = 'hombro derecho tocado';
+    day!.elapsedSeconds = 72 * 60;
+
+    const again = parseWorkbook(buildWorkbook(original), 'copia.xlsx');
+    const restoredDay = again.weeks[0]?.days[0];
+    const restored = restoredDay?.exercises[0];
+
+    expect(restored?.setup).toBe('Banco pin 4, agarre ancho');
+    expect(restored?.notes).toBe('hombro derecho tocado');
+    // Minutes go out and come back as seconds; the app never stored more.
+    expect(restoredDay?.elapsedSeconds).toBe(72 * 60);
+    // A workbook is a session that already happened, never one still running.
+    expect(restoredDay?.timerStartedAt).toBeNull();
+  });
+
+  it('reads a coach’s template, which has none of those columns, as empty', () => {
+    const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const exercise = original.weeks[0]?.days[0]?.exercises[0];
+
+    expect(exercise?.setup).toBeNull();
+    expect(exercise?.notes).toBe('');
+    expect(original.weeks[0]?.days[0]?.elapsedSeconds).toBe(0);
+  });
+
+  it('does not claim a session of zero minutes when it was never timed', () => {
+    const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
+    const again = parseWorkbook(buildWorkbook(original), 'copia.xlsx');
+    expect(again.weeks[0]?.days[0]?.elapsedSeconds).toBe(0);
+  });
+
   it('keeps sets added beyond the template’s four slots', () => {
     const original = parseWorkbook(readReference(), 'ejemplo.xlsx');
     const exercise = original.weeks[0]?.days[0]?.exercises[0];

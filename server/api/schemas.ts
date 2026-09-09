@@ -79,6 +79,18 @@ export const exerciseNoteBody = z
   })
   .strict();
 
+/**
+ * A plan started inside the app.
+ *
+ * Seven is the ceiling because a week has seven days, not because anybody
+ * should train all of them.
+ */
+export const blankProgramBody = z
+  .object({
+    days: z.number().int().min(1).max(7),
+  })
+  .strict();
+
 /** How a new week is started. */
 export const appendWeekBody = z
   .object({

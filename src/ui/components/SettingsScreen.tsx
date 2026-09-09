@@ -13,6 +13,8 @@ interface SettingsScreenProps {
   importing: boolean;
   offline: boolean;
   onFile: (file: File) => Promise<void>;
+  /** Starts an empty plan with this many sessions a week. */
+  onCreateBlank: (days: number) => Promise<void>;
   onSelectProgram: (programId: number) => Promise<void>;
   onDeleteProgram: (programId: number) => Promise<void>;
   email: string;
@@ -34,6 +36,7 @@ export function SettingsScreen({
   importing,
   offline,
   onFile,
+  onCreateBlank,
   onSelectProgram,
   onDeleteProgram,
   email,
@@ -86,6 +89,25 @@ export function SettingsScreen({
               : 'Archivos .xlsx hasta 10 MB. Se procesa en el servidor.'
           }
         />
+
+        {/* The same second door as the first-run screen. Without it, importing
+            once meant never being able to start a plan by hand again. */}
+        <p className="mt-3 text-sm text-iron-400">
+          ¿Sin plantilla? Empieza un plan vacío y añade los ejercicios a mano.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[2, 3, 4, 5, 6].map((days) => (
+            <button
+              key={days}
+              type="button"
+              disabled={importing || offline}
+              onClick={() => void onCreateBlank(days)}
+              className="figure min-h-11 flex-1 rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:border-signal-400 hover:bg-iron-850 disabled:opacity-40"
+            >
+              {days} días
+            </button>
+          ))}
+        </div>
       </section>
 
       <section aria-labelledby="export-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">

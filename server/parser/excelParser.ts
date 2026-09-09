@@ -201,6 +201,8 @@ interface DayColumns {
   video: number | null;
   protocol: number | null;
   comments: number | null;
+  setup: number | null;
+  note: number | null;
   previousSets: SetColumns[];
   currentSets: SetColumns[];
 }
@@ -256,9 +258,10 @@ function parseDay(grid: Grid, headerRow: number, weekNumber: number, dayNumber: 
     exercises,
     notes: trailer ? readTrailerText(grid, trailer.start, trailer.end, /^notas/) : '',
     completed: trailer ? readCompleted(grid, trailer.start, trailer.end) : false,
-    // The workbook has no clock and no per-exercise notes of the user's own;
-    // both start empty and are filled in from the app.
-    elapsedSeconds: 0,
+    // Only this app's own exports carry a duration; a coach's template has no
+    // clock in it, and reads back as an untimed session.
+    elapsedSeconds: trailer ? readTrailerMinutes(grid, trailer.start, trailer.end) * 60 : 0,
+    // Never running: a workbook records a session that already happened.
     timerStartedAt: null,
   };
 }
@@ -285,6 +288,10 @@ function resolveColumns(grid: Grid, dayHeaderRow: number): DayColumns | null {
       video: findColumn(grid, row, (value) => value.includes('video')),
       protocol: findColumn(grid, row, (value) => value.includes('protocolo')),
       comments: findColumn(grid, row, (value) => value.startsWith('comentario')),
+      // Written by this app's exporter, absent from a coach's template. Matched
+      // exactly enough not to collide with "Notas de sesión" in the trailer.
+      setup: findColumn(grid, row, (value) => value.startsWith('ajuste')),
+      note: findColumn(grid, row, (value) => value === 'nota' || value.startsWith('nota de')),
       previousSets,
       currentSets,
     };
@@ -364,8 +371,10 @@ function parseExercise(
     lineage: `d${dayNumber}:e${number}`,
     number,
     name,
-    setup: null,
-    notes: '',
+    // Present only in workbooks this app exported; a coach's template has no
+    // such columns and reads back with both empty, which is correct.
+    setup: readOptionalText(grid, row, columns.setup),
+    notes: readOptionalText(grid, row, columns.note) ?? '',
     video: readVideo(grid, row, columns.video),
     protocol: readOptionalText(grid, row, columns.protocol),
     comments: readOptionalText(grid, row, columns.comments),
@@ -494,6 +503,21 @@ function findTrailerValue(
     return null;
   }
   return null;
+}
+
+/**
+ * The duration in whole minutes, or zero.
+ *
+ * Clamped to a day, the same ceiling the column and the API enforce: a
+ * hand-edited cell must not be able to write a week-long session.
+ */
+function readTrailerMinutes(grid: Grid, start: number, end: number): number {
+  const found = findTrailerValue(grid, start, end, /^duracion/);
+  if (!found) return 0;
+
+  const minutes = toNumber(cellAt(grid, found.row, found.col).value);
+  if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) return 0;
+  return Math.min(Math.round(minutes), 24 * 60);
 }
 
 function readTrailerText(grid: Grid, start: number, end: number, labelPattern: RegExp): string {

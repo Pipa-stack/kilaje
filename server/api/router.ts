@@ -14,6 +14,7 @@ import { parseWorkbook } from '../parser/excelParser';
 import { buildWorkbook, exportFileName } from '../parser/excelExporter';
 import type { Database } from '../db/database';
 import {
+  createBlankProgram,
   deleteProgram,
   getProgram,
   hashSource,
@@ -40,6 +41,7 @@ import {
 } from '../repositories/exercises';
 import {
   appendWeekBody,
+  blankProgramBody,
   deleteSetBody,
   exerciseFieldsBody,
   exerciseNoteBody,
@@ -145,6 +147,23 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
       );
 
       res.status(created ? 201 : 200).json({ program, created });
+    }),
+  );
+
+  /**
+   * Starts an empty plan, for somebody who has no spreadsheet to import.
+   *
+   * The app was unusable without a coach's `.xlsx`: the first screen offered
+   * one door and no other. This creates the week and its days; the exercises
+   * go in through the plan editor that already exists.
+   */
+  router.post(
+    '/programs/blank',
+    planLimiter,
+    handle(async (req, res) => {
+      const { days } = blankProgramBody.parse(req.body ?? {});
+      const program = await createBlankProgram(db, currentUserId(req), days);
+      res.status(201).json({ program });
     }),
   );
 

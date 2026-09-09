@@ -13,7 +13,7 @@
  *   day.notes / completed  <-  workout_sessions (execution)
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import {
   SCHEMA_VERSION,
@@ -103,6 +103,47 @@ export async function importProgram(
   }
 }
 
+/** What a plan started inside the app is called before you rename it. */
+const BLANK_PROGRAM_NAME = 'Mi plan';
+
+/**
+ * Starts an empty plan, with no spreadsheet involved.
+ *
+ * Until now the only door into the app was an `.xlsx` from a coach: anybody
+ * without one could not get past the first screen. This creates the week and
+ * the days, and the plan editor that already exists fills in the exercises.
+ *
+ * `source_hash` is unique so that re-uploading the same file is a no-op rather
+ * than a duplicate. A blank program has no bytes to hash, so it gets a random
+ * one: two blank plans are two plans, not the same plan twice.
+ */
+export async function createBlankProgram(
+  db: Database,
+  userId: number,
+  dayCount: number,
+): Promise<StoredProgram> {
+  const days: Day[] = Array.from({ length: dayCount }, (_unused, index) => ({
+    id: `w1:d${index + 1}`,
+    number: index + 1,
+    type: null,
+    exercises: [],
+    notes: '',
+    completed: false,
+    elapsedSeconds: 0,
+    timerStartedAt: null,
+  }));
+
+  const program: Program = {
+    schemaVersion: SCHEMA_VERSION,
+    sourceFileName: BLANK_PROGRAM_NAME,
+    importedAt: new Date().toISOString(),
+    weeks: [{ number: 1, sheetName: 'Semana 1', days }],
+  };
+
+  const { program: created } = await insertProgram(db, program, `blank:${randomUUID()}`, userId);
+  return created;
+}
+
 /** Postgres reports a unique index violation as SQLSTATE 23505. */
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23505';
@@ -136,11 +177,12 @@ async function insertProgram(
       const weekId = await insertWeek(tx, insertedId, week);
       for (const day of week.days) {
         const dayId = await insertDay(tx, weekId, day);
-        await insertSession(tx, dayId, day);
+        const sessionId = await insertSession(tx, dayId, day);
         for (const exercise of day.exercises) {
           const exerciseId = await insertExercise(tx, dayId, exercise);
           await insertReferenceSets(tx, exerciseId, exercise.previousWeek);
           await insertSeededSets(tx, dayId, exerciseId, exercise.currentWeek);
+          await insertNotes(tx, insertedId, sessionId, exerciseId, exercise);
         }
       }
     }
@@ -154,7 +196,14 @@ async function insertProgram(
 }
 
 function buildName(sourceFileName: string, version: number): string {
-  const base = sourceFileName.replace(/\.(xlsx|xlsm)$/i, '').trim() || 'Entrenamiento';
+  const base =
+    sourceFileName
+      .replace(/\.(xlsx|xlsm)$/i, '')
+      // "Plan (1).xlsx" is what a browser calls the second copy of a download,
+      // and that "(1)" ended up as the program's name everywhere it appears.
+      // It says nothing about the training and nobody typed it on purpose.
+      .replace(/\s*\(\d{1,2}\)\s*$/, '')
+      .trim() || 'Entrenamiento';
   return version === 1 ? base : `${base} (v${version})`;
 }
 
@@ -196,6 +245,39 @@ async function insertExercise(tx: Database, dayId: number, exercise: Exercise): 
   return requireId(rows[0]?.id);
 }
 
+/**
+ * The two notes an exercise can carry, written to their own tables.
+ *
+ * The setup note is keyed by lineage within the program, so a workbook that
+ * carries the same movement in five weeks produces one row, not five. Writing
+ * it per exercise and letting the conflict clause win is simpler than
+ * remembering which lineages have been seen, and lands the same result.
+ */
+async function insertNotes(
+  tx: Database,
+  programId: number,
+  sessionId: number,
+  exerciseId: number,
+  exercise: Exercise,
+): Promise<void> {
+  if (exercise.setup && exercise.setup.trim() !== '') {
+    await tx.query(
+      `INSERT INTO exercise_setups (program_id, lineage, note)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (program_id, lineage) DO UPDATE SET note = EXCLUDED.note`,
+      [programId, exercise.lineage, exercise.setup.trim()],
+    );
+  }
+
+  if (exercise.notes.trim() !== '') {
+    await tx.query(
+      `INSERT INTO session_exercise_notes (session_id, exercise_id, note)
+       VALUES ($1, $2, $3)`,
+      [sessionId, exerciseId, exercise.notes.trim()],
+    );
+  }
+}
+
 async function insertReferenceSets(
   tx: Database,
   exerciseId: number,
@@ -232,12 +314,20 @@ async function insertSeededSets(
   }
 }
 
-async function insertSession(tx: Database, dayId: number, day: Day): Promise<void> {
-  await tx.query(
-    `INSERT INTO workout_sessions (day_id, notes, completed, completed_at)
-     VALUES ($1, $2, $3, $4)`,
-    [dayId, day.notes, day.completed, day.completed ? new Date().toISOString() : null],
+async function insertSession(tx: Database, dayId: number, day: Day): Promise<number> {
+  const { rows } = await tx.query<{ id: number }>(
+    `INSERT INTO workout_sessions (day_id, notes, completed, completed_at, elapsed_seconds)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [
+      dayId,
+      day.notes,
+      day.completed,
+      day.completed ? new Date().toISOString() : null,
+      day.elapsedSeconds,
+    ],
   );
+  return requireId(rows[0]?.id);
 }
 
 function requireId(id: number | undefined): number {

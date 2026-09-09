@@ -144,6 +144,18 @@ export function DayView({
         />
       ) : (
         <>
+          {day.exercises.length === 0 ? (
+            // A day with nothing in it is where a plan built from scratch
+            // starts. Without a word here it reads as a bug.
+            <p
+              role="status"
+              className="rounded-2xl border border-dashed border-iron-700 px-4 py-8 text-center text-sm text-iron-400"
+            >
+              Este día está vacío. Añade los ejercicios desde{' '}
+              <span className="font-semibold text-iron-100">Editar el plan de este día</span>.
+            </p>
+          ) : null}
+
           <ol className="space-y-4">
             {day.exercises.map((exercise) => (
               <li key={exercise.id}>

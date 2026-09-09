@@ -137,6 +137,7 @@ function SignedIn({
     return (
       <ImportScreen
         onFile={state.importFile}
+        onCreateBlank={(days) => void state.createBlank(days)}
         importing={state.importing}
         error={state.error}
         onDismissError={state.dismissError}
@@ -302,6 +303,11 @@ function SignedIn({
             onFile={async (file) => {
               await state.importFile(file);
               setTab('home');
+            }}
+            onCreateBlank={async (days) => {
+              await state.createBlank(days);
+              setShowSettings(false);
+              setTab('day');
             }}
             onSelectProgram={async (programId) => {
               await state.selectProgram(programId);

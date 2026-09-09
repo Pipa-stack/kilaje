@@ -308,3 +308,72 @@ describe('GET /api/profile/lifts', () => {
     expect(body.profile.stats.averageSessionSeconds).toBeNull();
   }, 60_000);
 });
+
+describe('starting a plan without a spreadsheet', () => {
+  async function createBlank(days: number) {
+    const { body } = await agent.post('/api/programs/blank').send({ days }).expect(201);
+    return body.program as StoredProgram;
+  }
+
+  it('creates a week with the days you asked for and no exercises', async () => {
+    const program = await createBlank(4);
+
+    expect(program.weeks).toHaveLength(1);
+    expect(program.weeks[0]?.days.map((day) => day.number)).toEqual([1, 2, 3, 4]);
+    expect(program.weeks[0]?.days.every((day) => day.exercises.length === 0)).toBe(true);
+  }, 60_000);
+
+  it('survives being read back, which an empty day used to not do', async () => {
+    const created = await createBlank(3);
+    const loaded = await reload(created.id);
+    expect(loaded.weeks[0]?.days).toHaveLength(3);
+  }, 60_000);
+
+  it('accepts exercises added to an empty day', async () => {
+    const created = await createBlank(2);
+    const day = created.weeks[0]?.days[0];
+
+    const { body } = await agent
+      .post(`/api/days/${day!.id}/exercises`)
+      .send({ name: 'SENTADILLA' })
+      .expect(201);
+
+    const program = body.program as StoredProgram;
+    expect(program.weeks[0]?.days[0]?.exercises.map((e) => e.name)).toEqual(['SENTADILLA']);
+  }, 60_000);
+
+  it('makes two blank plans two plans, not one', async () => {
+    // They have no file to hash, so without a random source hash the second
+    // would collide with the first and silently return it.
+    const first = await createBlank(3);
+    const second = await createBlank(3);
+    expect(second.id).not.toBe(first.id);
+
+    const { body } = await agent.get('/api/programs').expect(200);
+    expect(body.programs).toHaveLength(2);
+  }, 60_000);
+
+  it('numbers them the way imports are numbered', async () => {
+    expect((await createBlank(3)).name).toBe('Mi plan');
+    expect((await createBlank(3)).name).toBe('Mi plan (v2)');
+  }, 60_000);
+
+  it('refuses a week that is not a week', async () => {
+    await agent.post('/api/programs/blank').send({ days: 0 }).expect(400);
+    await agent.post('/api/programs/blank').send({ days: 8 }).expect(400);
+    await agent.post('/api/programs/blank').send({ days: 3.5 }).expect(400);
+    await agent.post('/api/programs/blank').send({}).expect(400);
+  }, 60_000);
+});
+
+describe('the imported program name', () => {
+  it("drops the browser's duplicate suffix", async () => {
+    const { body } = await agent
+      .post('/api/programs?filename=Cristian%20Ja%C3%A9n%20(1).xlsx')
+      .set('Content-Type', 'application/octet-stream')
+      .send(workbook())
+      .expect(201);
+
+    expect((body.program as StoredProgram).name).toBe('Cristian Jaén');
+  }, 60_000);
+});

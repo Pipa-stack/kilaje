@@ -139,6 +139,20 @@ export async function addWeek(
   return program;
 }
 
+/**
+ * Starts an empty plan with `days` sessions in its first week.
+ *
+ * For anybody who does not have a coach's spreadsheet — which, until this
+ * existed, meant they could not use the app at all.
+ */
+export async function createBlankProgram(days: number): Promise<StoredProgram> {
+  const { program } = await callApi<{ program: StoredProgram }>(
+    '/programs/blank',
+    json({ days }),
+  );
+  return program;
+}
+
 /** Deletes a week. The server refuses if anything was logged against it. */
 export async function removeWeek(programId: number, weekNumber: number): Promise<StoredProgram> {
   const { program } = await callApi<{ program: StoredProgram }>(

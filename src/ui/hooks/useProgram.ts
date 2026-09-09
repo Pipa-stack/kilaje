@@ -110,6 +110,8 @@ export interface ProgramState {
   syncStalled: boolean;
 
   importFile: (file: File) => Promise<void>;
+  /** Starts an empty plan with `days` sessions, and opens it. */
+  createBlank: (days: number) => Promise<void>;
   /** Appends a week cloned from the last one, then opens it. */
   addWeek: (options?: { copyWeights?: boolean }) => Promise<void>;
   /** Deletes a week. Refused by the server if it has training logged. */
@@ -371,6 +373,25 @@ export function useProgram(): ProgramState {
     [openProgram],
   );
 
+  const createBlank = useCallback(
+    async (days: number) => {
+      setImporting(true);
+      setError(null);
+      try {
+        openProgram(await api.createBlankProgram(days));
+        setPrograms(await api.fetchPrograms());
+        setOffline(false);
+      } catch (cause) {
+        setError(
+          cause instanceof ApiError ? cause.message : 'No se ha podido crear el plan.',
+        );
+      } finally {
+        setImporting(false);
+      }
+    },
+    [openProgram],
+  );
+
   /**
    * Starts the next week and moves to it.
    *
@@ -552,6 +573,7 @@ export function useProgram(): ProgramState {
     syncStalled,
 
     importFile,
+    createBlank,
     addWeek,
     selectProgram,
 

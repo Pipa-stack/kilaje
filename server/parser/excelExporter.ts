@@ -18,8 +18,16 @@ import * as XLSX from 'xlsx';
 
 import { isSetWorked, type Day, type Exercise, type Program, type SetEntry } from '../../src/domain/types';
 
-/** Columns before the set blocks: Nº, Ejercicio, Vídeo, Protocolo, Comentarios, gap. */
-const PLAN_COLUMNS = 6;
+/**
+ * Columns before the set blocks: Nº, Ejercicio, Vídeo, Protocolo, Comentarios,
+ * Ajuste, Nota, gap.
+ *
+ * The two note columns were added when the app grew them. The parser resolves
+ * every column by its header label rather than by position, so widening this
+ * block is safe for the workbooks that came before it — they simply have no
+ * such header and read back with the notes empty.
+ */
+const PLAN_COLUMNS = 8;
 
 /** A gap column between the previous-week block and the current-week one. */
 const GAP = 1;
@@ -85,10 +93,25 @@ function appendDay(rows: Row[], day: Day, setCount: number): void {
   rows.push([`VOLUMEN TOTAL DÍA ${day.number}`]);
   rows.push(['📝 Notas de sesión:', day.notes]);
   rows.push(['✅ Sesión completada:', day.completed ? 'SI' : 'NO']);
+  // Minutes, not a formatted duration: "1h 12min" is for reading and this is
+  // for reading back. Only written when there is a clock to record, so a file
+  // from an untimed session does not claim a session of zero minutes.
+  if (day.elapsedSeconds > 0) {
+    rows.push(['⏱ Duración (min):', Math.round(day.elapsedSeconds / 60)]);
+  }
 }
 
 function headerRow(setCount: number): Row {
-  const row: Row = ['Nº', 'Ejercicio', '📹 Vídeo', 'Protocolo', 'Comentarios', ''];
+  const row: Row = [
+    'Nº',
+    'Ejercicio',
+    '📹 Vídeo',
+    'Protocolo',
+    'Comentarios',
+    '⚙ Ajuste',
+    '📝 Nota de hoy',
+    '',
+  ];
   row[PLAN_COLUMNS] = '← Semana anterior';
   row[PLAN_COLUMNS + setCount * PER_SET + GAP] = 'Semana actual';
   return fill(row);
@@ -114,6 +137,8 @@ function exerciseRow(exercise: Exercise, setCount: number): Row {
     exercise.video ?? '',
     exercise.protocol ?? '',
     exercise.comments ?? '',
+    exercise.setup ?? '',
+    exercise.notes,
     '',
   ];
 
