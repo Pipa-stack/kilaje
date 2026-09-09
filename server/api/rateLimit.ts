@@ -188,6 +188,25 @@ export function createReadLimiter(keyBy: (req: Request) => string) {
 }
 
 /**
+ * The ordinary reads: listing the programs and opening one.
+ *
+ * Far cheaper than the history fan-out above — three queries scoped to a
+ * single program — but hit on every app open, so the ceiling is generous.
+ * It is here to bound a loop, not to ration use: nothing but a script reaches
+ * ten a minute for an hour, and until now these three routes, the most
+ * frequently served in the app, had no ceiling at all while the export
+ * beside them did.
+ */
+export function createProgramReadLimiter(keyBy: (req: Request) => string) {
+  return rateLimit({
+    max: 600,
+    windowMs: 60 * 60 * 1000,
+    message: 'Demasiadas consultas seguidas. Espera un momento.',
+    keyBy,
+  });
+}
+
+/**
  * Everything that writes training.
  *
  * Each is only three or four queries, so this is not about one request being

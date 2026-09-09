@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import type { Database } from '../db/database';
 import { currentUserId } from './authRouter';
-import { createReadLimiter } from './rateLimit';
+import { createReadLimiter, createWriteLimiter } from './rateLimit';
 import { getProfile, updateProfile } from '../repositories/profile';
 
 function handle(
@@ -32,9 +32,10 @@ export function createProfileRouter(db: Database, rateLimits = true): Router {
   // logged, against a pool of ten connections. Unthrottled, a handful of
   // concurrent requests from one account starved every other request —
   // including the healthcheck that tells Railway the service is alive.
-  const readLimiter = rateLimits
-    ? createReadLimiter((req) => `user:${currentUserId(req)}`)
-    : (_req: Request, _res: Response, next: NextFunction): void => next();
+  const passThrough = (_req: Request, _res: Response, next: NextFunction): void => next();
+  const byUser = (req: Request): string => `user:${currentUserId(req)}`;
+  const readLimiter = rateLimits ? createReadLimiter(byUser) : passThrough;
+  const writeLimiter = rateLimits ? createWriteLimiter(byUser) : passThrough;
 
   router.get(
     '/',
@@ -49,8 +50,11 @@ export function createProfileRouter(db: Database, rateLimits = true): Router {
     }),
   );
 
+  // Cheaper than the GET beside it — one UPDATE of one row — but it had no
+  // ceiling at all, and "cheap" is not "free" when nothing counts the calls.
   router.patch(
     '/',
+    writeLimiter,
     handle(async (req, res) => {
       await updateProfile(db, currentUserId(req), profilePatch.parse(req.body));
       res.status(204).end();

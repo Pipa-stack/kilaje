@@ -49,25 +49,34 @@ export async function addDay(
   const week = weeks[0];
   if (!week) return { outcome: 'no existe', program: null };
 
-  const { rows: counts } = await db.query<{ count: number | string; next: number | string }>(
-    `SELECT COUNT(*) AS count, COALESCE(MAX(number), 0) + 1 AS next
-       FROM workout_days WHERE week_id = $1`,
-    [week.id],
-  );
+  // Counting and inserting is one operation, not two. Split, two requests
+  // arriving together both read the same count, both find room, and both
+  // insert — and the ceiling this function exists to hold is past. The lock
+  // goes on the week row rather than on its days, because locking the
+  // children serialises nothing when there are none. `addExercise` closes the
+  // identical window the identical way.
+  const full = await db.transaction(async (tx) => {
+    await tx.query('SELECT id FROM weeks WHERE id = $1 FOR UPDATE', [week.id]);
 
-  const count = Number(counts[0]?.count ?? 0);
-  if (count >= MAX_DAYS_PER_WEEK) {
-    return { outcome: 'semana llena', program: await getProgram(db, programId, userId) };
-  }
+    const { rows: counts } = await tx.query<{ count: number | string; next: number | string }>(
+      `SELECT COUNT(*) AS count, COALESCE(MAX(number), 0) + 1 AS next
+         FROM workout_days WHERE week_id = $1`,
+      [week.id],
+    );
 
-  // Numbered from MAX rather than from the count, so a week that has had a day
-  // removed from its middle does not try to reuse a number still in use.
-  await db.query('INSERT INTO workout_days (week_id, number, type) VALUES ($1, $2, NULL)', [
-    week.id,
-    Number(counts[0]?.next ?? 1),
-  ]);
+    if (Number(counts[0]?.count ?? 0) >= MAX_DAYS_PER_WEEK) return true;
 
-  return { outcome: 'anadido', program: await getProgram(db, programId, userId) };
+    // Numbered from MAX rather than from the count, so a week that has had a
+    // day removed from its middle does not try to reuse a number still in use.
+    await tx.query('INSERT INTO workout_days (week_id, number, type) VALUES ($1, $2, NULL)', [
+      week.id,
+      Number(counts[0]?.next ?? 1),
+    ]);
+    return false;
+  });
+
+  const program = await getProgram(db, programId, userId);
+  return { outcome: full ? 'semana llena' : 'anadido', program };
 }
 
 /**

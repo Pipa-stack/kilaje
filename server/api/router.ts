@@ -60,6 +60,7 @@ import { listLifts } from '../repositories/profile';
 import {
   createImportLimiter,
   createPlanLimiter,
+  createProgramReadLimiter,
   createReadLimiter,
   createWriteLimiter,
 } from './rateLimit';
@@ -80,10 +81,12 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   const importLimiter = rateLimits ? createImportLimiter() : passThrough;
   const planLimiter = rateLimits ? createPlanLimiter() : passThrough;
   const readLimiter = rateLimits ? createReadLimiter(byUser) : passThrough;
+  const programReadLimiter = rateLimits ? createProgramReadLimiter(byUser) : passThrough;
   const writeLimiter = rateLimits ? createWriteLimiter(byUser) : passThrough;
 
   router.get(
     '/programs',
+    programReadLimiter,
     handle(async (req, res) => {
       res.json({ programs: await listPrograms(db, currentUserId(req)) });
     }),
@@ -92,6 +95,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
   /** The program to open on load: the most recently imported one. */
   router.get(
     '/programs/latest',
+    programReadLimiter,
     handle(async (req, res) => {
       const id = await findLatestProgramId(db, currentUserId(req));
       if (id === null) {
@@ -104,6 +108,7 @@ export function createApiRouter(db: Database, rateLimits = true): Router {
 
   router.get(
     '/programs/:programId',
+    programReadLimiter,
     handle(async (req, res) => {
       const programId = idParam.parse(req.params.programId);
       const program = await getProgram(db, programId, currentUserId(req));
