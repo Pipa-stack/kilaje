@@ -156,15 +156,15 @@ function SignedIn({
   return (
     <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-24 pt-4">
       <header className="mb-4 space-y-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold text-chalk">{program.name}</h1>
-            <p className="truncate text-xs text-iron-600">
-              {program.weeks.length} {program.weeks.length === 1 ? 'semana' : 'semanas'} ·{' '}
-              {week.days.length} sesiones
-            </p>
-          </div>
-        </div>
+        {/* The program is named after the file it was imported from, which is
+            whatever the spreadsheet happened to be called — "Cristian Jaén
+            (1)" and other download leftovers. It told you nothing you did not
+            know and it was the first thing on every screen. It still names
+            itself where it matters: picking between programs, in Ajustes.
+
+            The heading stays for the document outline and the screen reader;
+            it just has no reason to occupy the top of a phone. */}
+        <h1 className="sr-only">Kilaje — {program.name}</h1>
 
         {state.offline ? (
           <p
