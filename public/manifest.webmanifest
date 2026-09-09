@@ -1,7 +1,7 @@
 {
   "name": "Kilaje — Entrenamiento",
   "short_name": "Kilaje",
-  "description": "Tu plantilla Excel de entrenamiento, convertida en una app para usar en el gimnasio.",
+  "description": "Tu entrenamiento en una app para usar en el gimnasio: importa tu plantilla de Excel o monta el plan a mano.",
   "lang": "es",
   "dir": "ltr",
   "start_url": "/",

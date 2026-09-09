@@ -119,14 +119,33 @@ async function openSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Ajustes' }, WAIT));
 }
 
+const EXCEL_ROUTE = /Tengo una plantilla en Excel/;
+
+/** Takes the spreadsheet road on the first-run screen and returns its drop target. */
+async function openExcelRoute(user: ReturnType<typeof userEvent.setup>): Promise<HTMLLabelElement> {
+  await user.click(await screen.findByRole('button', { name: EXCEL_ROUTE }, WAIT));
+  const dropzone = document.querySelector<HTMLLabelElement>('label[for]');
+  expect(dropzone).not.toBeNull();
+  return dropzone!;
+}
+
 async function importFile(user: ReturnType<typeof userEvent.setup>, file: File) {
-  // The app shows a loading state first; the file input only exists after it.
-  const input = await waitFor(() => {
-    const found = document.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(found).not.toBeNull();
-    return found!;
+  // The app shows a loading state first, so wait for whichever way in this
+  // screen offers: on first run it asks how you want to start and the file
+  // picker only exists once that road is taken; from Ajustes it is already up.
+  await waitFor(() => {
+    const ready =
+      screen.queryByRole('button', { name: EXCEL_ROUTE }) ??
+      document.querySelector('input[type="file"]');
+    expect(ready).not.toBeNull();
   }, WAIT);
-  await user.upload(input, file);
+
+  const chooser = screen.queryByRole('button', { name: EXCEL_ROUTE });
+  if (chooser) await user.click(chooser);
+
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input).not.toBeNull();
+  await user.upload(input!, file);
 }
 
 const BENCH = 'PRESS DE BANCA PLANO CON BARRA LIBRE';
@@ -485,7 +504,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     await signIn(user);
     await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
 
-    const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
+    const dropzone = await openExcelRoute(user);
     const bogus = new File(['no soy un excel'], 'notas.txt', { type: 'text/plain' });
     fireEvent.drop(dropzone, { dataTransfer: { files: [bogus] } });
 
@@ -499,7 +518,7 @@ describe('the full training flow, persisted in PostgreSQL', () => {
     await signIn(user);
     await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
 
-    const dropzone = document.querySelector<HTMLLabelElement>('label[for]')!;
+    const dropzone = await openExcelRoute(user);
     const notATemplate = new File(['contenido cualquiera'], 'presupuesto.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });

@@ -27,8 +27,7 @@ export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
           Kilaje
         </h1>
         <p className="text-iron-400">
-          Tu plantilla de Excel, convertida en algo que se puede usar con una mano entre serie
-          y serie.
+          Tu entrenamiento en algo que se puede usar con una mano entre serie y serie.
         </p>
       </header>
 
