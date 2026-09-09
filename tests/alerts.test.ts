@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { ALERT_WINDOW_MS, createAlerter } from '../server/email/alerts';
+import { ALERT_WINDOW_MS, MAX_ALERTS_PER_WINDOW, createAlerter } from '../server/email/alerts';
 import type { Email, EmailSender } from '../server/email/sender';
 
 function recorder(): EmailSender & { sent: Email[] } {
@@ -58,16 +58,64 @@ describe('the alerter', () => {
     let now = 0;
     const alerter = createAlerter(email, 'yo@ejemplo.com', () => now);
 
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('uno') });
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('dos') });
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('tres') });
+    // The same failure three times: one message, two counted.
+    for (let i = 0; i < 3; i += 1) {
+      alerter.report({ method: 'GET', path: '/api/x', error: new Error('el mismo') });
+    }
 
     now += ALERT_WINDOW_MS + 1;
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('cuatro') });
+    alerter.report({ method: 'GET', path: '/api/x', error: new Error('el mismo') });
 
     expect(email.sent).toHaveLength(2);
-    // A burst stays visible even though it did not ring four times.
+    // A burst stays visible even though it did not ring three times.
     expect(email.sent[1]?.text).toContain('2 errores más');
+  });
+
+  it('does not let one repeated failure silence a different one', () => {
+    // The reason the throttle is keyed by cause and not by the clock alone.
+    // With one global window, anybody able to provoke a 500 on demand could
+    // hold it open and keep every other alert unsent — switching the alarm
+    // off from outside.
+    const email = recorder();
+    let now = 0;
+    const alerter = createAlerter(email, 'yo@ejemplo.com', () => now);
+
+    for (let i = 0; i < 50; i += 1) {
+      now += 1_000;
+      alerter.report({ method: 'GET', path: '/api/ruido', error: new Error('ruido') });
+    }
+
+    alerter.report({
+      method: 'POST',
+      path: '/api/days/1/sets',
+      error: new Error('la base de datos no responde'),
+    });
+
+    expect(email.sent).toHaveLength(2);
+    expect(email.sent[1]?.text).toContain('la base de datos no responde');
+  });
+
+  it('still caps the total, so a varying message cannot become a mailing list', () => {
+    const email = recorder();
+    const alerter = createAlerter(email, 'yo@ejemplo.com', () => 1_000);
+
+    for (let i = 0; i < 50; i += 1) {
+      alerter.report({ method: 'GET', path: '/api/x', error: new Error(`fallo número ${i}`) });
+    }
+
+    expect(email.sent).toHaveLength(MAX_ALERTS_PER_WINDOW);
+  });
+
+  it('treats the same bug reached through two ids as one bug', () => {
+    // The signature deliberately leaves the path out: otherwise changing an
+    // id in the URL would mint a fresh cause on every request.
+    const email = recorder();
+    const alerter = createAlerter(email, 'yo@ejemplo.com', () => 1_000);
+
+    alerter.report({ method: 'GET', path: '/api/days/1', error: new Error('igual') });
+    alerter.report({ method: 'GET', path: '/api/days/2', error: new Error('igual') });
+
+    expect(email.sent).toHaveLength(1);
   });
 
   it('speaks again once the window has passed', () => {
@@ -75,9 +123,9 @@ describe('the alerter', () => {
     let now = 0;
     const alerter = createAlerter(email, 'yo@ejemplo.com', () => now);
 
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('uno') });
+    alerter.report({ method: 'GET', path: '/api/x', error: new Error('el mismo') });
     now += ALERT_WINDOW_MS + 1;
-    alerter.report({ method: 'GET', path: '/api/x', error: new Error('dos') });
+    alerter.report({ method: 'GET', path: '/api/x', error: new Error('el mismo') });
 
     expect(email.sent).toHaveLength(2);
   });
