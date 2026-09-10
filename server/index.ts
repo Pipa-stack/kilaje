@@ -14,7 +14,7 @@ import { createSenderFromEnv } from './email/sender';
 import { createAlerter, SILENT_ALERTER } from './email/alerts';
 import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
-import { generateDemoPassword, seedDemoAccount } from './db/demoAccount';
+import { seedDemoAccount } from './db/demoAccount';
 import { seedReferenceProgram } from './db/seed';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,21 +48,29 @@ async function main(): Promise<void> {
   // never leaves it broken. Opt-in, and with the password taken from the
   // environment: see `db/demoAccount.ts`.
   if (process.env.DEMO_ACCOUNT === 'true') {
-    // Generated rather than defaulted: a password constant in the repository
-    // would be a live credential anybody could read.
-    const generated = process.env.DEMO_PASSWORD ? null : generateDemoPassword();
-    const demo = await seedDemoAccount(db, {
-      email: process.env.DEMO_EMAIL,
-      password: process.env.DEMO_PASSWORD ?? generated ?? '',
-      workbookPath: join(ROOT, 'Ejemplo/ejemplo.xlsx'),
-    });
-    console.log(
-      `[server] cuenta de prueba ${demo.email}: ${demo.account}, programa ${demo.program}`,
-    );
-    if (generated) {
+    // The password comes from the environment or the account is not built at
+    // all. Booting used to mint one and print it, which put a working
+    // credential for a full user account into the deployment log — readable
+    // by anyone with log access, and by every log drain downstream, without
+    // ever authenticating to the app. A password nobody can read is worth
+    // less than a demo account that quietly does not exist.
+    //
+    // `scripts/seedDemo.ts` still generates one on demand: that runs in an
+    // operator's own terminal, which is where a fresh credential belongs.
+    const password = process.env.DEMO_PASSWORD;
+    if (!password) {
       console.warn(
-        `[server] DEMO_PASSWORD no está definida. Contraseña generada para esta ` +
-          `ejecución: ${generated} — cámbiala por una variable si quieres que dure.`,
+        '[server] DEMO_ACCOUNT=true pero sin DEMO_PASSWORD: la cuenta de prueba no se ha ' +
+          'creado. Define DEMO_PASSWORD, o usa `npm run db:seed:demo` para generar una.',
+      );
+    } else {
+      const demo = await seedDemoAccount(db, {
+        email: process.env.DEMO_EMAIL,
+        password,
+        workbookPath: join(ROOT, 'Ejemplo/ejemplo.xlsx'),
+      });
+      console.log(
+        `[server] cuenta de prueba ${demo.email}: ${demo.account}, programa ${demo.program}`,
       );
     }
   }

@@ -65,9 +65,7 @@ export function createPostgresDatabase(
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    // Railway's managed Postgres presents a certificate the container does not
-    // have a CA bundle for. The connection is still TLS-encrypted.
-    ssl: requiresSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
+    ssl: sslOptions(connectionString),
   });
 
   const wrap = (runner: Pick<Pool, 'query'>): Database => ({
@@ -104,6 +102,35 @@ export function createPostgresDatabase(
  * Local sockets and Railway's internal network do not use TLS; anything else
  * (including the public proxy host) does.
  */
+/**
+ * How the connection to PostgreSQL is protected.
+ *
+ * Railway's managed Postgres presents a certificate signed by an authority the
+ * container has no bundle for, so verification is off by default and the
+ * comment here used to stop at "the connection is still TLS-encrypted". That
+ * is true and it is not the whole truth: TLS without peer verification stops
+ * somebody listening, not somebody answering. An attacker who can redirect the
+ * connection presents any certificate they like and it is accepted, and then
+ * every query and every row — password hashes, session-token hashes, emails —
+ * passes through their hands.
+ *
+ * It matters little today, because the deployment reaches the database over
+ * Railway's private network (`*.railway.internal`), where `requiresSsl` is
+ * false and this branch is never taken. It would matter immediately if
+ * `DATABASE_URL` were ever repointed at the public proxy.
+ *
+ * So: supply the server's CA in `DATABASE_CA_CERT` (PEM) and the certificate
+ * is actually verified. Without it, the previous permissive behaviour stands
+ * rather than breaking a working deployment on a guess about what Railway
+ * presents.
+ */
+function sslOptions(connectionString: string) {
+  if (!requiresSsl(connectionString)) return undefined;
+
+  const ca = process.env.DATABASE_CA_CERT?.trim();
+  return ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
+}
+
 function requiresSsl(connectionString: string): boolean {
   try {
     const url = new URL(connectionString);

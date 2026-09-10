@@ -75,10 +75,20 @@ export function assertInflatedSizeIsSane(bytes: Uint8Array): void {
     if (view.getUint32(offset, true) !== CENTRAL_FILE_HEADER) return;
 
     const uncompressed = view.getUint32(offset + 24, true);
-    // 0xffffffff means the real size lives in a ZIP64 extra field. Rather than
-    // parse those, treat it as the largest thing it could be — a training
-    // template has no business needing them.
-    total += uncompressed === 0xffffffff ? MAX_INFLATED_BYTES + 1 : uncompressed;
+    const compressed = view.getUint32(offset + 20, true);
+    // 0xffffffff in *either* size means the real one lives in a ZIP64 extra
+    // field. Rather than parse those, treat it as the largest thing it could
+    // be — a training template has no business needing them.
+    //
+    // Both sizes matter, not just the inflated one. An entry whose compressed
+    // size is the sentinel cannot be sliced out of the buffer, so the second
+    // pass has nothing to inflate and skips it: declaring a harmless
+    // uncompressed size beside a sentinel compressed one used to walk past
+    // both checks at once.
+    total +=
+      uncompressed === 0xffffffff || compressed === 0xffffffff
+        ? MAX_INFLATED_BYTES + 1
+        : uncompressed;
 
     if (total > MAX_INFLATED_BYTES) throw tooBig();
 
@@ -88,7 +98,7 @@ export function assertInflatedSizeIsSane(bytes: Uint8Array): void {
 
     entryPlan.push({
       method: view.getUint16(offset + 10, true),
-      compressedSize: view.getUint32(offset + 20, true),
+      compressedSize: compressed,
       localHeaderOffset: view.getUint32(offset + 42, true),
     });
 

@@ -100,6 +100,28 @@ describe('assertInflatedSizeIsSane', () => {
     expect(() => assertInflatedSizeIsSane(new Uint8Array([1, 2, 3, 4]))).not.toThrow();
   });
 
+  it('refuses an entry that hides its compressed size in ZIP64', () => {
+    // The asymmetry that used to let a bomb through. The inflated size is
+    // declared harmlessly small, so the cheap first pass is happy; the
+    // compressed size is the ZIP64 sentinel, so the entry cannot be sliced
+    // out of the buffer and the second pass had nothing to inflate and
+    // skipped it. Neither check ever looked at the 60 MB actually sitting
+    // there.
+    const bomb = Buffer.alloc(MAX_INFLATED_BYTES + 10 * 1024 * 1024, 0x41);
+    const zip = buildZip(bomb, 1024);
+
+    // Overwrite the central directory's compressed size, and only that.
+    const compressedSize = deflateRawSync(bomb, { level: 9 }).byteLength;
+    const centralStart = 30 + NAME.byteLength + compressedSize;
+    new DataView(zip.buffer, zip.byteOffset, zip.byteLength).setUint32(
+      centralStart + 20,
+      0xffffffff,
+      true,
+    );
+
+    expect(() => assertInflatedSizeIsSane(zip)).toThrow(TemplateError);
+  }, 30_000);
+
   it('leaves an entry it cannot inflate to SheetJS as well', () => {
     // Corrupt the compressed stream but keep the headers honest.
     const zip = buildZip(Buffer.from('<worksheet/>'));
