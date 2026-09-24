@@ -829,15 +829,14 @@ describe('clases', () => {
     await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
 
     await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
-    await user.click(await screen.findByRole('button', { name: /^Mañana:/ }, WAIT));
-
-    const card = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
-    expect(within(card).getByText('1 libre')).toBeInTheDocument();
-    await user.click(within(card).getByRole('button', { name: 'Reservar' }));
+    // Calendario: se toca el día y se despliegan sus horas con los huecos.
+    await user.click(await screen.findByRole('button', { name: /^Mañana: 1 plaza libre$/ }, WAIT));
+    await user.click(await screen.findByRole('button', { name: '18:00 Crossfit: 1 libre' }, WAIT));
+    const detail = (await screen.findByRole('heading', { name: /Crossfit · 18:00–19:00/ }, WAIT)).closest('article')!;
+    await user.click(within(detail).getByRole('button', { name: 'Reservar' }));
     await screen.findByText(/Reservado: Crossfit/, {}, WAIT);
 
-    const booked = screen.getByRole('heading', { name: /Crossfit/ }).closest('article')!;
-    expect(within(booked).getByText('Tienes plaza')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '18:00 Crossfit: Tu plaza' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Tus reservas' })).toBeInTheDocument();
     // Un socio no ve nada de la gestión.
     expect(screen.queryByRole('navigation', { name: 'Gestión' })).not.toBeInTheDocument();
@@ -845,8 +844,8 @@ describe('clases', () => {
     app.unmount();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: /^Mañana:.*tienes reserva/ }, WAIT));
-    const again = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
-    await user.click(within(again).getByRole('button', { name: 'Anular mi plaza' }));
+    await user.click(await screen.findByRole('button', { name: '18:00 Crossfit: Tu plaza' }, WAIT));
+    await user.click(await screen.findByRole('button', { name: 'Anular mi plaza' }, WAIT));
     await screen.findByText('Plaza anulada.', {}, WAIT);
   });
 });

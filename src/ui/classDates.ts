@@ -65,3 +65,40 @@ export function endTime(startsAt: string, minutes: number): string {
   const total = (hours! * 60 + mins! + minutes) % (24 * 60);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
+
+/** "septiembre de 2026". */
+export function monthTitle(month: string): string {
+  const [year, index] = month.split('-').map(Number);
+  return `${MONTHS[index! - 1]} de ${year}`;
+}
+
+/** `YYYY-MM` de una fecha. */
+export function monthOf(date: string): string {
+  return date.slice(0, 7);
+}
+
+/** El mes siguiente (o anterior, con `-1`) de un `YYYY-MM`. */
+export function shiftMonth(month: string, offset: number): string {
+  const [year, index] = month.split('-').map(Number);
+  const next = new Date(Date.UTC(year!, index! - 1 + offset, 1, 12));
+  return next.toISOString().slice(0, 7);
+}
+
+/**
+ * Las semanas de un mes, de lunes a domingo, como en un calendario de pared.
+ * Los huecos antes del día 1 y después del último son `null`.
+ */
+export function monthWeeks(month: string): (string | null)[][] {
+  const [year, index] = month.split('-').map(Number);
+  const first = new Date(Date.UTC(year!, index! - 1, 1, 12));
+  const length = new Date(Date.UTC(year!, index!, 0, 12)).getUTCDate();
+  const lead = (first.getUTCDay() + 6) % 7; // lunes = 0
+  const cells: (string | null)[] = Array.from({ length: lead }, () => null);
+  for (let day = 1; day <= length; day += 1) {
+    cells.push(`${month}-${String(day).padStart(2, '0')}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (string | null)[][] = [];
+  for (let start = 0; start < cells.length; start += 7) weeks.push(cells.slice(start, start + 7));
+  return weeks;
+}
