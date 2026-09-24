@@ -16,6 +16,8 @@ import { createApiErrorHandler, createApiRouter } from './api/router';
 import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
 import { createProfileRouter } from './api/profileRouter';
 import { createClassesRouter } from './api/classesRouter';
+import { createAdminRouter } from './api/adminRouter';
+import { ownerSet } from './auth/roles';
 import type { EmailSender } from './email/sender';
 import { SILENT_ALERTER, type Alerter } from './email/alerts';
 
@@ -53,6 +55,7 @@ export function createApp({
   clock,
 }: AppOptions): Express {
   const app = express();
+  const owners = ownerSet(adminEmails);
 
   // Behind Railway's proxy; needed for correct protocol detection.
   app.set('trust proxy', 1);
@@ -83,7 +86,15 @@ export function createApp({
     express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
   );
 
-  app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl }));
+  // Lo mismo para los planes que quien administra sube a un socio.
+  app.use(
+    '/api/admin',
+    requireUser,
+    express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
+  );
+
+  app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl, owners }));
+  app.use('/api/admin', createAdminRouter(db, { rateLimits, owners, email, appUrl }));
   app.use('/api/profile', requireUser, createProfileRouter(db, rateLimits));
   app.use(
     '/api/classes',

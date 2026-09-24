@@ -22,9 +22,11 @@ interface ProfileScreenProps {
   email: string;
   /** Opens the settings screen, which used to be stapled below this one. */
   onOpenSettings: () => void;
+  /** Solo para quien administra: la lista de socios. */
+  onOpenMembers?: () => void;
 }
 
-export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
+export function ProfileScreen({ email, onOpenSettings, onOpenMembers }: ProfileScreenProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A view of the profile rather than a fifth tab: four tabs are what fits
@@ -101,6 +103,19 @@ export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
 
   return (
     <div className="space-y-4">
+      {onOpenMembers ? (
+        <button
+          type="button"
+          onClick={onOpenMembers}
+          className="flex w-full items-center gap-3 rounded-2xl bg-signal-500 px-4 py-3 text-left font-semibold text-iron-950 hover:bg-signal-400"
+        >
+          <Icon name="user" size={20} />
+          <span className="flex-1">Socios</span>
+          <span className="text-sm font-medium text-iron-950/70">planes y roles</span>
+          <Icon name="chevronRight" size={20} />
+        </button>
+      ) : null}
+
       {error ? (
         // The profile below is still the last good one; say so rather than
         // replacing it, and leave a way back.

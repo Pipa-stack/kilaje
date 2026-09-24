@@ -2,9 +2,8 @@
  * Clases: ver la semana, reservar y anular. Y, para quien administra, el
  * horario, la lista de apuntados y anular una fecha.
  *
- * Quién administra no se guarda en la base: son los correos de
- * `ADMIN_EMAILS`. Un campo en `users` necesitaría una forma de ponerlo, y la
- * única que hay sin SQL a mano sería un endpoint para hacerse administrador.
+ * Quién administra lo decide `auth/roles.ts`: el rol de la cuenta, o ser uno
+ * de los propietarios de `ADMIN_EMAILS`.
  */
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -14,7 +13,7 @@ import type { Database } from '../db/database';
 import { currentUserId } from './authRouter';
 import { idParam } from './schemas';
 import { createReadLimiter, createWriteLimiter } from './rateLimit';
-import { findUserById } from '../repositories/users';
+import { ownerSet, requireAdmin as adminGuard, resolveAccess } from '../auth/roles';
 import {
   BOOKING_DAYS,
   CANCEL_DEADLINE_MINUTES,
@@ -67,7 +66,7 @@ const classBody = z
 
 export interface ClassesRouterOptions {
   rateLimits?: boolean;
-  /** Correos, en minúsculas, de quienes administran las clases. */
+  /** Propietarios: administradores siempre. */
   adminEmails?: readonly string[];
   email?: EmailSender;
   appUrl?: string;
@@ -86,27 +85,16 @@ export function createClassesRouter(
   }: ClassesRouterOptions = {},
 ): Router {
   const router = Router();
-  const admins = new Set(adminEmails.map((address) => address.trim().toLowerCase()));
+  const owners = ownerSet(adminEmails);
 
   const passThrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const byUser = (req: Request): string => `user:${currentUserId(req)}`;
   const readLimiter = rateLimits ? createReadLimiter(byUser) : passThrough;
   const writeLimiter = rateLimits ? createWriteLimiter(byUser) : passThrough;
 
-  const isAdmin = async (req: Request): Promise<boolean> => {
-    if (admins.size === 0) return false;
-    const user = await findUserById(db, currentUserId(req));
-    return user !== null && admins.has(user.email.toLowerCase());
-  };
-
-  const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
-    isAdmin(req)
-      .then((allowed) => {
-        if (allowed) next();
-        else res.status(403).json({ error: 'Solo quien administra el gimnasio puede hacer esto.' });
-      })
-      .catch(next);
-  };
+  const isAdmin = async (req: Request): Promise<boolean> =>
+    (await resolveAccess(db, currentUserId(req), owners))?.role === 'admin';
+  const requireAdmin = adminGuard(db, owners);
 
   /**
    * Manda correos después de haber respondido.

@@ -36,6 +36,7 @@ import { RESET_TTL_MINUTES, consumeResetToken, createResetToken } from '../repos
 import { buildResetEmail } from '../email/resetEmail';
 import type { EmailSender } from '../email/sender';
 import { createAuthIpLimiter, createAuthLimiter } from './rateLimit';
+import { resolveAccess } from '../auth/roles';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -137,13 +138,22 @@ export interface AuthRouterOptions {
   email?: EmailSender;
   /** Absolute origin used to build the reset link, e.g. https://kilaje.up.railway.app */
   appUrl?: string;
+  /** Propietarios (`ADMIN_EMAILS`), para decir el rol en `/me`. */
+  owners?: ReadonlySet<string>;
 }
 
 export function createAuthRouter(
   db: Database,
-  { rateLimits = true, email, appUrl = '' }: AuthRouterOptions = {},
+  { rateLimits = true, email, appUrl = '', owners = new Set<string>() }: AuthRouterOptions = {},
 ): Router {
   const router = Router();
+
+  /** Lo que el cliente sabe de la cuenta: quién es y qué rol tiene. */
+  const describe = async (user: { id: number; email: string }) => ({
+    id: user.id,
+    email: user.email,
+    role: (await resolveAccess(db, user.id, owners))?.role ?? 'member',
+  });
 
   // One counter per surface, not one shared by all of them. Sharing let
   // `/forgot` — which anyone can call, needs no session and always answers
@@ -179,7 +189,7 @@ export function createAuthRouter(
 
         const token = await createSession(db, user.id);
         setSessionCookie(req, res, token);
-        res.status(201).json({ user: { id: user.id, email: user.email } });
+        res.status(201).json({ user: await describe(user) });
       } catch (error) {
         if (error instanceof EmailTakenError) {
           // This does tell the caller that the address has an account, which
@@ -215,7 +225,7 @@ export function createAuthRouter(
 
       const token = await createSession(db, user.id);
       setSessionCookie(req, res, token);
-      res.json({ user: { id: user.id, email: user.email } });
+      res.json({ user: await describe(user) });
     }),
   );
 
@@ -351,7 +361,7 @@ export function createAuthRouter(
         res.status(401).json({ error: 'Necesitas iniciar sesión.' });
         return;
       }
-      res.json({ user: { id: user.id, email: user.email } });
+      res.json({ user: await describe(user) });
     }),
   );
 

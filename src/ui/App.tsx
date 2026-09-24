@@ -5,6 +5,7 @@ import { bestSetByLineage } from '../domain/calculations';
 import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { ClassesScreen } from './components/ClassesScreen';
+import { MembersScreen } from './components/MembersScreen';
 import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
 import { Icon } from './components/Icon';
@@ -78,6 +79,8 @@ export default function App() {
       theme={theme}
       onSignOut={auth.signOut}
       email={auth.account?.email ?? 'sin conexión'}
+      accountId={auth.account?.id ?? null}
+      isAdmin={auth.account?.role === 'admin'}
       tab={tab}
       setTab={setTab}
       showSettings={showSettings}
@@ -90,6 +93,8 @@ interface SignedInProps {
   theme: ReturnType<typeof useTheme>;
   onSignOut: () => Promise<void>;
   email: string;
+  accountId: number | null;
+  isAdmin: boolean;
   tab: Tab;
   setTab: (tab: Tab) => void;
   showSettings: boolean;
@@ -101,12 +106,23 @@ function SignedIn({
   theme,
   onSignOut,
   email,
+  accountId,
+  isAdmin,
   tab,
   setTab,
   showSettings,
   setShowSettings,
 }: SignedInProps) {
   const state = useProgram();
+  // La lista de socios se abre desde el perfil, como los ajustes.
+  const [showMembers, setShowMembers] = useState(false);
+  const members = (
+    <MembersScreen
+      currentUserId={accountId}
+      offline={state.offline}
+      onBack={() => setShowMembers(false)}
+    />
+  );
   // Sin plan, quien eligió «Solo reservar clases» vuelve directo a ellas.
   const [classesOnly, setClassesOnly] = useState(loadClassesFirst);
 
@@ -146,6 +162,16 @@ function SignedIn({
               Kilaje
             </h1>
             <div className="flex gap-1">
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => setShowMembers((open) => !open)}
+                  className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100"
+                >
+                  <Icon name={showMembers ? 'calendar' : 'user'} size={16} />
+                  {showMembers ? 'Clases' : 'Socios'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -166,9 +192,7 @@ function SignedIn({
               </button>
             </div>
           </header>
-          <main>
-            <ClassesScreen offline={state.offline} />
-          </main>
+          <main>{showMembers && isAdmin ? members : <ClassesScreen offline={state.offline} />}</main>
         </div>
       );
     }
@@ -339,8 +363,14 @@ function SignedIn({
 
         {tab === 'progress' ? <ProgressScreen week={week} weeks={program.weeks} /> : null}
 
-        {tab === 'settings' && !showSettings ? (
-          <ProfileScreen email={email} onOpenSettings={() => setShowSettings(true)} />
+        {tab === 'settings' && showMembers && isAdmin ? members : null}
+
+        {tab === 'settings' && !showSettings && !(showMembers && isAdmin) ? (
+          <ProfileScreen
+            email={email}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenMembers={isAdmin ? () => setShowMembers(true) : undefined}
+          />
         ) : null}
 
         {tab === 'settings' && showSettings ? (
@@ -389,7 +419,10 @@ function SignedIn({
         // back to the tab while settings were open did nothing visible, and
         // the tab you pressed appeared to be broken.
         onChange={(next) => {
-          if (next === 'settings') setShowSettings(false);
+          if (next === 'settings') {
+            setShowSettings(false);
+            setShowMembers(false);
+          }
           setTab(next);
         }}
         dayLabel={day.type ? `Día ${day.number}` : `Día ${day.number}`}

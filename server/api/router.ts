@@ -33,6 +33,7 @@ import {
 } from '../repositories/sessions';
 import { appendWeek, removeWeek, WeekLimitError } from '../repositories/weeks';
 import { ClassRuleError } from '../repositories/classes';
+import { RoleChangeError } from '../repositories/members';
 import { addDay, removeDay } from '../repositories/days';
 import {
   addExercise,
@@ -574,6 +575,11 @@ export function apiErrorHandler(
   }
 
   if (error instanceof WeekLimitError || error instanceof PlanLimitError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+
+  if (error instanceof RoleChangeError) {
     res.status(409).json({ error: error.message });
     return;
   }

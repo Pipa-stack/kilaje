@@ -164,6 +164,7 @@ export function SettingsScreen({
                   {program.weekCount} {program.weekCount === 1 ? 'semana' : 'semanas'} ·{' '}
                   {program.dayCount} sesiones · {program.completedDays} completadas ·{' '}
                   {formatDate(program.importedAt)}
+                  {program.assignedBy ? ` · subido por ${program.assignedBy}` : ''}
                 </p>
 
                 <div className="mt-3 flex gap-2">

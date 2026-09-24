@@ -187,3 +187,15 @@ function isUniqueViolation(error: unknown): boolean {
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
+
+/** Correo y rol guardado de una cuenta, para decidir qué puede hacer. */
+export async function findUserRole(
+  db: Database,
+  id: number,
+): Promise<{ email: string; role: 'member' | 'admin' } | null> {
+  const { rows } = await db.query<{ email: string; role: 'member' | 'admin' }>(
+    'SELECT email, role FROM users WHERE id = $1',
+    [id],
+  );
+  return rows[0] ?? null;
+}

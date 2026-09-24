@@ -827,3 +827,42 @@ describe('clases', () => {
     expect(screen.queryByRole('heading', { name: 'Tus reservas' })).not.toBeInTheDocument();
   });
 });
+
+describe('socios', () => {
+  it('quien administra busca a un socio, le sube el planning y lo hace administrador', async () => {
+    // Un socio que se registra por su cuenta, sin pasar por la interfaz.
+    const registered = await realFetch(`${API_ORIGIN}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'ana@ejemplo.com', password: 'contrasena-de-prueba' }),
+    });
+    expect(registered.status).toBe(201);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+
+    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    await user.click(await screen.findByRole('button', { name: 'Socios' }, WAIT));
+    await screen.findByRole('heading', { name: 'Socios' }, WAIT);
+
+    await user.type(screen.getByLabelText('Buscar socio'), 'ANA');
+    await user.click(await screen.findByRole('button', { name: /ana@ejemplo\.com/ }, WAIT));
+    await screen.findByRole('heading', { name: 'ana' }, WAIT);
+    expect(screen.getByText('Todavía no tiene ningún plan.')).toBeInTheDocument();
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [referenceFile('Plan Ana.xlsx')] } });
+
+    await screen.findByText('Plan «Plan Ana» subido a ana.', {}, WAIT);
+    expect(screen.getByRole('heading', { name: 'Plan Ana' })).toBeInTheDocument();
+    expect(screen.getByText('El que abre')).toBeInTheDocument();
+    expect(screen.getByText(/subido por test/)).toBeInTheDocument();
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: 'Hacer administrador' }));
+    await screen.findByText('ana ya es administrador.', {}, WAIT);
+    expect(screen.getByRole('button', { name: 'Quitar rol de administrador' })).toBeInTheDocument();
+  });
+});

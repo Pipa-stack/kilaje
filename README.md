@@ -50,6 +50,32 @@ clases** y desde entonces la app se abre ahí.
   día concreto — un festivo —, lo que avisa por correo a los apuntados. Una
   clase anulada se puede recuperar y cada uno sigue donde estaba.
 
+### Roles: socio y administrador
+
+Como las apps de gimnasio en su forma más simple (Trainerize, Virtuagym): quien
+entrena y quien lleva el gimnasio.
+
+| | Socio | Administrador |
+|---|---|---|
+| Entrenar, su progreso, sus planes | Sí | Sí |
+| Reservar clases | Sí | Sí |
+| Ver a todos los socios y buscar | — | Sí |
+| Subirle el planning a un socio (la misma plantilla de Excel) | — | Sí |
+| Descargar el progreso de un socio en esa plantilla, o borrarle un plan | — | Sí |
+| Horario de clases, apuntados, anular un día | — | Sí |
+| Hacer o dejar de hacer administrador a alguien | — | Sí |
+
+Se entra por **Perfil → Socios**, o por el botón *Socios* si solo usas las clases.
+
+- El rol se guarda por cuenta (`users.role`). Los correos de `ADMIN_EMAILS` son
+  **propietarios**: administradores siempre, y la app no deja quitarles el rol.
+  Nadie puede cambiar su propio rol, así que nadie se deja fuera por un toque.
+- Quitarle el rol a alguien vale **al momento**: se comprueba en cada petición,
+  no al iniciar sesión.
+- Un plan subido por un administrador pasa a ser el que se le abre al socio,
+  lleva *subido por …* en su lista de planes y le avisa por correo. Sus planes
+  anteriores, y lo que anotó en ellos, no se tocan.
+
 Quién tiene plaza no se guarda: son las `capacity` primeras reservas por orden
 de llegada. Por eso la espera avanza sola y dos personas pulsando a la vez la
 última plaza no pueden quedársela las dos. Las horas son de pared en

@@ -20,6 +20,8 @@ export interface ProgramSummary {
   weekCount: number;
   dayCount: number;
   completedDays: number;
+  /** Quién lo subió, si no fue uno mismo. */
+  assignedBy: string | null;
 }
 
 export interface StoredProgram extends Program {
@@ -287,9 +289,12 @@ export async function resetSession(dayId: string): Promise<void> {
 /* Accounts                                                            */
 /* ------------------------------------------------------------------ */
 
+export type Role = 'member' | 'admin';
+
 export interface Account {
   id: number;
   email: string;
+  role: Role;
 }
 
 /**
@@ -521,4 +526,62 @@ export async function setClassCancelled(
 
 export async function removeClassBooking(bookingId: number): Promise<void> {
   await callApi<void>(`/classes/bookings/${bookingId}`, { method: 'DELETE' });
+}
+
+/* ------------------------------------------------------------------ */
+/* Socios (solo administración)                                        */
+/* ------------------------------------------------------------------ */
+
+export interface MemberSummary {
+  id: number;
+  email: string;
+  displayName: string;
+  role: Role;
+  /** Propietario: administrador siempre. */
+  owner: boolean;
+  memberSince: string;
+  lastTrainedAt: string | null;
+  programCount: number;
+  currentProgram: string | null;
+}
+
+export async function fetchMembers(): Promise<MemberSummary[]> {
+  const { members } = await callApi<{ members: MemberSummary[] }>('/admin/members');
+  return members;
+}
+
+export async function fetchMember(
+  userId: number,
+): Promise<{ member: MemberSummary; programs: ProgramSummary[] }> {
+  return callApi(`/admin/members/${userId}`);
+}
+
+export async function setMemberRole(userId: number, role: Role): Promise<MemberSummary> {
+  const { member } = await callApi<{ member: MemberSummary }>(`/admin/members/${userId}`, {
+    ...json({ role }),
+    method: 'PATCH',
+  });
+  return member;
+}
+
+/** Sube un Excel como plan de otro socio. */
+export async function uploadMemberProgram(
+  userId: number,
+  file: File,
+): Promise<{ programId: number; name: string; created: boolean }> {
+  const bytes = await file.arrayBuffer();
+  return callApi(`/admin/members/${userId}/programs?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: bytes,
+  });
+}
+
+export async function deleteMemberProgram(userId: number, programId: number): Promise<void> {
+  await callApi<void>(`/admin/members/${userId}/programs/${programId}`, { method: 'DELETE' });
+}
+
+/** Enlace de descarga: lo abre el navegador, como la exportación propia. */
+export function memberProgramExportUrl(userId: number, programId: number): string {
+  return `${BASE}/admin/members/${userId}/programs/${programId}/export`;
 }

@@ -49,7 +49,7 @@ export function buildCancelledEmail(to: string, label: OccurrenceLabel, appUrl: 
   return { to, subject, text, html: wrap(subject, `La clase de <strong>${escapeHtml(label.name)}</strong> de ${escapeHtml(when)} se ha anulado.`, 'No tienes que hacer nada. Si se recupera, seguirás apuntado donde estabas.', appUrl) };
 }
 
-function wrap(title: string, lead: string, note: string, appUrl: string): string {
+export function wrap(title: string, lead: string, note: string, appUrl: string): string {
   const link = appUrl
     ? `<p style="margin: 0 0 24px">
         <a href="${escapeHtml(appUrl)}"

@@ -39,6 +39,8 @@ export interface ProgramSummary {
   weekCount: number;
   dayCount: number;
   completedDays: number;
+  /** Quién lo subió, si no fue su dueño: "te lo ha puesto tu entrenador". */
+  assignedBy: string | null;
 }
 
 /** A stored program: the normalized model plus its database identity. */
@@ -396,8 +398,10 @@ export async function listPrograms(db: Database, userId: number): Promise<Progra
     week_count: number;
     day_count: number;
     completed_days: number;
+    assigned_by: string | null;
   }>(`
     SELECT p.id, p.name, p.source_file_name, p.version, p.imported_at,
+           COALESCE(NULLIF(trim(a.display_name), ''), split_part(a.email, '@', 1)) AS assigned_by,
            COUNT(DISTINCT w.id)                                  AS week_count,
            COUNT(DISTINCT d.id)                                  AS day_count,
            COUNT(DISTINCT s.id) FILTER (WHERE s.completed)        AS completed_days
@@ -405,8 +409,9 @@ export async function listPrograms(db: Database, userId: number): Promise<Progra
       LEFT JOIN weeks w            ON w.program_id = p.id
       LEFT JOIN workout_days d     ON d.week_id = w.id
       LEFT JOIN workout_sessions s ON s.day_id = d.id
+      LEFT JOIN users a            ON a.id = p.assigned_by
      WHERE p.user_id = $1
-     GROUP BY p.id
+     GROUP BY p.id, a.id
      ORDER BY p.imported_at DESC, p.id DESC
   `, [userId]);
 
@@ -419,6 +424,7 @@ export async function listPrograms(db: Database, userId: number): Promise<Progra
     weekCount: Number(row.week_count),
     dayCount: Number(row.day_count),
     completedDays: Number(row.completed_days),
+    assignedBy: row.assigned_by,
   }));
 }
 
