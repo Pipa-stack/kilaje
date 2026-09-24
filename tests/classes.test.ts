@@ -397,3 +397,25 @@ describe('describeWhen', () => {
     );
   });
 });
+
+describe('horario inicial', () => {
+  it('abre de lunes a viernes con 8 turnos de 1 h 30 y 7 plazas', async () => {
+    // Una base recién migrada, antes de que ningún test la vacíe.
+    const fresh = await createTestDatabase();
+    try {
+      const { rows } = await fresh.query<{ weekday: number; starts_at: string }>(
+        `SELECT weekday::int AS weekday, to_char(starts_at, 'HH24:MI') AS starts_at
+           FROM gym_classes
+          WHERE name = 'Turno' AND duration_minutes = 90 AND capacity = 7
+          ORDER BY weekday, starts_at`,
+      );
+      expect(rows).toHaveLength(40);
+      expect(new Set(rows.map((row) => row.weekday))).toEqual(new Set([1, 2, 3, 4, 5]));
+      expect(rows.filter((row) => row.weekday === 1).map((row) => row.starts_at)).toEqual([
+        '06:30', '08:00', '09:30', '11:00', '15:00', '16:30', '18:00', '19:30',
+      ]);
+    } finally {
+      await fresh.close();
+    }
+  }, 60_000);
+});
