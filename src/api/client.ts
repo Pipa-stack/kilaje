@@ -437,3 +437,88 @@ export async function fetchProfile(): Promise<Profile> {
 export async function updateProfile(patch: { displayName: string | null }): Promise<void> {
   await callApi<void>('/profile', { ...json(patch), method: 'PATCH' });
 }
+
+/* ------------------------------------------------------------------ */
+/* Clases                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Una clase del horario semanal. */
+export interface GymClass {
+  id: number;
+  name: string;
+  coach: string | null;
+  /** 1 = lunes … 7 = domingo. */
+  weekday: number;
+  /** `HH:MM`, hora del gimnasio. */
+  startsAt: string;
+  durationMinutes: number;
+  capacity: number;
+}
+
+export type GymClassInput = Omit<GymClass, 'id'>;
+
+/** Una clase en una fecha, con lo que le toca a quien la mira. */
+export interface ClassOccurrence extends GymClass {
+  date: string;
+  startsAtIso: string;
+  booked: number;
+  waiting: number;
+  cancelled: boolean;
+  started: boolean;
+  mine: 'booked' | 'waiting' | null;
+  waitPosition: number | null;
+  canCancel: boolean;
+  /** Solo llega a quien administra. */
+  attendees?: { bookingId: number; name: string; waiting: boolean }[];
+}
+
+export interface ClassesWeek {
+  days: { date: string; classes: ClassOccurrence[] }[];
+  isAdmin: boolean;
+  bookingDays: number;
+  cancelDeadlineMinutes: number;
+  /** Solo llega a quien administra. */
+  schedule?: GymClass[];
+}
+
+export async function fetchClasses(): Promise<ClassesWeek> {
+  return callApi<ClassesWeek>('/classes');
+}
+
+export async function bookClass(
+  classId: number,
+  date: string,
+): Promise<{ status: 'booked' | 'waiting'; waitPosition: number | null }> {
+  return callApi(`/classes/${classId}/bookings`, json({ date }));
+}
+
+export async function cancelClassBooking(classId: number, date: string): Promise<void> {
+  await callApi<void>(`/classes/${classId}/bookings/${date}`, { method: 'DELETE' });
+}
+
+export async function createGymClass(input: GymClassInput): Promise<void> {
+  await callApi('/classes/schedule', json(input));
+}
+
+export async function updateGymClass(classId: number, input: GymClassInput): Promise<void> {
+  await callApi(`/classes/schedule/${classId}`, { ...json(input), method: 'PUT' });
+}
+
+export async function deleteGymClass(classId: number): Promise<void> {
+  await callApi<void>(`/classes/schedule/${classId}`, { method: 'DELETE' });
+}
+
+/** Anula (o, con `cancelled: false`, recupera) la clase de una fecha. */
+export async function setClassCancelled(
+  classId: number,
+  date: string,
+  cancelled: boolean,
+): Promise<void> {
+  await callApi<void>(`/classes/${classId}/cancellations/${date}`, {
+    method: cancelled ? 'PUT' : 'DELETE',
+  });
+}
+
+export async function removeClassBooking(bookingId: number): Promise<void> {
+  await callApi<void>(`/classes/bookings/${bookingId}`, { method: 'DELETE' });
+}

@@ -15,6 +15,7 @@ import { ping, type Database } from './db/database';
 import { createApiErrorHandler, createApiRouter } from './api/router';
 import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
 import { createProfileRouter } from './api/profileRouter';
+import { createClassesRouter } from './api/classesRouter';
 import type { EmailSender } from './email/sender';
 import { SILENT_ALERTER, type Alerter } from './email/alerts';
 
@@ -35,6 +36,10 @@ export interface AppOptions {
   appUrl?: string;
   /** Raises the alarm on a 500. Silent unless the server wires one up. */
   alerter?: Alerter;
+  /** Correos de quienes administran las clases del gimnasio. */
+  adminEmails?: readonly string[];
+  /** El reloj de las reservas. Solo lo cambian los tests. */
+  clock?: () => Date;
 }
 
 export function createApp({
@@ -44,6 +49,8 @@ export function createApp({
   email,
   appUrl,
   alerter = SILENT_ALERTER,
+  adminEmails,
+  clock,
 }: AppOptions): Express {
   const app = express();
 
@@ -78,6 +85,11 @@ export function createApp({
 
   app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl }));
   app.use('/api/profile', requireUser, createProfileRouter(db, rateLimits));
+  app.use(
+    '/api/classes',
+    requireUser,
+    createClassesRouter(db, { rateLimits, adminEmails, email, appUrl, clock }),
+  );
   app.use('/api', requireUser, createApiRouter(db, rateLimits));
 
   app.use('/api', (_req, res) => {

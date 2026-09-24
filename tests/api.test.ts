@@ -75,8 +75,11 @@ describe('migrations', () => {
         WHERE table_schema = current_schema() ORDER BY table_name`,
     );
     expect(rows.map((row) => row.table_name)).toEqual([
+      'class_bookings',
+      'class_cancellations',
       'exercise_setups',
       'exercises',
+      'gym_classes',
       'password_resets',
       'programs',
       'reference_sets',

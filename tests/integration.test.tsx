@@ -780,3 +780,50 @@ describe('offline behaviour', () => {
     }
   }, 90_000);
 });
+
+describe('clases', () => {
+  it('sin plan, monta un horario, reserva y anula, y vuelve a las clases al recargar', async () => {
+    const user = userEvent.setup();
+    const app = render(<App />);
+    await signIn(user);
+
+    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    await screen.findByText('Todavía no hay clases. Añade la primera en «Editar horario».', {}, WAIT);
+
+    // Mañana, para que la clase no haya empezado sea la hora que sea.
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const isoWeekday = ((tomorrow.getDay() + 6) % 7) + 1;
+
+    await user.click(screen.getByRole('button', { name: 'Editar horario' }));
+    const form = await screen.findByRole('form', { name: 'Nueva clase' }, WAIT);
+    await user.type(within(form).getByLabelText('Nombre'), 'Crossfit');
+    await user.selectOptions(within(form).getByLabelText('Día'), String(isoWeekday));
+    const capacity = within(form).getByLabelText('Plazas');
+    await user.clear(capacity);
+    await user.type(capacity, '1');
+    await user.click(within(form).getByRole('button', { name: 'Añadir al horario' }));
+    await screen.findByText('Crossfit añadida al horario.', {}, WAIT);
+
+    await user.click(screen.getByRole('button', { name: 'Ver clases' }));
+    await user.click(screen.getByRole('button', { name: /^Mañana:/ }));
+
+    const card = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
+    expect(within(card).getByText('1 libre')).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'Reservar' }));
+    await screen.findByText(/Reservado: Crossfit/, {}, WAIT);
+
+    const booked = screen.getByRole('heading', { name: /Crossfit/ }).closest('article')!;
+    expect(within(booked).getByText('Tienes plaza')).toBeInTheDocument();
+    expect(within(booked).getByText('1 de 1 plazas')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Tus reservas' })).toBeInTheDocument();
+
+    // Recargar la app aterriza otra vez en las clases, no en la pregunta.
+    app.unmount();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /^Mañana:.*tienes reserva/ }, WAIT));
+    const again = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
+    await user.click(within(again).getByRole('button', { name: 'Anular mi plaza' }));
+    await screen.findByText('Plaza anulada.', {}, WAIT);
+    expect(screen.queryByRole('heading', { name: 'Tus reservas' })).not.toBeInTheDocument();
+  });
+});

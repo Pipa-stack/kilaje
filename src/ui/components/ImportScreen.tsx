@@ -10,6 +10,8 @@ interface ImportScreenProps {
   importing: boolean;
   error: string | null;
   onDismissError: () => void;
+  /** Para quien solo viene a reservar clases y no lleva un plan aquí. */
+  onOpenClasses?: () => void;
 }
 
 /** What a week of training usually looks like. Beyond this, edit it after. */
@@ -36,6 +38,7 @@ export function ImportScreen({
   importing,
   error,
   onDismissError,
+  onOpenClasses,
 }: ImportScreenProps) {
   const [route, setRoute] = useState<Route | null>(null);
 
@@ -79,6 +82,13 @@ export function ImportScreen({
             detail="Empiezas con la semana vacía y añades tus ejercicios a mano."
             onClick={() => setRoute('blank')}
           />
+          {onOpenClasses ? (
+            <Choice
+              title="Solo quiero reservar clases"
+              detail="Ves el horario del gimnasio y te apuntas. El plan lo puedes montar cuando quieras."
+              onClick={onOpenClasses}
+            />
+          ) : null}
         </div>
       ) : (
         <div className="space-y-4">

@@ -23,6 +23,12 @@ import {
 
 export const STORAGE_KEY = 'kilaje.program.v1';
 
+/**
+ * Recuerda que quien no tiene plan eligió «Solo reservar clases», para que
+ * al volver a abrir la app aterrice en las clases y no en la pregunta.
+ */
+export const CLASSES_FIRST_KEY = 'kilaje.classes-first.v1';
+
 /** Where the UI selection is remembered, so a reload lands on the same day. */
 export const SELECTION_KEY = 'kilaje.selection.v1';
 
@@ -109,12 +115,32 @@ export function loadCachedProgram(): CachedProgram | null {
  * workout to the next one on the same phone — and worse, replay their queued
  * writes under the new session.
  */
+export function loadClassesFirst(): boolean {
+  try {
+    return storage()?.getItem(CLASSES_FIRST_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveClassesFirst(value: boolean): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    if (value) store.setItem(CLASSES_FIRST_KEY, '1');
+    else store.removeItem(CLASSES_FIRST_KEY);
+  } catch {
+    /* nothing sensible to do */
+  }
+}
+
 export function clearProgram(): void {
   const store = storage();
   if (!store) return;
   try {
     store.removeItem(STORAGE_KEY);
     store.removeItem(SELECTION_KEY);
+    store.removeItem(CLASSES_FIRST_KEY);
   } catch {
     /* nothing sensible to do */
   }

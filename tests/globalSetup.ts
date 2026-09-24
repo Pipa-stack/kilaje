@@ -25,7 +25,9 @@ export default async function setup(project: TestProject) {
   const db = await createTestDatabase();
   // Throttling off: this one app serves every browser test, which signs in far
   // more often than a real client. The limiter has its own suite.
-  const app = createApp({ db, rateLimits: false });
+  // La cuenta que crean los tests de la interfaz administra las clases, para
+  // poder montar un horario desde la pantalla y reservar en él.
+  const app = createApp({ db, rateLimits: false, adminEmails: ['test@ejemplo.com'] });
 
   // Test-only hook so each test can start from an empty database. It is added
   // here, in the harness, and never exists in the production application.

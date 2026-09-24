@@ -1,6 +1,6 @@
 import { Icon, type IconName } from './Icon';
 
-export type Tab = 'home' | 'day' | 'progress' | 'settings';
+export type Tab = 'home' | 'day' | 'classes' | 'progress' | 'settings';
 
 interface BottomNavProps {
   current: Tab;
@@ -12,6 +12,7 @@ interface BottomNavProps {
 const ICONS: Record<Tab, IconName> = {
   home: 'home',
   day: 'dumbbell',
+  classes: 'calendar',
   progress: 'chart',
   settings: 'user',
 };
@@ -26,6 +27,7 @@ export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
     { id: 'day', label: dayLabel },
+    { id: 'classes', label: 'Clases' },
     { id: 'progress', label: 'Progreso' },
     { id: 'settings', label: 'Perfil' },
   ];

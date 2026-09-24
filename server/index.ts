@@ -95,11 +95,21 @@ async function main(): Promise<void> {
     console.warn('[server] sin ALERT_EMAIL: los errores del servidor no avisarán a nadie');
   }
 
+  // Quién gestiona las clases: horario, apuntados, anular una fecha.
+  const adminEmails = (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((address) => address.trim().toLowerCase())
+    .filter(Boolean);
+  if (adminEmails.length === 0) {
+    console.warn('[server] sin ADMIN_EMAILS: nadie puede gestionar el horario de clases');
+  }
+
   const app = createApp({
     db,
     staticDir: join(ROOT, 'dist'),
     email,
     alerter,
+    adminEmails,
     appUrl: process.env.APP_URL ?? '',
   });
 

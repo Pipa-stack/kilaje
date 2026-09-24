@@ -17,17 +17,44 @@ Al abrir la app aparece el programa ya almacenado. No hace falta subir el Excel 
 
 ## La app
 
-Cuatro secciones, con navegación inferior al alcance del pulgar:
+Cinco secciones, con navegación inferior al alcance del pulgar:
 
 | Sección | Qué hay |
 |---|---|
 | **Inicio** | Resumen de la semana (volumen, sesiones, ejercicios, mejor 1RM), botón grande de *continuar/empezar* con la sesión que toca, y la lista de sesiones con su estado |
 | **Entrenar** | Temporizador de descanso, resumen del día y las tarjetas de ejercicio con inputs grandes de peso/reps/RIR, vídeo, protocolo, notas y completar sesión. Se cambia de día deslizando o con los botones |
+| **Clases** | Las clases del gimnasio de hoy y los seis días siguientes: reservar, lista de espera y anular. Ver [Clases](#clases) |
 | **Progreso** | Dos vistas: **Esta semana** (volumen por sesión y tabla de ejercicios) e **Histórico** (evolución de cada ejercicio a lo largo de todos tus programas) |
 | **Perfil** | Constancia, reparto del volumen, récords personales, totales de por vida, tu nombre, tema, importar, programas y cuenta |
 
 El estado de cada sesión (pendiente / en curso / completada) nunca se indica solo con
 color: la palabra lo dice.
+
+### Clases
+
+Sustituye a MyTurn para apuntarse a las clases del gimnasio. Quien solo viene a
+reservar no necesita plan: en la primera pantalla elige **Solo quiero reservar
+clases** y desde entonces la app se abre ahí.
+
+- **Tres toques:** el día, la clase, *Reservar*. Cada tarjeta dice la hora, el
+  monitor, cuántas plazas quedan y si tú vas (*Tienes plaza*, *En espera · 2º*,
+  *Completa*, *Anulada*), con palabras y no solo con color.
+- **Se reserva con 7 días de antelación** y **se anula hasta 1 hora antes**. Salir
+  de la lista de espera se puede siempre: no le quita la plaza a nadie.
+- **Lista de espera automática.** Si la clase está llena te apuntas a la espera;
+  cuando alguien con plaza anula entra el primero de la cola, sin que nadie
+  tenga que hacer nada, y le llega un correo.
+- **Quien administra** (los correos de `ADMIN_EMAILS`) edita el horario semanal
+  (nombre, monitor, día, hora, duración, plazas), ve quién va a cada clase y en
+  qué orden, puede quitar a alguien sin límite de plazo y anular una clase un
+  día concreto — un festivo —, lo que avisa por correo a los apuntados. Una
+  clase anulada se puede recuperar y cada uno sigue donde estaba.
+
+Quién tiene plaza no se guarda: son las `capacity` primeras reservas por orden
+de llegada. Por eso la espera avanza sola y dos personas pulsando a la vez la
+última plaza no pueden quedársela las dos. Las horas son de pared en
+`Europe/Madrid`: la clase de las 18:00 sigue a las 18:00 después del cambio de
+hora.
 
 ### El perfil
 
@@ -438,6 +465,7 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `RESEND_API_KEY` | No | Clave de Resend, alternativa a SMTP |
 | `EMAIL_FROM` | No | Remitente. Con SMTP, por defecto `SMTP_USER` |
 | `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://kilaje.up.railway.app` |
+| `ADMIN_EMAILS` | No | Correos, separados por comas, de quienes gestionan las clases. Sin ella nadie puede editar el horario |
 
 Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 

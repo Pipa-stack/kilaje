@@ -4,6 +4,7 @@ import { bestSetByLineage } from '../domain/calculations';
 
 import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
+import { ClassesScreen } from './components/ClassesScreen';
 import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
 import { Icon } from './components/Icon';
@@ -18,6 +19,7 @@ import { useAccount } from './hooks/useAccount';
 import { useProgram } from './hooks/useProgram';
 import { useSwipe } from './hooks/useSwipe';
 import { useTheme } from './hooks/useTheme';
+import { loadClassesFirst, saveClassesFirst } from '../storage/storage';
 
 /**
  * The token an emailed reset link carries, if this is one.
@@ -105,6 +107,8 @@ function SignedIn({
   setShowSettings,
 }: SignedInProps) {
   const state = useProgram();
+  // Sin plan, quien eligió «Solo reservar clases» vuelve directo a ellas.
+  const [classesOnly, setClassesOnly] = useState(loadClassesFirst);
 
   // Swiping left goes forward, the way pages turn. Declared before any early
   // return, because hooks must run in the same order on every render. The
@@ -134,8 +138,47 @@ function SignedIn({
   }
 
   if (!state.program || !state.week || !state.day) {
+    if (classesOnly) {
+      return (
+        <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-12 pt-4">
+          <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h1 className="font-condensed text-2xl font-bold uppercase tracking-tight text-chalk">
+              Kilaje
+            </h1>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  saveClassesFirst(false);
+                  setClassesOnly(false);
+                }}
+                className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100"
+              >
+                <Icon name="dumbbell" size={16} />
+                Montar mi entrenamiento
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSignOut()}
+                className="flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100"
+              >
+                Salir
+              </button>
+            </div>
+          </header>
+          <main>
+            <ClassesScreen offline={state.offline} />
+          </main>
+        </div>
+      );
+    }
+
     return (
       <ImportScreen
+        onOpenClasses={() => {
+          saveClassesFirst(true);
+          setClassesOnly(true);
+        }}
         onFile={state.importFile}
         onCreateBlank={(days) => void state.createBlank(days)}
         importing={state.importing}
@@ -201,7 +244,7 @@ function SignedIn({
           ) : null}
         </div>
 
-        {tab !== 'settings' ? (
+        {tab !== 'settings' && tab !== 'classes' ? (
           <WeekManager
             weeks={program.weeks}
             currentWeek={week}
@@ -291,6 +334,8 @@ function SignedIn({
             />
           </div>
         ) : null}
+
+        {tab === 'classes' ? <ClassesScreen offline={state.offline} /> : null}
 
         {tab === 'progress' ? <ProgressScreen week={week} weeks={program.weeks} /> : null}
 

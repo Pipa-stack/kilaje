@@ -32,6 +32,7 @@ import {
   updateSession,
 } from '../repositories/sessions';
 import { appendWeek, removeWeek, WeekLimitError } from '../repositories/weeks';
+import { ClassRuleError } from '../repositories/classes';
 import { addDay, removeDay } from '../repositories/days';
 import {
   addExercise,
@@ -574,6 +575,11 @@ export function apiErrorHandler(
 
   if (error instanceof WeekLimitError || error instanceof PlanLimitError) {
     res.status(409).json({ error: error.message });
+    return;
+  }
+
+  if (error instanceof ClassRuleError) {
+    res.status(error.status).json({ error: error.message });
     return;
   }
 
