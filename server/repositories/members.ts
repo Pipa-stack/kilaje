@@ -22,6 +22,11 @@ export interface MemberSummary {
   programCount: number;
   /** El programa que abre al entrar: el último subido. */
   currentProgram: string | null;
+  /** Hasta qué día tiene la cuota pagada; `null` si no se lleva control. */
+  paidUntil: string | null;
+  /** Últimos 30 días, según lo que se marcó al pasar lista. */
+  attended30: number;
+  missed30: number;
 }
 
 interface MemberRow {
@@ -33,6 +38,9 @@ interface MemberRow {
   last_trained: Date | string | null;
   program_count: number | string;
   current_program: string | null;
+  paid_until: string | null;
+  attended_30: number | string;
+  missed_30: number | string;
 }
 
 /** Nombre, o el correo antes de la @, como en el resto de la app. */
@@ -56,6 +64,9 @@ function toMember(row: MemberRow, owners: ReadonlySet<string>): MemberSummary {
     lastTrainedAt: row.last_trained ? toIso(row.last_trained) : null,
     programCount: Number(row.program_count),
     currentProgram: row.current_program,
+    paidUntil: row.paid_until,
+    attended30: Number(row.attended_30),
+    missed30: Number(row.missed_30),
   };
 }
 
@@ -82,7 +93,14 @@ async function queryMembers(
               WHERE p.user_id = u.id)                                   AS last_trained,
             (SELECT COUNT(*) FROM programs p WHERE p.user_id = u.id)    AS program_count,
             (SELECT p.name FROM programs p WHERE p.user_id = u.id
-              ORDER BY p.imported_at DESC, p.id DESC LIMIT 1)          AS current_program
+              ORDER BY p.imported_at DESC, p.id DESC LIMIT 1)          AS current_program,
+            to_char(u.paid_until, 'YYYY-MM-DD')                         AS paid_until,
+            (SELECT COUNT(*) FROM class_bookings b
+              WHERE b.user_id = u.id AND b.attended
+                AND b.class_date >= CURRENT_DATE - 30)                  AS attended_30,
+            (SELECT COUNT(*) FROM class_bookings b
+              WHERE b.user_id = u.id AND b.attended = false
+                AND b.class_date >= CURRENT_DATE - 30)                  AS missed_30
        FROM users u
       WHERE $1::bigint IS NULL OR u.id = $1
       ORDER BY lower(COALESCE(NULLIF(trim(u.display_name), ''), u.email))`,
@@ -140,4 +158,13 @@ export async function markAssigned(
   assignedBy: number,
 ): Promise<void> {
   await db.query('UPDATE programs SET assigned_by = $2 WHERE id = $1', [programId, assignedBy]);
+}
+
+/** Apunta hasta cuándo tiene pagado. `null` deja de llevar control. */
+export async function setPaidUntil(
+  db: Database,
+  userId: number,
+  paidUntil: string | null,
+): Promise<void> {
+  await db.query('UPDATE users SET paid_until = $2::date WHERE id = $1', [userId, paidUntil]);
 }

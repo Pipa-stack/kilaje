@@ -27,7 +27,7 @@ import {
   importProgram,
   listPrograms,
 } from '../repositories/programs';
-import { getMember, listMembers, markAssigned, setRole } from '../repositories/members';
+import { getMember, listMembers, markAssigned, setPaidUntil, setRole } from '../repositories/members';
 import { buildPlanAssignedEmail } from '../email/planEmail';
 import type { EmailSender } from '../email/sender';
 
@@ -40,6 +40,10 @@ function handle(
 }
 
 const roleBody = z.object({ role: z.enum(['member', 'admin']) }).strict();
+
+const paidUntilBody = z
+  .object({ paidUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida').nullable() })
+  .strict();
 
 export interface AdminRouterOptions {
   rateLimits?: boolean;
@@ -95,6 +99,19 @@ export function createAdminRouter(
       if (!member) return;
       const { role } = roleBody.parse(req.body);
       await setRole(db, currentUserId(req), member, role);
+      res.json({ member: await getMember(db, owners, member.id) });
+    }),
+  );
+
+  /** Hasta cuándo tiene pagada la cuota; `null` deja de llevar control. */
+  router.put(
+    '/members/:userId/paid-until',
+    writeLimiter,
+    handle(async (req, res) => {
+      const member = await loadMember(req, res);
+      if (!member) return;
+      const { paidUntil } = paidUntilBody.parse(req.body);
+      await setPaidUntil(db, member.id, paidUntil);
       res.json({ member: await getMember(db, owners, member.id) });
     }),
   );

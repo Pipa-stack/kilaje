@@ -115,6 +115,31 @@ export function loadCachedProgram(): CachedProgram | null {
  * workout to the next one on the same phone — and worse, replay their queued
  * writes under the new session.
  */
+/** Los avisos que esta persona ya cerró en este dispositivo. */
+export const DISMISSED_NOTICES_KEY = 'kilaje.dismissed-notices.v1';
+
+export function loadDismissedNotices(): number[] {
+  try {
+    const raw = storage()?.getItem(DISMISSED_NOTICES_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is number => typeof id === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function dismissNotice(id: number): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    // Solo los últimos: los avisos viejos ya no vuelven a salir.
+    const ids = [...loadDismissedNotices().filter((known) => known !== id), id].slice(-50);
+    store.setItem(DISMISSED_NOTICES_KEY, JSON.stringify(ids));
+  } catch {
+    /* nothing sensible to do */
+  }
+}
+
 export function loadClassesFirst(): boolean {
   try {
     return storage()?.getItem(CLASSES_FIRST_KEY) === '1';

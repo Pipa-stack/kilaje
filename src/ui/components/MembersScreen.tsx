@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as api from '../../api/client';
 import type { MemberSummary, ProgramSummary } from '../../api/client';
 import { shortDate } from '../format';
+import { addDays, gymToday, longDate } from '../classDates';
 import { Dropzone } from './Dropzone';
 import { Icon } from './Icon';
 
@@ -134,6 +135,7 @@ export function MembersScreen({ currentUserId, onBack, offline }: MembersScreenP
                   <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="truncate font-semibold text-chalk">{member.displayName}</span>
                     <RoleChip member={member} />
+                    <FeeChip member={member} />
                   </span>
                   <span className="block truncate text-xs text-iron-400">{member.email}</span>
                   <span className="mt-0.5 block truncate text-xs text-iron-400">
@@ -152,6 +154,38 @@ export function MembersScreen({ currentUserId, onBack, offline }: MembersScreenP
       )}
     </div>
   );
+}
+
+/** Cómo va su cuota: nada si no se lleva control. */
+function FeeChip({ member }: { member: MemberSummary }) {
+  if (!member.paidUntil) return null;
+  const today = gymToday();
+  if (member.paidUntil < today) {
+    return (
+      <span className="shrink-0 rounded-full bg-effort-500/15 px-2 py-0.5 text-xs font-semibold text-effort-300">
+        Cuota vencida
+      </span>
+    );
+  }
+  if (member.paidUntil <= addDays(today, 7)) {
+    return (
+      <span className="shrink-0 rounded-full bg-signal-500/15 px-2 py-0.5 text-xs font-semibold text-signal-300">
+        Vence el {shortDate(member.paidUntil)}
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Un mes más a partir de hoy o de lo ya pagado, lo que sea más tarde. */
+function plusOneMonth(paidUntil: string | null): string {
+  const today = gymToday();
+  const base = paidUntil && paidUntil > today ? paidUntil : today;
+  const [year, month, day] = base.split('-').map(Number);
+  const next = new Date(Date.UTC(year!, month!, day!, 12));
+  // 31 de enero + 1 mes no es 3 de marzo: se queda en el último día del mes.
+  if (next.getUTCDate() !== day) next.setUTCDate(0);
+  return next.toISOString().slice(0, 10);
 }
 
 function RoleChip({ member }: { member: MemberSummary }) {
@@ -229,6 +263,7 @@ function MemberDetail({ userId, currentUserId, offline, onChanged }: MemberDetai
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <h2 className="text-xl font-bold text-chalk">{member.displayName}</h2>
           <RoleChip member={member} />
+          <FeeChip member={member} />
         </div>
         <p className="text-sm text-iron-400">{member.email}</p>
         <p className="mt-1 text-xs text-iron-400">
@@ -236,7 +271,26 @@ function MemberDetail({ userId, currentUserId, offline, onChanged }: MemberDetai
           {' · '}
           {member.lastTrainedAt ? `entrenó ${sinceLabel(member.lastTrainedAt)}` : 'sin entrenar todavía'}
         </p>
+        <p className="mt-1 text-xs text-iron-400">
+          Clases últimos 30 días: vino {member.attended30}
+          {member.missed30 > 0 ? (
+            <span className="font-semibold text-effort-300"> · faltó {member.missed30}</span>
+          ) : null}
+        </p>
       </section>
+
+      <FeeSection
+        member={member}
+        disabled={disabled}
+        onSave={(paidUntil) =>
+          void act(async () => {
+            await api.setMemberPaidUntil(member.id, paidUntil);
+            return paidUntil
+              ? `Cuota de ${member.displayName} pagada hasta el ${longDate(paidUntil)}.`
+              : `Ya no se controla la cuota de ${member.displayName}.`;
+          })
+        }
+      />
 
       <div role="status" aria-live="polite">
         {error ? (
@@ -372,5 +426,78 @@ function MemberDetail({ userId, currentUserId, offline, onChanged }: MemberDetai
         ) : null}
       </section>
     </div>
+  );
+}
+
+function FeeSection({
+  member,
+  disabled,
+  onSave,
+}: {
+  member: MemberSummary;
+  disabled: boolean;
+  onSave: (paidUntil: string | null) => void;
+}) {
+  const [date, setDate] = useState(member.paidUntil ?? '');
+  const today = gymToday();
+  const expired = member.paidUntil !== null && member.paidUntil < today;
+
+  return (
+    <section aria-labelledby="fee-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+      <h3 id="fee-title" className="mb-1 font-semibold text-chalk">
+        Cuota
+      </h3>
+      <p className={`mb-3 text-sm ${expired ? 'font-semibold text-effort-300' : 'text-iron-400'}`}>
+        {member.paidUntil
+          ? `${expired ? 'Vencida: estaba pagada' : 'Pagada'} hasta el ${longDate(member.paidUntil)}.${
+              expired ? ' No puede reservar clases hasta que la renueves.' : ''
+            }`
+          : 'Sin control de cuota: puede reservar siempre.'}
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            const next = plusOneMonth(member.paidUntil);
+            setDate(next);
+            onSave(next);
+          }}
+          className="min-h-11 rounded-xl bg-signal-500 px-4 text-sm font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+        >
+          +1 mes
+        </button>
+        <label className="flex-1 space-y-1">
+          <span className="eyebrow block">Pagada hasta</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            className="w-full rounded-lg border border-iron-700 bg-iron-850 px-3 py-2.5 text-chalk focus:border-signal-400 focus:outline-none"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={disabled || date === '' || date === member.paidUntil}
+          onClick={() => onSave(date)}
+          className="min-h-11 rounded-xl border border-iron-700 px-4 text-sm font-semibold text-iron-100 hover:bg-iron-850 disabled:opacity-40"
+        >
+          Guardar
+        </button>
+      </div>
+      {member.paidUntil ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            setDate('');
+            onSave(null);
+          }}
+          className="mt-2 min-h-10 rounded-lg px-2 text-sm font-semibold text-iron-400 hover:bg-iron-850 disabled:opacity-40"
+        >
+          No controlar su cuota
+        </button>
+      ) : null}
+    </section>
   );
 }

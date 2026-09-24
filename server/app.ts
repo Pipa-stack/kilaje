@@ -17,6 +17,7 @@ import { attachUser, createAuthRouter, requireUser } from './api/authRouter';
 import { createProfileRouter } from './api/profileRouter';
 import { createClassesRouter } from './api/classesRouter';
 import { createAdminRouter } from './api/adminRouter';
+import { createAnnouncementsRouter } from './api/announcementsRouter';
 import { ownerSet } from './auth/roles';
 import type { EmailSender } from './email/sender';
 import { SILENT_ALERTER, type Alerter } from './email/alerts';
@@ -95,6 +96,7 @@ export function createApp({
 
   app.use('/api/auth', createAuthRouter(db, { rateLimits, email, appUrl, owners }));
   app.use('/api/admin', createAdminRouter(db, { rateLimits, owners, email, appUrl }));
+  app.use('/api/announcements', requireUser, createAnnouncementsRouter(db, { rateLimits, owners }));
   app.use('/api/profile', requireUser, createProfileRouter(db, rateLimits));
   app.use(
     '/api/classes',

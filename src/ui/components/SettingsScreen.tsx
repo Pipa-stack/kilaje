@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import * as api from '../../api/client';
 import { ApiError, type ProgramSummary } from '../../api/client';
+import { DeleteAccount } from './DeleteAccount';
 import { MIN_PASSWORD_LENGTH } from '../../domain/upload';
 import type { ThemeChoice } from '../hooks/useTheme';
 import { Dropzone } from './Dropzone';
@@ -230,6 +231,8 @@ export function SettingsScreen({
         >
           Cerrar sesión
         </button>
+
+        <DeleteAccount onDeleted={onSignOut} />
       </section>
     </div>
   );

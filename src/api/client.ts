@@ -474,7 +474,14 @@ export interface ClassOccurrence extends GymClass {
   waitPosition: number | null;
   canCancel: boolean;
   /** Solo llega a quien administra. */
-  attendees?: { bookingId: number; userId: number; name: string; waiting: boolean }[];
+  attendees?: {
+    bookingId: number;
+    userId: number;
+    name: string;
+    waiting: boolean;
+    /** Si vino; `null` sin marcar. */
+    attended: boolean | null;
+  }[];
 }
 
 export interface ClassesWeek {
@@ -484,6 +491,8 @@ export interface ClassesWeek {
   cancelDeadlineMinutes: number;
   /** Hasta cuántos días adelante mira quien administra. */
   adminDaysAhead: number;
+  /** Hasta qué día tiene pagada la cuota quien mira; `null` sin control. */
+  paidUntil: string | null;
   /** Solo llega a quien administra. */
   schedule?: GymClass[];
 }
@@ -563,6 +572,9 @@ export interface MemberSummary {
   lastTrainedAt: string | null;
   programCount: number;
   currentProgram: string | null;
+  paidUntil: string | null;
+  attended30: number;
+  missed30: number;
 }
 
 export async function fetchMembers(): Promise<MemberSummary[]> {
@@ -604,4 +616,60 @@ export async function deleteMemberProgram(userId: number, programId: number): Pr
 /** Enlace de descarga: lo abre el navegador, como la exportación propia. */
 export function memberProgramExportUrl(userId: number, programId: number): string {
   return `${BASE}/admin/members/${userId}/programs/${programId}/export`;
+}
+
+export async function setMemberPaidUntil(userId: number, paidUntil: string | null): Promise<MemberSummary> {
+  const { member } = await callApi<{ member: MemberSummary }>(`/admin/members/${userId}/paid-until`, {
+    ...json({ paidUntil }),
+    method: 'PUT',
+  });
+  return member;
+}
+
+/** Pasar lista: vino (`true`), no vino (`false`) o sin marcar (`null`). */
+export async function setAttendance(bookingId: number, attended: boolean | null): Promise<void> {
+  await callApi<void>(`/classes/bookings/${bookingId}/attendance`, {
+    ...json({ attended }),
+    method: 'PUT',
+  });
+}
+
+export interface ClassHistoryItem {
+  date: string;
+  startsAt: string;
+  name: string;
+  attended: boolean | null;
+}
+
+export async function fetchClassHistory(): Promise<ClassHistoryItem[]> {
+  const { history } = await callApi<{ history: ClassHistoryItem[] }>('/classes/history');
+  return history;
+}
+
+/* ------------------------------------------------------------------ */
+/* Avisos                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface Announcement {
+  id: number;
+  message: string;
+  createdAt: string;
+}
+
+export async function fetchAnnouncements(): Promise<Announcement[]> {
+  const { announcements } = await callApi<{ announcements: Announcement[] }>('/announcements');
+  return announcements;
+}
+
+export async function createAnnouncement(message: string): Promise<void> {
+  await callApi('/announcements', json({ message }));
+}
+
+export async function deleteAnnouncement(id: number): Promise<void> {
+  await callApi<void>(`/announcements/${id}`, { method: 'DELETE' });
+}
+
+/** Darse de baja. Borra la cuenta y todo lo suyo. */
+export async function deleteAccount(password: string): Promise<void> {
+  await callApi<void>('/auth/account', { ...json({ password }), method: 'DELETE' });
 }

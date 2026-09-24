@@ -916,3 +916,47 @@ describe('gestión', () => {
     await screen.findByText('ana ya es administrador.', {}, WAIT);
   });
 });
+
+describe('avisos y cuenta', () => {
+  it('quien administra publica un aviso y sale arriba; se puede cerrar', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
+    await user.click(sections.getByRole('button', { name: 'Avisos' }));
+
+    const form = await screen.findByRole('form', { name: 'Nuevo aviso' }, WAIT);
+    await user.type(within(form).getByRole('textbox'), 'El lunes cerramos por festivo.');
+    await user.click(within(form).getByRole('button', { name: 'Publicar' }));
+    await screen.findByText('Aviso publicado: lo verán todos al abrir la app.', {}, WAIT);
+
+    // Otro socio lo ve al abrir la app.
+    const ana = await registerByApi('ana@ejemplo.com');
+    const seen = await realFetch(`${API_ORIGIN}/api/announcements`, { headers: { Cookie: ana.cookie } });
+    const { announcements } = (await seen.json()) as { announcements: { message: string }[] };
+    expect(announcements.map((a) => a.message)).toEqual(['El lunes cerramos por festivo.']);
+  });
+
+  it('un socio se da de baja con su contraseña y vuelve a la entrada', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
+    await user.click(screen.getByRole('button', { name: 'Crear una cuenta' }));
+    await user.type(screen.getByLabelText('Correo'), 'socia@ejemplo.com');
+    await user.type(screen.getByLabelText('Contraseña'), 'contrasena-de-prueba');
+    await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
+    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+
+    await user.click(await screen.findByRole('button', { name: 'Borrar mi cuenta' }, WAIT));
+    const form = screen.getByRole('form', { name: 'Borrar mi cuenta' });
+    await user.type(within(form).getByLabelText('Tu contraseña'), 'no-es-esta');
+    await user.click(within(form).getByRole('button', { name: 'Borrar para siempre' }));
+    await within(form).findByText('La contraseña no es correcta.', {}, WAIT);
+
+    await user.clear(within(form).getByLabelText('Tu contraseña'));
+    await user.type(within(form).getByLabelText('Tu contraseña'), 'contrasena-de-prueba');
+    await user.click(within(form).getByRole('button', { name: 'Borrar para siempre' }));
+    await screen.findByRole('button', { name: 'Crear una cuenta' }, WAIT);
+  });
+});

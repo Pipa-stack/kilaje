@@ -59,6 +59,8 @@ export interface Attendee {
   userId: number;
   name: string;
   waiting: boolean;
+  /** Si vino: `null` mientras nadie lo ha marcado. */
+  attended: boolean | null;
 }
 
 /** Una clase en una fecha, vista por quien pregunta. */
@@ -278,8 +280,9 @@ export async function listUpcoming(
     day: string;
     user_id: number;
     name: string;
+    attended: boolean | null;
   }>(
-    `SELECT b.id, b.class_id, to_char(b.class_date, 'YYYY-MM-DD') AS day, b.user_id,
+    `SELECT b.id, b.class_id, to_char(b.class_date, 'YYYY-MM-DD') AS day, b.user_id, b.attended,
             COALESCE(NULLIF(trim(u.display_name), ''), split_part(u.email, '@', 1)) AS name
        FROM class_bookings b
        JOIN users u ON u.id = b.user_id
@@ -328,6 +331,7 @@ export async function listUpcoming(
               userId: Number(booking.user_id),
               name: booking.name,
               waiting: position >= gymClass.capacity,
+              attended: booking.attended ?? null,
             })),
           }
         : {}),
@@ -451,6 +455,21 @@ export async function bookClass(
       throw new ClassRuleError(`Solo se puede reservar con ${window} días de antelación.`);
     }
     if (occurrence.cancelled) throw new ClassRuleError('Esa clase está anulada.');
+
+    // La cuota solo la mira el socio que se apunta él: quien administra
+    // decide por su cuenta a quién deja entrar.
+    if (!byAdmin) {
+      const { rows } = await tx.query<{ paid_until: string | null }>(
+        `SELECT to_char(paid_until, 'YYYY-MM-DD') AS paid_until FROM users WHERE id = $1`,
+        [userId],
+      );
+      const paidUntil = rows[0]?.paid_until ?? null;
+      if (paidUntil !== null && date > paidUntil) {
+        throw new ClassRuleError(
+          `Tu cuota está pagada hasta el ${spanishDate(paidUntil)}. Renuévala en recepción para reservar después de esa fecha.`,
+        );
+      }
+    }
 
     await tx.query(
       `INSERT INTO class_bookings (class_id, class_date, user_id)
@@ -690,4 +709,112 @@ export async function restoreDay(db: Database, date: string): Promise<number> {
     date,
   ]);
   return rowCount;
+}
+
+/** "30 de septiembre". */
+function spanishDate(date: string): string {
+  const months = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+  const [, month, day] = date.split('-').map(Number);
+  return `${day} de ${months[month! - 1]}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Asistencia                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Marca si alguien vino. `null` lo deja otra vez sin marcar.
+ *
+ * Solo para quien tenía plaza: a quien se quedó en la espera no se le puede
+ * apuntar una falta por una clase en la que no tenía sitio.
+ */
+export async function setAttendance(
+  db: Database,
+  bookingId: number,
+  attended: boolean | null,
+): Promise<void> {
+  const { rows } = await db.query<{ has_place: boolean }>(
+    `SELECT (SELECT COUNT(*) FROM class_bookings o
+              WHERE o.class_id = b.class_id AND o.class_date = b.class_date AND o.id <= b.id)
+            <= c.capacity AS has_place
+       FROM class_bookings b
+       JOIN gym_classes c ON c.id = b.class_id
+      WHERE b.id = $1`,
+    [bookingId],
+  );
+  const found = rows[0];
+  if (!found) throw new ClassRuleError('Esa reserva ya no existe.', 404);
+  if (!found.has_place) {
+    throw new ClassRuleError('Esa persona estaba en la lista de espera: no tenía plaza.');
+  }
+  await db.query('UPDATE class_bookings SET attended = $2 WHERE id = $1', [bookingId, attended]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Historial del socio                                                 */
+/* ------------------------------------------------------------------ */
+
+export interface HistoryItem {
+  date: string;
+  startsAt: string;
+  name: string;
+  /** Si vino, según quien pasó lista; `null` sin marcar. */
+  attended: boolean | null;
+}
+
+/** Cuántos días atrás llega el historial. */
+export const HISTORY_DAYS = 90;
+
+/**
+ * Las clases que ya pasaron y en las que tenía plaza, de la más reciente a la
+ * más antigua. Las anuladas y aquellas en las que se quedó en la espera no
+ * cuentan: no eran clases a las que pudiera ir.
+ */
+export async function listClassHistory(
+  db: Database,
+  userId: number,
+  now: Date,
+): Promise<HistoryItem[]> {
+  const { rows } = await db.query<{
+    day: string;
+    starts_at: string;
+    name: string;
+    attended: boolean | null;
+  }>(
+    `WITH ranked AS (
+        SELECT b.*, ROW_NUMBER() OVER (PARTITION BY b.class_id, b.class_date ORDER BY b.id) AS position
+          FROM class_bookings b
+         WHERE b.class_date >= ($2::timestamptz AT TIME ZONE $3)::date - $4::int
+     )
+     SELECT to_char(r.class_date, 'YYYY-MM-DD') AS day,
+            to_char(c.starts_at, 'HH24:MI')    AS starts_at,
+            c.name, r.attended
+       FROM ranked r
+       JOIN gym_classes c ON c.id = r.class_id
+      WHERE r.user_id = $1
+        AND r.position <= c.capacity
+        AND (r.class_date + c.starts_at) AT TIME ZONE $3 <= $2::timestamptz
+        AND NOT EXISTS (SELECT 1 FROM class_cancellations x
+                         WHERE x.class_id = r.class_id AND x.class_date = r.class_date)
+      ORDER BY r.class_date DESC, c.starts_at DESC`,
+    [userId, now.toISOString(), GYM_TIME_ZONE, HISTORY_DAYS],
+  );
+  return rows.map((row) => ({
+    date: row.day,
+    startsAt: row.starts_at,
+    name: row.name,
+    attended: row.attended ?? null,
+  }));
+}
+
+/** Hasta qué día tiene pagado, o `null` si no se lleva control. */
+export async function findPaidUntil(db: Database, userId: number): Promise<string | null> {
+  const { rows } = await db.query<{ paid_until: string | null }>(
+    `SELECT to_char(paid_until, 'YYYY-MM-DD') AS paid_until FROM users WHERE id = $1`,
+    [userId],
+  );
+  return rows[0]?.paid_until ?? null;
 }

@@ -1,5 +1,5 @@
 {
-  "name": "Kilaje — Entrenamiento",
+  "name": "Kilaje",
   "short_name": "Kilaje",
   "description": "Tu entrenamiento en una app para usar en el gimnasio: importa tu plantilla de Excel o monta el plan a mano.",
   "lang": "es",
@@ -8,7 +8,7 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0e100f",
+  "background_color": "#f2c200",
   "theme_color": "#0e100f",
   "categories": ["fitness", "health", "productivity"],
   "icons": [

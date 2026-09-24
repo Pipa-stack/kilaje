@@ -50,6 +50,13 @@ clases** y desde entonces la app se abre ahí.
   día concreto — un festivo —, lo que avisa por correo a los apuntados. Una
   clase anulada se puede recuperar y cada uno sigue donde estaba.
 
+### Lo del socio
+
+- **Mi historial**, al final de *Clases*: las clases de los últimos tres meses en las
+  que tenía plaza, si vino, y cuántas lleva este mes.
+- **Borrar mi cuenta**, en *Ajustes* (o al pie de *Clases* si solo reserva): pide la
+  contraseña y borra la cuenta con todo lo suyo.
+
 ### Roles: socio y administrador
 
 Como las apps de gimnasio en su forma más simple (Trainerize, Virtuagym): quien
@@ -76,6 +83,13 @@ como las apps de gestión de gimnasios (Glofox, Mindbody Business, TeamUp):
   apuntados; *Recuperar el día* lo deshace sin perder las reservas.
 - **Socios:** la lista con buscador; en cada uno, subirle el planning, descargar
   su progreso, borrar un plan y cambiar su rol.
+- **Asistencia:** en una clase que ya empezó, cada apuntado tiene *Vino* / *No vino*.
+  Las faltas de los últimos 30 días salen en la ficha del socio. Sin marcar no es falta.
+- **Cuotas:** en la ficha de cada socio, *pagada hasta* con un botón *+1 mes*. Con la
+  cuota vencida no puede reservar clases después de esa fecha, y en la lista sale
+  *Cuota vencida* o *Vence el…*. Sin fecha no se controla. No cobra nada: el dinero se
+  sigue cobrando en recepción.
+- **Avisos:** un texto que les sale a todos arriba en la app hasta que lo cierran.
 - **Horario:** la semana tipo por día. Una clase nueva se crea en varios días a
   la vez (*Lunes a viernes*), y al cambiar un turno se puede aplicar a todos los
   días que lo tienen a esa hora.

@@ -76,7 +76,7 @@ interface Occurrence {
   mine: 'booked' | 'waiting' | null;
   waitPosition: number | null;
   canCancel: boolean;
-  attendees?: { bookingId: number; name: string; waiting: boolean }[];
+  attendees?: { bookingId: number; name: string; waiting: boolean; attended: boolean | null }[];
 }
 
 async function createClass(admin: Agent, overrides: Record<string, unknown> = {}) {
@@ -506,5 +506,74 @@ describe('gestión', () => {
     expect(response.body.cancelled).toBe(1);
     expect(await occurrence(admin, early, '2026-09-28')).toMatchObject({ cancelled: false, started: true });
     expect(await occurrence(admin, late, '2026-09-28')).toMatchObject({ cancelled: true });
+  });
+});
+
+describe('asistencia, cuotas e historial', () => {
+  async function idOf(admin: Agent, email: string): Promise<number> {
+    const { members } = (await admin.get('/api/admin/members').expect(200)).body as {
+      members: { id: number; email: string }[];
+    };
+    return members.find((m) => m.email === email)!.id;
+  }
+
+  it('pasa lista a quien tenía plaza, no a quien esperaba, y cuenta en su ficha', async () => {
+    const admin = await signUp(ADMIN);
+    const classId = await createClass(admin, { capacity: 1 });
+    const ana = await signUp('ana@ejemplo.com');
+    const bea = await signUp('bea@ejemplo.com');
+    await ana.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(201);
+    await bea.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(201);
+
+    now = new Date('2026-10-01T17:00:00Z'); // la clase ya ha empezado
+    const seen = await occurrence(admin, classId, THURSDAY);
+    const [first, second] = seen.attendees!;
+    expect(first).toMatchObject({ name: 'ana', attended: null });
+
+    await admin.put(`/api/classes/bookings/${first!.bookingId}/attendance`).send({ attended: false }).expect(204);
+    await admin.put(`/api/classes/bookings/${second!.bookingId}/attendance`).send({ attended: true }).expect(409);
+    await ana.put(`/api/classes/bookings/${first!.bookingId}/attendance`).send({ attended: true }).expect(403);
+
+    expect((await occurrence(admin, classId, THURSDAY)).attendees![0]!.attended).toBe(false);
+    const detail = await admin.get(`/api/admin/members/${await idOf(admin, 'ana@ejemplo.com')}`).expect(200);
+    expect(detail.body.member).toMatchObject({ attended30: 0, missed30: 1 });
+  });
+
+  it('con la cuota vencida no se reserva más allá de la fecha pagada; quien administra sí apunta', async () => {
+    const admin = await signUp(ADMIN);
+    const classId = await createClass(admin);
+    const ana = await signUp('ana@ejemplo.com');
+    const anaId = await idOf(admin, 'ana@ejemplo.com');
+
+    await admin.put(`/api/admin/members/${anaId}/paid-until`).send({ paidUntil: '2026-09-30' }).expect(200);
+    const refused = await ana.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(409);
+    expect(refused.body.error).toBe(
+      'Tu cuota está pagada hasta el 30 de septiembre. Renuévala en recepción para reservar después de esa fecha.',
+    );
+    expect((await ana.get('/api/classes').expect(200)).body.paidUntil).toBe('2026-09-30');
+
+    await admin.post(`/api/classes/${classId}/attendees`).send({ date: THURSDAY, userId: anaId }).expect(201);
+
+    await admin.put(`/api/admin/members/${anaId}/paid-until`).send({ paidUntil: null }).expect(200);
+    await ana.delete(`/api/classes/${classId}/bookings/${THURSDAY}`).expect(204);
+    await ana.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(201);
+    await admin.put(`/api/admin/members/${anaId}/paid-until`).send({ paidUntil: 'mañana' }).expect(400);
+  });
+
+  it('el historial trae las clases pasadas con plaza, no las de espera ni las anuladas', async () => {
+    const admin = await signUp(ADMIN);
+    const thursday = await createClass(admin, { capacity: 1 });
+    const friday = await createClass(admin, { weekday: 5, name: 'Yoga' });
+    const ana = await signUp('ana@ejemplo.com');
+    const bea = await signUp('bea@ejemplo.com');
+    await ana.post(`/api/classes/${thursday}/bookings`).send({ date: THURSDAY }).expect(201);
+    await bea.post(`/api/classes/${thursday}/bookings`).send({ date: THURSDAY }).expect(201);
+    await ana.post(`/api/classes/${friday}/bookings`).send({ date: '2026-10-02' }).expect(201);
+    await admin.put(`/api/classes/${friday}/cancellations/2026-10-02`).expect(204);
+
+    now = new Date('2026-10-03T08:00:00Z');
+    const history = (await ana.get('/api/classes/history').expect(200)).body.history;
+    expect(history).toEqual([{ date: THURSDAY, startsAt: '18:00', name: 'Crossfit', attended: null }]);
+    expect((await bea.get('/api/classes/history').expect(200)).body.history).toEqual([]);
   });
 });

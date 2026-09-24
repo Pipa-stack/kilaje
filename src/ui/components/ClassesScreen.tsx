@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import * as api from '../../api/client';
-import { ApiError, type ClassOccurrence, type ClassesWeek } from '../../api/client';
+import { ApiError, type ClassHistoryItem, type ClassOccurrence, type ClassesWeek } from '../../api/client';
 import {
+  addDays,
+  longDate,
   dayName,
   dayNumber,
   endTime,
@@ -156,6 +158,16 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
           </p>
         ) : null}
       </div>
+
+      {week?.paidUntil && week.paidUntil < today ? (
+        <p role="alert" className="rounded-xl border border-effort-500/40 bg-effort-500/10 px-4 py-3 text-sm text-effort-300">
+          Tu cuota venció el {longDate(week.paidUntil)}. Renuévala en recepción para seguir reservando.
+        </p>
+      ) : week?.paidUntil && week.paidUntil <= addDays(today, 7) ? (
+        <p className="rounded-xl border border-signal-500/40 bg-signal-500/10 px-4 py-3 text-sm text-iron-100">
+          Tu cuota vence el {longDate(week.paidUntil)}. Después de esa fecha no podrás reservar hasta renovarla.
+        </p>
+      ) : null}
 
       {upcoming.length > 0 ? (
         <section aria-labelledby="my-classes-title">
@@ -332,6 +344,8 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
           ) : null}
         </section>
       ) : null}
+
+      <History today={today} />
 
       {week ? (
         <p className="px-1 text-xs text-iron-400">
@@ -550,5 +564,85 @@ function SlotDetail({ occurrence: c, disabled, busy, cancelDeadlineMinutes, onBo
         </div>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * Las clases a las que ha ido, de la más reciente a la más antigua.
+ *
+ * Plegado hasta que se pide: es para mirarlo de vez en cuando, no cada vez
+ * que se abre la pantalla a reservar.
+ */
+function History({ today }: { today: string }) {
+  const [open, setOpen] = useState(false);
+  const [history, setHistory] = useState<ClassHistoryItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || history !== null) return;
+    api.fetchClassHistory().then(setHistory, (cause: unknown) =>
+      setError(cause instanceof Error ? cause.message : 'No se ha podido cargar el historial.'),
+    );
+  }, [open, history]);
+
+  const thisMonth = (history ?? []).filter(
+    (item) => item.date.slice(0, 7) === today.slice(0, 7) && item.attended !== false,
+  ).length;
+
+  return (
+    <section aria-labelledby="history-title" className="rounded-2xl border border-iron-800 bg-iron-900">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex min-h-12 w-full items-center gap-2 px-4 text-left"
+      >
+        <span id="history-title" className="flex-1 font-semibold text-chalk">
+          Mi historial
+        </span>
+        <Icon name="chevronRight" size={18} className={`text-iron-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open ? (
+        <div className="border-t border-iron-800 px-4 py-3">
+          {error ? (
+            <p className="text-sm text-effort-300">{error}</p>
+          ) : history === null ? (
+            <p className="text-sm text-iron-400">Cargando…</p>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-iron-400">Todavía no has ido a ninguna clase.</p>
+          ) : (
+            <>
+              <p className="mb-2 text-sm text-iron-100">
+                <span className="figure text-2xl font-bold text-chalk">{thisMonth}</span>{' '}
+                {thisMonth === 1 ? 'clase' : 'clases'} este mes
+              </p>
+              <ul className="divide-y divide-iron-800">
+                {history.map((item) => (
+                  <li key={`${item.date}|${item.startsAt}|${item.name}`} className="flex items-center gap-3 py-2 text-sm">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-iron-100">
+                        {longDate(item.date).replace(/^./, (first) => first.toUpperCase())}
+                      </span>
+                      <span className="block text-xs text-iron-400">
+                        {item.startsAt} · {item.name}
+                      </span>
+                    </span>
+                    <span
+                      className={`shrink-0 text-xs font-semibold ${
+                        item.attended === false ? 'text-effort-300' : item.attended ? 'text-done-300' : 'text-iron-400'
+                      }`}
+                    >
+                      {item.attended === false ? 'No viniste' : item.attended ? 'Viniste' : 'Reservada'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-iron-400">Los últimos 3 meses.</p>
+            </>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }

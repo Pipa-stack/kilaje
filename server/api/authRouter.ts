@@ -30,6 +30,7 @@ import {
   findUserByEmail,
   findUserById,
   setPassword,
+  deleteAccount,
 } from '../repositories/users';
 import { hashToken } from '../repositories/sessionTokens';
 import { RESET_TTL_MINUTES, consumeResetToken, createResetToken } from '../repositories/passwordResets';
@@ -344,6 +345,32 @@ export function createAuthRouter(
       }
 
       await setPassword(db, userId, newPassword);
+      res.status(204).end();
+    }),
+  );
+
+  /**
+   * Darse de baja: borra la cuenta y todo lo suyo. Pide la contraseña.
+   */
+  router.delete(
+    '/account',
+    passwordLimiter,
+    handle(async (req, res) => {
+      if (req.userId === undefined) {
+        res.status(401).json({ error: 'Necesitas iniciar sesión.' });
+        return;
+      }
+      const { password } = z.object({ password: z.string().min(1).max(MAX_PASSWORD_LENGTH) }).strict().parse(req.body);
+      try {
+        await deleteAccount(db, req.userId, password);
+      } catch (error) {
+        if (error instanceof WrongPasswordError) {
+          res.status(403).json({ error: 'La contraseña no es correcta.' });
+          return;
+        }
+        throw error;
+      }
+      clearSessionCookie(req, res);
       res.status(204).end();
     }),
   );

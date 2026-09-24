@@ -19,7 +19,10 @@ import {
   BOOKING_DAYS,
   GYM_TIME_ZONE,
   cancelDay,
+  findPaidUntil,
+  listClassHistory,
   restoreDay,
+  setAttendance,
   CANCEL_DEADLINE_MINUTES,
   bookClass,
   cancelBooking,
@@ -52,6 +55,8 @@ const dateParam = z
   .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), 'Fecha inválida');
 
 const bookingBody = z.object({ date: dateParam }).strict();
+
+const attendanceBody = z.object({ attended: z.boolean().nullable() }).strict();
 
 const attendeeBody = z.object({ date: dateParam, userId: z.number().int().positive() }).strict();
 
@@ -149,9 +154,10 @@ export function createClassesRouter(
           return;
         }
       }
-      const [days, schedule] = await Promise.all([
+      const [days, schedule, paidUntil] = await Promise.all([
         listUpcoming(db, currentUserId(req), now, { withAttendees: admin, from }),
         admin ? listSchedule(db) : Promise.resolve(undefined),
+        findPaidUntil(db, currentUserId(req)),
       ]);
       res.json({
         days,
@@ -159,8 +165,18 @@ export function createClassesRouter(
         bookingDays: BOOKING_DAYS,
         cancelDeadlineMinutes: CANCEL_DEADLINE_MINUTES,
         adminDaysAhead: ADMIN_DAYS_AHEAD,
+        paidUntil,
         ...(schedule ? { schedule } : {}),
       });
+    }),
+  );
+
+  /** Las clases a las que ha ido quien pregunta. */
+  router.get(
+    '/history',
+    readLimiter,
+    handle(async (req, res) => {
+      res.json({ history: await listClassHistory(db, currentUserId(req), clock()) });
     }),
   );
 
@@ -222,6 +238,16 @@ export function createClassesRouter(
           ]);
         }
       }
+    }),
+  );
+
+  /** Pasar lista: vino, no vino, o sin marcar. */
+  admin.put(
+    '/bookings/:bookingId/attendance',
+    handle(async (req, res) => {
+      const { attended } = attendanceBody.parse(req.body);
+      await setAttendance(db, idParam.parse(req.params.bookingId), attended);
+      res.status(204).end();
     }),
   );
 

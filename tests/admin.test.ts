@@ -217,3 +217,45 @@ describe('socios', () => {
     expect([400, 422]).toContain(bad.status);
   });
 });
+
+describe('avisos', () => {
+  it('quien administra publica y quita avisos; todos los leen', async () => {
+    const owner = await signUp(OWNER);
+    const ana = await signUp('ana@ejemplo.com');
+
+    await ana.agent.post('/api/announcements').send({ message: 'Hola' }).expect(403);
+    const created = await owner.agent
+      .post('/api/announcements')
+      .send({ message: '  El lunes 12 cerramos por festivo.  ' })
+      .expect(201);
+    expect(created.body.announcement.message).toBe('El lunes 12 cerramos por festivo.');
+
+    const seen = (await ana.agent.get('/api/announcements').expect(200)).body.announcements;
+    expect(seen.map((a: { message: string }) => a.message)).toEqual(['El lunes 12 cerramos por festivo.']);
+
+    await owner.agent.post('/api/announcements').send({ message: '' }).expect(400);
+    await owner.agent.delete(`/api/announcements/${created.body.announcement.id}`).expect(204);
+    await owner.agent.delete(`/api/announcements/${created.body.announcement.id}`).expect(404);
+    expect((await ana.agent.get('/api/announcements').expect(200)).body.announcements).toEqual([]);
+  });
+});
+
+describe('borrar la cuenta', () => {
+  it('pide la contraseña, borra todo lo suyo y cierra la sesión', async () => {
+    const ana = await signUp('ana@ejemplo.com');
+    await ana.agent
+      .post('/api/programs?filename=mio.xlsx')
+      .set('Content-Type', 'application/octet-stream')
+      .send(WORKBOOK)
+      .expect(201);
+
+    await ana.agent.delete('/api/auth/account').send({ password: 'otra-contrasena' }).expect(403);
+    await ana.agent.delete('/api/auth/account').send({ password: PASSWORD }).expect(204);
+
+    await ana.agent.get('/api/auth/me').expect(401);
+    const { rows } = await db.query('SELECT 1 FROM programs');
+    expect(rows).toEqual([]);
+    // Y el correo queda libre para volver a registrarse.
+    await signUp('ana@ejemplo.com');
+  });
+});

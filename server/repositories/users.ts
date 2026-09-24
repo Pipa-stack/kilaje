@@ -199,3 +199,17 @@ export async function findUserRole(
   );
   return rows[0] ?? null;
 }
+
+/**
+ * Borra la cuenta y todo lo suyo: programas, series, reservas, sesiones.
+ *
+ * Pide la contraseña, como cambiarla: una sesión abierta en un móvil ajeno no
+ * basta para hacer desaparecer la cuenta de otro.
+ */
+export async function deleteAccount(db: Database, userId: number, password: string): Promise<void> {
+  const user = await findUserById(db, userId);
+  if (!user) return;
+  const verified = await authenticate(db, user.email, password);
+  if (!verified) throw new WrongPasswordError();
+  await db.query('DELETE FROM users WHERE id = $1', [userId]);
+}

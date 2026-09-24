@@ -6,6 +6,8 @@ import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { ClassesScreen } from './components/ClassesScreen';
 import { AdminScreen } from './components/AdminScreen';
+import { AnnouncementsBanner } from './components/AnnouncementsBanner';
+import { DeleteAccount } from './components/DeleteAccount';
 import { DayView } from './components/DayView';
 import { HomeScreen } from './components/HomeScreen';
 import { Icon } from './components/Icon';
@@ -180,7 +182,14 @@ function SignedIn({
               </button>
             </div>
           </header>
+          <div className="mb-4">
+            <AnnouncementsBanner />
+          </div>
           <main>{classesView}</main>
+          <footer className="mt-8 border-t border-iron-800 pt-4">
+            <p className="break-all text-xs text-iron-400">Has entrado como {email}</p>
+            <DeleteAccount onDeleted={onSignOut} />
+          </footer>
         </div>
       );
     }
@@ -221,6 +230,9 @@ function SignedIn({
             The heading stays for the document outline and the screen reader;
             it just has no reason to occupy the top of a phone. */}
         <h1 className="sr-only">Kilaje — {program.name}</h1>
+
+        {/* Entre serie y serie no: en la pestaña de entrenar estorbaría. */}
+        {tab !== 'day' ? <AnnouncementsBanner /> : null}
 
         {state.offline ? (
           <p

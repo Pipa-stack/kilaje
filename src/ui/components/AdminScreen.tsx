@@ -22,12 +22,13 @@ interface AdminScreenProps {
   offline: boolean;
 }
 
-type Section = 'agenda' | 'members' | 'schedule';
+type Section = 'agenda' | 'members' | 'schedule' | 'notices';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'agenda', label: 'Agenda' },
   { id: 'members', label: 'Socios' },
   { id: 'schedule', label: 'Horario' },
+  { id: 'notices', label: 'Avisos' },
 ];
 
 /**
@@ -50,7 +51,7 @@ export function AdminScreen({ currentUserId, offline }: AdminScreenProps) {
       </div>
 
       <nav aria-label="Gestión">
-        <ul className="grid grid-cols-3 gap-1 rounded-xl bg-iron-900 p-1">
+        <ul className="grid grid-cols-4 gap-1 rounded-xl bg-iron-900 p-1">
           {SECTIONS.map((candidate) => (
             <li key={candidate.id}>
               <button
@@ -84,6 +85,7 @@ export function AdminScreen({ currentUserId, offline }: AdminScreenProps) {
       ) : null}
       {section === 'members' ? <MembersScreen currentUserId={currentUserId} offline={offline} /> : null}
       {section === 'schedule' ? <Schedule offline={offline} editClassId={editClassId} /> : null}
+      {section === 'notices' ? <Notices offline={offline} /> : null}
     </div>
   );
 }
@@ -483,7 +485,21 @@ function Roster({ occurrence: c, today, members, disabled, feedback, onBack, onE
         <h4 id="roster-title" className="eyebrow mb-2 block px-1">
           Apuntados ({confirmed.length})
         </h4>
+        {c.started && confirmed.length > 0 ? (
+          <p className="mb-2 px-1 text-xs text-iron-400">
+            Pasa lista: marca quién vino. Las faltas se ven en la ficha de cada socio.
+          </p>
+        ) : null}
         <PeopleList
+          onMark={
+            c.started
+              ? (person, attended) =>
+                  void feedback.run(async () => {
+                    await api.setAttendance(person.bookingId, attended);
+                    return null;
+                  }, reload)
+              : undefined
+          }
           people={confirmed}
           empty="Nadie todavía."
           canRemove={!c.started}
@@ -631,12 +647,15 @@ function PeopleList({
   canRemove,
   disabled,
   onRemove,
+  onMark,
 }: {
   people: NonNullable<ClassOccurrence['attendees']>;
   empty: string;
   canRemove: boolean;
   disabled: boolean;
   onRemove: (person: NonNullable<ClassOccurrence['attendees']>[number]) => void;
+  /** Pasar lista; solo cuando la clase ya ha empezado. */
+  onMark?: (person: NonNullable<ClassOccurrence['attendees']>[number], attended: boolean | null) => void;
 }) {
   if (people.length === 0) {
     return (
@@ -649,6 +668,36 @@ function PeopleList({
         <li key={person.bookingId} className="flex items-center gap-3 px-4 py-2">
           <span className="figure w-5 text-sm text-iron-600">{index + 1}</span>
           <span className="min-w-0 flex-1 truncate text-iron-100">{person.name}</span>
+          {onMark ? (
+            <span className="flex shrink-0 gap-1" role="group" aria-label={`Asistencia de ${person.name}`}>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-pressed={person.attended === true}
+                onClick={() => onMark(person, person.attended === true ? null : true)}
+                className={`min-h-10 rounded-lg px-3 text-sm font-semibold disabled:opacity-40 ${
+                  person.attended === true
+                    ? 'bg-done-500 text-white'
+                    : 'border border-iron-700 text-iron-300 hover:bg-iron-850'
+                }`}
+              >
+                Vino
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-pressed={person.attended === false}
+                onClick={() => onMark(person, person.attended === false ? null : false)}
+                className={`min-h-10 rounded-lg px-3 text-sm font-semibold disabled:opacity-40 ${
+                  person.attended === false
+                    ? 'bg-effort-500 text-white'
+                    : 'border border-iron-700 text-iron-300 hover:bg-iron-850'
+                }`}
+              >
+                No vino
+              </button>
+            </span>
+          ) : null}
           {canRemove ? (
             <button
               type="button"
@@ -731,6 +780,127 @@ function Schedule({ offline, editClassId }: { offline: boolean; editClassId: num
           })
         }
       />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Avisos                                                              */
+/* ------------------------------------------------------------------ */
+
+function Notices({ offline }: { offline: boolean }) {
+  const [notices, setNotices] = useState<api.Announcement[] | null>(null);
+  const [message, setMessage] = useState('');
+  const feedback = useFeedback();
+  const { setError } = feedback;
+
+  const load = useCallback(async () => {
+    try {
+      setNotices(await api.fetchAnnouncements());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se han podido cargar los avisos.');
+    }
+  }, [setError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const disabled = offline || feedback.busy;
+
+  return (
+    <div className="space-y-4">
+      <form
+        aria-label="Nuevo aviso"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void feedback
+            .run(async () => {
+              await api.createAnnouncement(message);
+              return 'Aviso publicado: lo verán todos al abrir la app.';
+            }, load)
+            .then((done) => {
+              if (done) setMessage('');
+            });
+        }}
+        className="space-y-3 rounded-2xl border border-iron-800 bg-iron-900 p-4"
+      >
+        <label className="block space-y-1">
+          <span className="font-semibold text-chalk">Nuevo aviso</span>
+          <span className="block text-sm text-iron-400">
+            Un cierre, un cambio de horario… Les sale a todos arriba en la app hasta que lo cierran.
+          </span>
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            maxLength={500}
+            rows={3}
+            required
+            placeholder="El lunes 12 cerramos por festivo."
+            className="mt-1 w-full rounded-lg border border-iron-700 bg-iron-850 px-3 py-2.5 text-chalk placeholder:text-iron-600 focus:border-signal-400 focus:outline-none"
+          />
+        </label>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-iron-400">{message.length}/500</span>
+          <button
+            type="submit"
+            disabled={disabled || message.trim() === ''}
+            className="min-h-11 rounded-xl bg-signal-500 px-4 font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+          >
+            Publicar
+          </button>
+        </div>
+      </form>
+
+      <Feedback error={feedback.error} notice={feedback.notice} />
+
+      <section aria-labelledby="notices-title">
+        <h3 id="notices-title" className="eyebrow mb-2 block px-1">
+          Publicados
+        </h3>
+        {notices === null ? (
+          <p className="text-sm text-iron-400">Cargando…</p>
+        ) : notices.length === 0 ? (
+          <p className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-6 text-center text-sm text-iron-400">
+            No hay avisos publicados.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {notices.map((notice) => (
+              <li
+                key={notice.id}
+                className="flex items-start gap-3 rounded-2xl border border-iron-800 bg-iron-900 px-4 py-3"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block whitespace-pre-line text-sm text-iron-100">{notice.message}</span>
+                  <span className="mt-1 block text-xs text-iron-400">
+                    {new Date(notice.createdAt).toLocaleDateString('es-ES', {
+                      day: 'numeric',
+                      month: 'long',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (!confirm('¿Quitar este aviso? Deja de salirle a todo el mundo.')) return;
+                    void feedback.run(async () => {
+                      await api.deleteAnnouncement(notice.id);
+                      return 'Aviso quitado.';
+                    }, load);
+                  }}
+                  className="min-h-10 shrink-0 rounded-lg px-2 text-sm font-semibold text-iron-400 hover:bg-effort-500/10 hover:text-effort-300 disabled:opacity-40"
+                >
+                  Quitar
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
