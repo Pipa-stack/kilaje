@@ -474,7 +474,7 @@ export interface ClassOccurrence extends GymClass {
   waitPosition: number | null;
   canCancel: boolean;
   /** Solo llega a quien administra. */
-  attendees?: { bookingId: number; name: string; waiting: boolean }[];
+  attendees?: { bookingId: number; userId: number; name: string; waiting: boolean }[];
 }
 
 export interface ClassesWeek {
@@ -482,12 +482,32 @@ export interface ClassesWeek {
   isAdmin: boolean;
   bookingDays: number;
   cancelDeadlineMinutes: number;
+  /** Hasta cuántos días adelante mira quien administra. */
+  adminDaysAhead: number;
   /** Solo llega a quien administra. */
   schedule?: GymClass[];
 }
 
-export async function fetchClasses(): Promise<ClassesWeek> {
-  return callApi<ClassesWeek>('/classes');
+/** La semana que empieza hoy o, para quien administra, en `from`. */
+export async function fetchClasses(from?: string): Promise<ClassesWeek> {
+  return callApi<ClassesWeek>(from ? `/classes?from=${from}` : '/classes');
+}
+
+/** Quien administra apunta a un socio. */
+export async function addClassAttendee(
+  classId: number,
+  date: string,
+  userId: number,
+): Promise<{ status: 'booked' | 'waiting'; waitPosition: number | null }> {
+  return callApi(`/classes/${classId}/attendees`, json({ date, userId }));
+}
+
+/** Anula (o recupera) todas las clases de una fecha. */
+export async function setDayCancelled(
+  date: string,
+  cancelled: boolean,
+): Promise<{ cancelled?: number; notified?: number; restored?: number }> {
+  return callApi(`/classes/days/${date}/cancellation`, { method: cancelled ? 'PUT' : 'DELETE' });
 }
 
 export async function bookClass(

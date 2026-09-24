@@ -9,7 +9,8 @@ import { Icon } from './Icon';
 interface MembersScreenProps {
   /** Quién está mirando: su propio rol no se puede cambiar desde aquí. */
   currentUserId: number | null;
-  onBack: () => void;
+  /** Sin él, la lista no ofrece «Volver» (va dentro de Gestión). */
+  onBack?: () => void;
   offline: boolean;
 }
 
@@ -62,7 +63,7 @@ export function MembersScreen({ currentUserId, onBack, offline }: MembersScreenP
     );
   }, [members, query]);
 
-  const back = (
+  const back = selected === null && !onBack ? null : (
     <button
       type="button"
       onClick={selected === null ? onBack : () => setSelected(null)}

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import * as api from '../../api/client';
 import { ApiError, type ClassOccurrence, type ClassesWeek } from '../../api/client';
 import { Icon } from './Icon';
-import { ScheduleEditor } from './ScheduleEditor';
 
 interface ClassesScreenProps {
   offline: boolean;
@@ -51,7 +50,6 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -130,17 +128,7 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-chalk">{editing ? 'Horario semanal' : 'Clases'}</h2>
-        {week?.isAdmin ? (
-          <button
-            type="button"
-            onClick={() => setEditing((open) => !open)}
-            className="flex min-h-11 items-center gap-1.5 rounded-xl border border-iron-700 px-3 text-sm font-semibold text-iron-100 hover:bg-iron-850"
-          >
-            <Icon name={editing ? 'calendar' : 'pencil'} size={16} />
-            {editing ? 'Ver clases' : 'Editar horario'}
-          </button>
-        ) : null}
+        <h2 className="text-xl font-bold text-chalk">Clases</h2>
       </div>
 
       <div role="status" aria-live="polite" className="space-y-2">
@@ -163,33 +151,7 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
         ) : null}
       </div>
 
-      {editing && week?.schedule ? (
-        <ScheduleEditor
-          schedule={week.schedule}
-          busy={busy}
-          disabled={disabled}
-          onCreate={(input) =>
-            act('schedule:new', async () => {
-              await api.createGymClass(input);
-              return `${input.name} añadida al horario.`;
-            })
-          }
-          onUpdate={(classId, input) =>
-            act(`schedule:${classId}`, async () => {
-              await api.updateGymClass(classId, input);
-              return `${input.name} actualizada.`;
-            })
-          }
-          onDelete={(classId) =>
-            act(`schedule:${classId}`, async () => {
-              await api.deleteGymClass(classId);
-              return 'Clase quitada del horario.';
-            })
-          }
-        />
-      ) : null}
-
-      {!editing && week ? (
+      {week ? (
         <>
           {upcoming.length > 0 ? (
             <section aria-labelledby="my-classes-title">
@@ -272,9 +234,7 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
 
               {nothingScheduled ? (
                 <p className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-6 text-center text-sm text-iron-400">
-                  {week.isAdmin
-                    ? 'Todavía no hay clases. Añade la primera en «Editar horario».'
-                    : 'Todavía no hay clases en el horario.'}
+                  Todavía no hay clases en el horario.
                 </p>
               ) : day.classes.length === 0 ? (
                 <p className="rounded-2xl border border-iron-800 bg-iron-900 px-4 py-6 text-center text-sm text-iron-400">
@@ -286,7 +246,6 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
                     <li key={c.id}>
                       <ClassCard
                         occurrence={c}
-                        isAdmin={week.isAdmin}
                         busy={busy}
                         disabled={disabled}
                         onBook={() =>
@@ -303,20 +262,6 @@ export function ClassesScreen({ offline }: ClassesScreenProps) {
                             return c.mine === 'waiting'
                               ? 'Has salido de la lista de espera.'
                               : 'Plaza anulada.';
-                          })
-                        }
-                        onSetCancelled={(cancelled) =>
-                          void act(`${c.id}|${c.date}`, async () => {
-                            await api.setClassCancelled(c.id, c.date, cancelled);
-                            return cancelled
-                              ? 'Clase anulada. Se ha avisado por correo a quien estaba apuntado.'
-                              : 'Clase recuperada.';
-                          })
-                        }
-                        onRemove={(bookingId, name) =>
-                          void act(`${c.id}|${c.date}`, async () => {
-                            await api.removeClassBooking(bookingId);
-                            return `${name} ya no está apuntado.`;
                           })
                         }
                       />
@@ -367,24 +312,18 @@ function StatusChip({ occurrence: c }: { occurrence: ClassOccurrence }) {
 
 interface ClassCardProps {
   occurrence: ClassOccurrence;
-  isAdmin: boolean;
   busy: string | null;
   disabled: boolean;
   onBook: () => void;
   onCancel: () => void;
-  onSetCancelled: (cancelled: boolean) => void;
-  onRemove: (bookingId: number, name: string) => void;
 }
 
 function ClassCard({
   occurrence: c,
-  isAdmin,
   busy,
   disabled,
   onBook,
   onCancel,
-  onSetCancelled,
-  onRemove,
 }: ClassCardProps) {
   const full = c.booked >= c.capacity;
   const working = busy === `${c.id}|${c.date}`;
@@ -479,84 +418,6 @@ function ClassCard({
         </div>
       ) : null}
 
-      {isAdmin ? (
-        <AdminPanel
-          occurrence={c}
-          disabled={disabled}
-          onSetCancelled={onSetCancelled}
-          onRemove={onRemove}
-        />
-      ) : null}
     </article>
-  );
-}
-
-function AdminPanel({
-  occurrence: c,
-  disabled,
-  onSetCancelled,
-  onRemove,
-}: Pick<ClassCardProps, 'occurrence' | 'disabled' | 'onSetCancelled' | 'onRemove'>) {
-  const attendees = c.attendees ?? [];
-
-  return (
-    <details className="mt-3 border-t border-iron-800 pt-3">
-      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-iron-300">
-        Apuntados ({attendees.length})
-      </summary>
-
-      {attendees.length === 0 ? (
-        <p className="py-1 text-sm text-iron-400">Nadie todavía.</p>
-      ) : (
-        <ol className="divide-y divide-iron-800">
-          {attendees.map((person, index) => (
-            <li key={person.bookingId} className="flex items-center gap-2 py-1.5 text-sm">
-              <span className="figure w-6 text-iron-600">{index + 1}</span>
-              <span className="min-w-0 flex-1 truncate text-iron-100">
-                {person.name}
-                {person.waiting ? <span className="text-iron-400"> · en espera</span> : null}
-              </span>
-              {!c.started ? (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    if (confirm(`¿Quitar a ${person.name} de ${c.name}?`)) {
-                      onRemove(person.bookingId, person.name);
-                    }
-                  }}
-                  className="min-h-9 rounded-lg px-2 text-xs font-semibold text-iron-400 hover:bg-iron-850 hover:text-iron-100 disabled:opacity-40"
-                >
-                  Quitar
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {!c.started ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => {
-            if (c.cancelled) {
-              onSetCancelled(false);
-              return;
-            }
-            const warning =
-              attendees.length > 0
-                ? `¿Anular ${c.name} de este día? Se avisará por correo a ${attendees.length} ${
-                    attendees.length === 1 ? 'persona' : 'personas'
-                  }.`
-                : `¿Anular ${c.name} de este día?`;
-            if (confirm(warning)) onSetCancelled(true);
-          }}
-          className="mt-2 flex min-h-11 items-center rounded-xl border border-iron-700 px-3 text-sm font-semibold text-iron-100 hover:bg-iron-850 disabled:opacity-40"
-        >
-          {c.cancelled ? 'Recuperar la clase' : 'Anular la clase este día'}
-        </button>
-      ) : null}
-    </details>
   );
 }

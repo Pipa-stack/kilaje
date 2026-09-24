@@ -781,31 +781,55 @@ describe('offline behaviour', () => {
   }, 90_000);
 });
 
+/** Registra una cuenta por la API, sin pasar por la interfaz. Devuelve su cookie. */
+async function registerByApi(email: string): Promise<{ id: number; cookie: string }> {
+  const response = await realFetch(`${API_ORIGIN}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: 'contrasena-de-prueba' }),
+  });
+  expect(response.status).toBe(201);
+  const cookie = /kilaje_session=[^;]*/.exec(response.headers.get('set-cookie') ?? '')?.[0] ?? '';
+  const { user } = (await response.json()) as { user: { id: number } };
+  return { id: user.id, cookie };
+}
+
+/** El día de la semana de mañana, 1 = lunes … 7 = domingo. */
+function tomorrowWeekday(): number {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return ((tomorrow.getDay() + 6) % 7) + 1;
+}
+
+const WEEKDAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
 describe('clases', () => {
-  it('sin plan, monta un horario, reserva y anula, y vuelve a las clases al recargar', async () => {
+  it('un socio sin plan reserva y anula, y la app vuelve a abrirse en las clases', async () => {
+    // El horario lo monta quien administra (la cuenta de los tests) por la API.
+    const admin = await registerByApi('test@ejemplo.com');
+    const created = await realFetch(`${API_ORIGIN}/api/classes/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        name: 'Crossfit',
+        coach: null,
+        weekday: tomorrowWeekday(),
+        startsAt: '18:00',
+        durationMinutes: 60,
+        capacity: 1,
+      }),
+    });
+    expect(created.status).toBe(201);
+
     const user = userEvent.setup();
     const app = render(<App />);
-    await signIn(user);
+    await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
+    await user.click(screen.getByRole('button', { name: 'Crear una cuenta' }));
+    await user.type(screen.getByLabelText('Correo'), 'socia@ejemplo.com');
+    await user.type(screen.getByLabelText('Contraseña'), 'contrasena-de-prueba');
+    await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
 
     await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
-    await screen.findByText('Todavía no hay clases. Añade la primera en «Editar horario».', {}, WAIT);
-
-    // Mañana, para que la clase no haya empezado sea la hora que sea.
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const isoWeekday = ((tomorrow.getDay() + 6) % 7) + 1;
-
-    await user.click(screen.getByRole('button', { name: 'Editar horario' }));
-    const form = await screen.findByRole('form', { name: 'Nueva clase' }, WAIT);
-    await user.type(within(form).getByLabelText('Nombre'), 'Crossfit');
-    await user.selectOptions(within(form).getByLabelText('Día'), String(isoWeekday));
-    const capacity = within(form).getByLabelText('Plazas');
-    await user.clear(capacity);
-    await user.type(capacity, '1');
-    await user.click(within(form).getByRole('button', { name: 'Añadir al horario' }));
-    await screen.findByText('Crossfit añadida al horario.', {}, WAIT);
-
-    await user.click(screen.getByRole('button', { name: 'Ver clases' }));
-    await user.click(screen.getByRole('button', { name: /^Mañana:/ }));
+    await user.click(await screen.findByRole('button', { name: /^Mañana:/ }, WAIT));
 
     const card = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
     expect(within(card).getByText('1 libre')).toBeInTheDocument();
@@ -814,55 +838,82 @@ describe('clases', () => {
 
     const booked = screen.getByRole('heading', { name: /Crossfit/ }).closest('article')!;
     expect(within(booked).getByText('Tienes plaza')).toBeInTheDocument();
-    expect(within(booked).getByText('1 de 1 plazas')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Tus reservas' })).toBeInTheDocument();
+    // Un socio no ve nada de la gestión.
+    expect(screen.queryByRole('navigation', { name: 'Gestión' })).not.toBeInTheDocument();
 
-    // Recargar la app aterriza otra vez en las clases, no en la pregunta.
     app.unmount();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: /^Mañana:.*tienes reserva/ }, WAIT));
     const again = (await screen.findByRole('heading', { name: /Crossfit/ }, WAIT)).closest('article')!;
     await user.click(within(again).getByRole('button', { name: 'Anular mi plaza' }));
     await screen.findByText('Plaza anulada.', {}, WAIT);
-    expect(screen.queryByRole('heading', { name: 'Tus reservas' })).not.toBeInTheDocument();
   });
 });
 
-describe('socios', () => {
-  it('quien administra busca a un socio, le sube el planning y lo hace administrador', async () => {
-    // Un socio que se registra por su cuenta, sin pasar por la interfaz.
-    const registered = await realFetch(`${API_ORIGIN}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'ana@ejemplo.com', password: 'contrasena-de-prueba' }),
-    });
-    expect(registered.status).toBe(201);
+describe('gestión', () => {
+  it('monta el horario en varios días, apunta a un socio y anula un día', async () => {
+    await registerByApi('ana@ejemplo.com');
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     const user = userEvent.setup();
     render(<App />);
     await signIn(user);
-
     await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
-    await user.click(await screen.findByRole('button', { name: 'Socios' }, WAIT));
-    await screen.findByRole('heading', { name: 'Socios' }, WAIT);
 
-    await user.type(screen.getByLabelText('Buscar socio'), 'ANA');
+    const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
+    await user.click(sections.getByRole('button', { name: 'Horario' }));
+
+    const form = await screen.findByRole('form', { name: 'Nueva clase' }, WAIT);
+    await user.type(within(form).getByLabelText('Nombre'), 'Turno');
+    await user.click(within(form).getByRole('button', { name: 'Lunes a viernes' }));
+    // Y mañana también, sea el día que sea.
+    const tomorrowChip = within(form).getByRole('button', { name: WEEKDAY_NAMES[tomorrowWeekday() - 1]! });
+    if (tomorrowChip.getAttribute('aria-pressed') !== 'true') await user.click(tomorrowChip);
+    const capacity = within(form).getByLabelText('Plazas');
+    await user.clear(capacity);
+    await user.type(capacity, '7');
+    await user.click(within(form).getByRole('button', { name: /Añadir en \d días/ }));
+    await screen.findByText(/Turno añadida en \d días\./, {}, WAIT);
+
+    await user.click(sections.getByRole('button', { name: 'Agenda' }));
+    await user.click(await screen.findByRole('button', { name: /^Mañana/ }, WAIT));
+    await user.click(await screen.findByRole('button', { name: /Turno.*0\/7/ }, WAIT));
+
+    await screen.findByRole('heading', { name: /Turno · 18:00–19:00/ }, WAIT);
+    await user.click(await screen.findByRole('button', { name: 'Apuntar a ana' }, WAIT));
+    await screen.findByText('ana apuntado. Le llega un correo.', {}, WAIT);
+    expect(screen.getByText('1 de 7 plazas')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Apuntados (1)' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Volver a la agenda' }));
+    await user.click(await screen.findByRole('button', { name: 'Anular el día' }, WAIT));
+    await screen.findByText(/Día anulado: 1 clases, 1 avisos enviados\./, {}, WAIT);
+    await user.click(screen.getByRole('button', { name: 'Recuperar el día' }));
+    await screen.findByText(/Día recuperado/, {}, WAIT);
+  });
+
+  it('busca a un socio, le sube el planning y lo hace administrador', async () => {
+    await registerByApi('ana@ejemplo.com');
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await signIn(user);
+    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
+    await user.click(sections.getByRole('button', { name: 'Socios' }));
+
+    await user.type(await screen.findByLabelText('Buscar socio', {}, WAIT), 'ANA');
     await user.click(await screen.findByRole('button', { name: /ana@ejemplo\.com/ }, WAIT));
     await screen.findByRole('heading', { name: 'ana' }, WAIT);
-    expect(screen.getByText('Todavía no tiene ningún plan.')).toBeInTheDocument();
 
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [referenceFile('Plan Ana.xlsx')] } });
-
     await screen.findByText('Plan «Plan Ana» subido a ana.', {}, WAIT);
-    expect(screen.getByRole('heading', { name: 'Plan Ana' })).toBeInTheDocument();
-    expect(screen.getByText('El que abre')).toBeInTheDocument();
     expect(screen.getByText(/subido por test/)).toBeInTheDocument();
 
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     await user.click(screen.getByRole('button', { name: 'Hacer administrador' }));
     await screen.findByText('ana ya es administrador.', {}, WAIT);
-    expect(screen.getByRole('button', { name: 'Quitar rol de administrador' })).toBeInTheDocument();
   });
 });

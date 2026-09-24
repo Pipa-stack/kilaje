@@ -419,3 +419,92 @@ describe('horario inicial', () => {
     }
   }, 60_000);
 });
+
+describe('gestión', () => {
+  it('quien administra apunta a un socio, con plaza o en espera, y le avisa', async () => {
+    const admin = await signUp(ADMIN);
+    const classId = await createClass(admin, { capacity: 1 });
+    const ana = await signUp('ana@ejemplo.com');
+    const bea = await signUp('bea@ejemplo.com');
+    const ids = (await admin.get('/api/admin/members').expect(200)).body.members as { id: number; email: string }[];
+    const idOf = (email: string) => ids.find((m) => m.email === email)!.id;
+
+    const first = await admin
+      .post(`/api/classes/${classId}/attendees`)
+      .send({ date: THURSDAY, userId: idOf('ana@ejemplo.com') })
+      .expect(201);
+    expect(first.body).toEqual({ status: 'booked', waitPosition: null });
+    const second = await admin
+      .post(`/api/classes/${classId}/attendees`)
+      .send({ date: THURSDAY, userId: idOf('bea@ejemplo.com') })
+      .expect(201);
+    expect(second.body).toEqual({ status: 'waiting', waitPosition: 1 });
+
+    expect(await occurrence(ana, classId, THURSDAY)).toMatchObject({ mine: 'booked' });
+    expect(await occurrence(bea, classId, THURSDAY)).toMatchObject({ mine: 'waiting' });
+    await expect
+      .poll(() => sent.map((email) => email.subject).sort())
+      .toEqual(['Estás en espera para Crossfit', 'Te han apuntado a Crossfit']);
+
+    await ana.post(`/api/classes/${classId}/attendees`).send({ date: THURSDAY, userId: idOf('bea@ejemplo.com') }).expect(403);
+    await admin.post(`/api/classes/${classId}/attendees`).send({ date: THURSDAY, userId: 999 }).expect(404);
+  });
+
+  it('puede apuntar con semanas de margen, que un socio no', async () => {
+    const admin = await signUp(ADMIN);
+    const classId = await createClass(admin);
+    const ana = await signUp('ana@ejemplo.com');
+    const anaId = (await ana.get('/api/auth/me').expect(200)).body.user.id as number;
+    const later = '2026-10-22'; // jueves, tres semanas después
+
+    await ana.post(`/api/classes/${classId}/bookings`).send({ date: later }).expect(409);
+    await admin.post(`/api/classes/${classId}/attendees`).send({ date: later, userId: anaId }).expect(201);
+  });
+
+  it('ve otra semana, pero no más allá de lo permitido, y un socio siempre ve la suya', async () => {
+    const admin = await signUp(ADMIN);
+    await createClass(admin);
+    const ana = await signUp('ana@ejemplo.com');
+
+    const week = await admin.get('/api/classes?from=2026-10-19').expect(200);
+    expect(week.body.days[0].date).toBe('2026-10-19');
+    expect(week.body.days[3].classes[0].date).toBe('2026-10-22');
+    await admin.get('/api/classes?from=2027-06-01').expect(400);
+
+    const own = await ana.get('/api/classes?from=2026-10-19').expect(200);
+    expect(own.body.days[0].date).toBe('2026-09-28');
+  });
+
+  it('anula un día entero, avisa a los apuntados, y lo recupera', async () => {
+    const admin = await signUp(ADMIN);
+    const morning = await createClass(admin, { startsAt: '08:00' });
+    const evening = await createClass(admin, { startsAt: '19:00' });
+    await createClass(admin, { weekday: 5, name: 'Yoga' });
+    const ana = await signUp('ana@ejemplo.com');
+    await ana.post(`/api/classes/${morning}/bookings`).send({ date: THURSDAY }).expect(201);
+
+    const response = await admin.put(`/api/classes/days/${THURSDAY}/cancellation`).expect(200);
+    expect(response.body).toEqual({ cancelled: 2, notified: 1 });
+    expect(await occurrence(ana, morning, THURSDAY)).toMatchObject({ cancelled: true, mine: 'booked' });
+    expect(await occurrence(ana, evening, THURSDAY)).toMatchObject({ cancelled: true });
+    expect(await occurrence(ana, (await occurrence(admin, 3, '2026-10-02')).id, '2026-10-02')).toMatchObject({ cancelled: false });
+    await expect.poll(() => sent.map((email) => email.to)).toEqual(['ana@ejemplo.com']);
+
+    // Otra vez no vuelve a anular ni a avisar.
+    expect((await admin.put(`/api/classes/days/${THURSDAY}/cancellation`).expect(200)).body).toEqual({ cancelled: 0, notified: 0 });
+
+    expect((await admin.delete(`/api/classes/days/${THURSDAY}/cancellation`).expect(200)).body).toEqual({ restored: 2 });
+    expect(await occurrence(ana, morning, THURSDAY)).toMatchObject({ cancelled: false, mine: 'booked' });
+    await ana.put(`/api/classes/days/${THURSDAY}/cancellation`).expect(403);
+  });
+
+  it('al anular hoy, deja en paz las clases que ya empezaron', async () => {
+    const admin = await signUp(ADMIN);
+    const early = await createClass(admin, { weekday: 1, startsAt: '09:00' });
+    const late = await createClass(admin, { weekday: 1, startsAt: '19:00' });
+    const response = await admin.put('/api/classes/days/2026-09-28/cancellation').expect(200);
+    expect(response.body.cancelled).toBe(1);
+    expect(await occurrence(admin, early, '2026-09-28')).toMatchObject({ cancelled: false, started: true });
+    expect(await occurrence(admin, late, '2026-09-28')).toMatchObject({ cancelled: true });
+  });
+});

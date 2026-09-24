@@ -19,6 +19,12 @@ export const GYM_TIME_ZONE = 'Europe/Madrid';
 /** Hoy y los seis días siguientes: lo que se ve y lo que se puede reservar. */
 export const BOOKING_DAYS = 7;
 
+/**
+ * Hasta dónde mira quien administra: anular un festivo o apuntar a alguien
+ * con semanas de margen, sin abrir las reservas de los socios tan lejos.
+ */
+export const ADMIN_DAYS_AHEAD = 90;
+
 /** Una plaza con sitio se puede soltar hasta una hora antes de empezar. */
 export const CANCEL_DEADLINE_MINUTES = 60;
 
@@ -50,6 +56,7 @@ export type GymClassInput = Omit<GymClass, 'id'>;
 
 export interface Attendee {
   bookingId: number;
+  userId: number;
   name: string;
   waiting: boolean;
 }
@@ -218,15 +225,16 @@ export async function deleteClass(db: Database, classId: number): Promise<void> 
 
 /**
  * Las clases de hoy y los próximos días, con el estado de cada una para
- * `userId`. Con `withAttendees`, además, quién va.
+ * `userId`. Con `withAttendees`, además, quién va. Con `from`, los siete días
+ * a partir de esa fecha en vez de a partir de hoy (solo administración).
  */
 export async function listUpcoming(
   db: Database,
   userId: number,
   now: Date,
-  { withAttendees = false }: { withAttendees?: boolean } = {},
+  { withAttendees = false, from = null }: { withAttendees?: boolean; from?: string | null } = {},
 ): Promise<ClassDay[]> {
-  const params = [now.toISOString(), GYM_TIME_ZONE, BOOKING_DAYS];
+  const params = [now.toISOString(), GYM_TIME_ZONE, BOOKING_DAYS, from];
 
   // Los días salen de SQL y no de JavaScript por la misma razón que las
   // semanas del perfil: "hoy" depende de la zona horaria, y la del gimnasio
@@ -234,8 +242,8 @@ export async function listUpcoming(
   const { rows: dayRows } = await db.query<{ day: string }>(
     `SELECT to_char(d, 'YYYY-MM-DD') AS day
        FROM generate_series(
-              ($1::timestamptz AT TIME ZONE $2)::date,
-              ($1::timestamptz AT TIME ZONE $2)::date + ($3::int - 1),
+              COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date),
+              COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date) + ($3::int - 1),
               interval '1 day') AS d
       ORDER BY d`,
     params,
@@ -247,8 +255,8 @@ export async function listUpcoming(
     `WITH days AS (
         SELECT d::date AS day
           FROM generate_series(
-                 ($1::timestamptz AT TIME ZONE $2)::date,
-                 ($1::timestamptz AT TIME ZONE $2)::date + ($3::int - 1),
+                 COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date),
+                 COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date) + ($3::int - 1),
                  interval '1 day') AS d
      )
      SELECT c.id, c.name, c.coach, c.weekday::int AS weekday,
@@ -275,8 +283,8 @@ export async function listUpcoming(
             COALESCE(NULLIF(trim(u.display_name), ''), split_part(u.email, '@', 1)) AS name
        FROM class_bookings b
        JOIN users u ON u.id = b.user_id
-      WHERE b.class_date BETWEEN ($1::timestamptz AT TIME ZONE $2)::date
-                             AND ($1::timestamptz AT TIME ZONE $2)::date + ($3::int - 1)
+      WHERE b.class_date BETWEEN COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date)
+                             AND COALESCE($4::date, ($1::timestamptz AT TIME ZONE $2)::date) + ($3::int - 1)
       ORDER BY b.id`,
     params,
   );
@@ -317,6 +325,7 @@ export async function listUpcoming(
         ? {
             attendees: queue.map((booking, position) => ({
               bookingId: Number(booking.id),
+              userId: Number(booking.user_id),
               name: booking.name,
               waiting: position >= gymClass.capacity,
             })),
@@ -427,7 +436,10 @@ export async function bookClass(
   classId: number,
   date: string,
   now: Date,
+  /** Apunta quien administra: puede hacerlo con más antelación. */
+  { byAdmin = false }: { byAdmin?: boolean } = {},
 ): Promise<BookingResult> {
+  const window = byAdmin ? ADMIN_DAYS_AHEAD : BOOKING_DAYS;
   return db.transaction(async (tx) => {
     const occurrence = await lockOccurrence(tx, classId, date, now);
 
@@ -435,8 +447,8 @@ export async function bookClass(
     if (occurrence.offset < 0 || occurrence.startsAt.getTime() <= now.getTime()) {
       throw new ClassRuleError('Esa clase ya ha empezado.');
     }
-    if (occurrence.offset >= BOOKING_DAYS) {
-      throw new ClassRuleError(`Solo se puede reservar con ${BOOKING_DAYS} días de antelación.`);
+    if (occurrence.offset >= window) {
+      throw new ClassRuleError(`Solo se puede reservar con ${window} días de antelación.`);
     }
     if (occurrence.cancelled) throw new ClassRuleError('Esa clase está anulada.');
 
@@ -607,4 +619,75 @@ export async function restoreOccurrence(
     classId,
     date,
   ]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Anular un día entero                                                */
+/* ------------------------------------------------------------------ */
+
+export interface DayCancellationResult {
+  /** Clases que se han anulado ahora (no cuenta las que ya lo estaban). */
+  cancelled: number;
+  /** Cada persona apuntada a alguna de ellas, con la clase que era. */
+  affected: (Recipient & { label: OccurrenceLabel })[];
+}
+
+/**
+ * Anula todas las clases de una fecha que aún no han empezado: un festivo,
+ * un cierre. Como con una sola clase, las reservas se conservan por si se
+ * recupera el día.
+ */
+export async function cancelDay(
+  db: Database,
+  date: string,
+  now: Date,
+): Promise<DayCancellationResult> {
+  return db.transaction(async (tx) => {
+    const { rows: inserted } = await tx.query<{ class_id: number }>(
+      `INSERT INTO class_cancellations (class_id, class_date)
+       SELECT c.id, $1::date
+         FROM gym_classes c
+        WHERE c.weekday = EXTRACT(ISODOW FROM $1::date)
+          AND ($1::date + c.starts_at) AT TIME ZONE $3 > $2::timestamptz
+       ON CONFLICT DO NOTHING
+       RETURNING class_id`,
+      [date, now.toISOString(), GYM_TIME_ZONE],
+    );
+
+    const ids = inserted.map((row) => Number(row.class_id));
+    if (ids.length === 0) return { cancelled: 0, affected: [] };
+
+    const { rows } = await tx.query<{
+      email: string;
+      name: string;
+      class_name: string;
+      starts_at: string;
+    }>(
+      `SELECT u.email, COALESCE(NULLIF(trim(u.display_name), ''), split_part(u.email, '@', 1)) AS name,
+              c.name AS class_name, to_char(c.starts_at, 'HH24:MI') AS starts_at
+         FROM class_bookings b
+         JOIN users u       ON u.id = b.user_id
+         JOIN gym_classes c ON c.id = b.class_id
+        WHERE b.class_date = $1::date AND b.class_id = ANY($2::bigint[])
+        ORDER BY c.starts_at, b.id`,
+      [date, ids],
+    );
+
+    return {
+      cancelled: ids.length,
+      affected: rows.map((row) => ({
+        email: row.email,
+        name: row.name,
+        label: { name: row.class_name, date, startsAt: row.starts_at },
+      })),
+    };
+  });
+}
+
+/** Recupera todas las clases anuladas de una fecha. */
+export async function restoreDay(db: Database, date: string): Promise<number> {
+  const { rowCount } = await db.query('DELETE FROM class_cancellations WHERE class_date = $1::date', [
+    date,
+  ]);
+  return rowCount;
 }

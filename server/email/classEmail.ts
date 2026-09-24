@@ -49,6 +49,27 @@ export function buildCancelledEmail(to: string, label: OccurrenceLabel, appUrl: 
   return { to, subject, text, html: wrap(subject, `La clase de <strong>${escapeHtml(label.name)}</strong> de ${escapeHtml(when)} se ha anulado.`, 'No tienes que hacer nada. Si se recupera, seguirás apuntado donde estabas.', appUrl) };
 }
 
+export function buildBookedForYouEmail(
+  to: string,
+  label: OccurrenceLabel,
+  waitPosition: number | null,
+  appUrl: string,
+): Email {
+  const when = describeWhen(label);
+  const subject = waitPosition === null ? `Te han apuntado a ${label.name}` : `Estás en espera para ${label.name}`;
+  const lead =
+    waitPosition === null
+      ? `El gimnasio te ha apuntado a ${label.name}, ${when}.`
+      : `El gimnasio te ha puesto en la lista de espera de ${label.name}, ${when} (vas el ${waitPosition}º). Si se libera una plaza entras solo.`;
+  const note = 'Si no puedes ir, anúlalo en la app para que la plaza la aproveche otra persona.';
+  return {
+    to,
+    subject,
+    text: [lead, '', note, appUrl].join('\n'),
+    html: wrap(subject, escapeHtml(lead), note, appUrl),
+  };
+}
+
 export function wrap(title: string, lead: string, note: string, appUrl: string): string {
   const link = appUrl
     ? `<p style="margin: 0 0 24px">

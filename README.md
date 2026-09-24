@@ -65,7 +65,20 @@ entrena y quien lleva el gimnasio.
 | Horario de clases, apuntados, anular un día | — | Sí |
 | Hacer o dejar de hacer administrador a alguien | — | Sí |
 
-Se entra por **Perfil → Socios**, o por el botón *Socios* si solo usas las clases.
+Para quien administra, la pestaña *Clases* se llama **Gestión** y tiene tres partes,
+como las apps de gestión de gimnasios (Glofox, Mindbody Business, TeamUp):
+
+- **Agenda:** cada día con la ocupación de cada clase (`5/7`, `+2 espera`), de la
+  semana actual a tres meses vista. Al tocar una clase: quién va y quién espera,
+  **apuntar a un socio** (con buscador; si está llena entra en espera y se le
+  avisa por correo), quitar a alguien y anular o recuperar esa clase. **Anular
+  el día** entero —un festivo— anula todas sus clases pendientes y avisa a los
+  apuntados; *Recuperar el día* lo deshace sin perder las reservas.
+- **Socios:** la lista con buscador; en cada uno, subirle el planning, descargar
+  su progreso, borrar un plan y cambiar su rol.
+- **Horario:** la semana tipo por día. Una clase nueva se crea en varios días a
+  la vez (*Lunes a viernes*), y al cambiar un turno se puede aplicar a todos los
+  días que lo tienen a esa hora.
 
 - El rol se guarda por cuenta (`users.role`). Los correos de `ADMIN_EMAILS` son
   **propietarios**: administradores siempre, y la app no deja quitarles el rol.

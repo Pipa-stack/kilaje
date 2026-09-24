@@ -15,7 +15,11 @@ import { idParam } from './schemas';
 import { createReadLimiter, createWriteLimiter } from './rateLimit';
 import { ownerSet, requireAdmin as adminGuard, resolveAccess } from '../auth/roles';
 import {
+  ADMIN_DAYS_AHEAD,
   BOOKING_DAYS,
+  GYM_TIME_ZONE,
+  cancelDay,
+  restoreDay,
   CANCEL_DEADLINE_MINUTES,
   bookClass,
   cancelBooking,
@@ -30,7 +34,8 @@ import {
   type OccurrenceLabel,
   type Recipient,
 } from '../repositories/classes';
-import { buildCancelledEmail, buildPromotedEmail } from '../email/classEmail';
+import { buildBookedForYouEmail, buildCancelledEmail, buildPromotedEmail } from '../email/classEmail';
+import { findUserById } from '../repositories/users';
 import type { Email, EmailSender } from '../email/sender';
 
 function handle(
@@ -47,6 +52,13 @@ const dateParam = z
   .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), 'Fecha inválida');
 
 const bookingBody = z.object({ date: dateParam }).strict();
+
+const attendeeBody = z.object({ date: dateParam, userId: z.number().int().positive() }).strict();
+
+/** Días entre dos fechas `YYYY-MM-DD`. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+}
 
 const classBody = z
   .object({
@@ -124,8 +136,21 @@ export function createClassesRouter(
     readLimiter,
     handle(async (req, res) => {
       const admin = await isAdmin(req);
+      const now = clock();
+      // Quien administra puede mirar otra semana: una atrás, para ver quién
+      // vino, o hasta tres meses adelante, para preparar un festivo.
+      let from: string | null = null;
+      if (admin && typeof req.query.from === 'string') {
+        from = dateParam.parse(req.query.from);
+        const today = now.toLocaleDateString('sv-SE', { timeZone: GYM_TIME_ZONE });
+        const offset = daysBetween(today, from);
+        if (offset < -7 || offset > ADMIN_DAYS_AHEAD) {
+          res.status(400).json({ error: 'Esa fecha queda fuera de lo que se puede consultar.' });
+          return;
+        }
+      }
       const [days, schedule] = await Promise.all([
-        listUpcoming(db, currentUserId(req), clock(), { withAttendees: admin }),
+        listUpcoming(db, currentUserId(req), now, { withAttendees: admin, from }),
         admin ? listSchedule(db) : Promise.resolve(undefined),
       ]);
       res.json({
@@ -133,6 +158,7 @@ export function createClassesRouter(
         isAdmin: admin,
         bookingDays: BOOKING_DAYS,
         cancelDeadlineMinutes: CANCEL_DEADLINE_MINUTES,
+        adminDaysAhead: ADMIN_DAYS_AHEAD,
         ...(schedule ? { schedule } : {}),
       });
     }),
@@ -164,6 +190,58 @@ export function createClassesRouter(
   /* ---------------------------------------------------- administración */
 
   const admin = Router();
+
+  /**
+   * Apunta a un socio a una clase. Mismas reglas que si se apuntara él —
+   * plaza o espera por orden de llegada —, con más margen de fechas, y se le
+   * avisa por correo.
+   */
+  admin.post(
+    '/:classId/attendees',
+    handle(async (req, res) => {
+      const classId = idParam.parse(req.params.classId);
+      const { date, userId } = attendeeBody.parse(req.body);
+      const member = await findUserById(db, userId);
+      if (!member) {
+        res.status(404).json({ error: 'Ese socio no existe.' });
+        return;
+      }
+      const result = await bookClass(db, userId, classId, date, clock(), { byAdmin: true });
+      res.status(201).json(result);
+
+      if (userId !== currentUserId(req)) {
+        const gymClass = (await listSchedule(db)).find((candidate) => candidate.id === classId);
+        if (gymClass) {
+          notify(() => [
+            buildBookedForYouEmail(
+              member.email,
+              { name: gymClass.name, date, startsAt: gymClass.startsAt },
+              result.status === 'waiting' ? result.waitPosition : null,
+              appUrl,
+            ),
+          ]);
+        }
+      }
+    }),
+  );
+
+  /** Anula todo un día — un festivo — y avisa a quien estuviera apuntado. */
+  admin.put(
+    '/days/:date/cancellation',
+    handle(async (req, res) => {
+      const { cancelled, affected } = await cancelDay(db, dateParam.parse(req.params.date), clock());
+      res.json({ cancelled, notified: affected.length });
+      notify(() => affected.map((person) => buildCancelledEmail(person.email, person.label, appUrl)));
+    }),
+  );
+
+  admin.delete(
+    '/days/:date/cancellation',
+    handle(async (req, res) => {
+      const restored = await restoreDay(db, dateParam.parse(req.params.date));
+      res.json({ restored });
+    }),
+  );
 
   admin.post(
     '/schedule',
