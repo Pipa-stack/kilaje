@@ -18,7 +18,7 @@ import { createProfileRouter } from './api/profileRouter';
 import { createClassesRouter } from './api/classesRouter';
 import { createAdminRouter } from './api/adminRouter';
 import { createAnnouncementsRouter } from './api/announcementsRouter';
-import { ownerSet } from './auth/roles';
+import { ownerSet, requireAdmin } from './auth/roles';
 import type { EmailSender } from './email/sender';
 import { SILENT_ALERTER, type Alerter } from './email/alerts';
 
@@ -87,10 +87,13 @@ export function createApp({
     express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
   );
 
-  // Lo mismo para los planes que quien administra sube a un socio.
+  // Lo mismo para los planes que quien administra sube a un socio, y aquí
+  // además se comprueba el rol antes de leer nada: un socio no tiene por qué
+  // poder aparcar 10 MB en memoria para que luego se le diga que no.
   app.use(
     '/api/admin',
     requireUser,
+    requireAdmin(db, owners),
     express.raw({ type: 'application/octet-stream', limit: MAX_FILE_BYTES }),
   );
 

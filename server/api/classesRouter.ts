@@ -37,7 +37,12 @@ import {
   type OccurrenceLabel,
   type Recipient,
 } from '../repositories/classes';
-import { buildBookedForYouEmail, buildCancelledEmail, buildPromotedEmail } from '../email/classEmail';
+import {
+  buildBookedForYouEmail,
+  buildCancelledEmail,
+  buildClassNoticeEmail,
+  buildPromotedEmail,
+} from '../email/classEmail';
 import { findUserById } from '../repositories/users';
 import type { Email, EmailSender } from '../email/sender';
 
@@ -281,16 +286,18 @@ export function createClassesRouter(
     '/schedule/:classId',
     handle(async (req, res) => {
       const classId = idParam.parse(req.params.classId);
-      const gymClass = await updateClass(db, classId, classBody.parse(req.body), clock());
-      res.json({ class: gymClass });
+      const { gymClass, notices } = await updateClass(db, classId, classBody.parse(req.body), clock());
+      res.json({ class: gymClass, notified: notices.length });
+      notify(() => notices.map((notice) => buildClassNoticeEmail(notice, appUrl)));
     }),
   );
 
   admin.delete(
     '/schedule/:classId',
     handle(async (req, res) => {
-      await deleteClass(db, idParam.parse(req.params.classId));
+      const notices = await deleteClass(db, idParam.parse(req.params.classId), clock());
       res.status(204).end();
+      notify(() => notices.map((notice) => buildClassNoticeEmail(notice, appUrl)));
     }),
   );
 

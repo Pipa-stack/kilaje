@@ -16,6 +16,8 @@ import { createPostgresDatabase } from './db/database';
 import { migrate } from './db/migrate';
 import { seedDemoAccount } from './db/demoAccount';
 import { seedReferenceProgram } from './db/seed';
+import { startJobs } from './jobs/scheduler';
+import { findUserByEmail } from './repositories/users';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -103,6 +105,16 @@ async function main(): Promise<void> {
   if (adminEmails.length === 0) {
     console.warn('[server] sin ADMIN_EMAILS: nadie puede gestionar el horario de clases');
   }
+  // Un correo de ADMIN_EMAILS sin cuenta es un puesto de propietario libre:
+  // quien se registre primero con esa dirección lo ocupa. Se avisa en cada
+  // arranque hasta que alguien lo reclame.
+  for (const address of adminEmails) {
+    if (!(await findUserByEmail(db, address))) {
+      console.warn(
+        `[server] ${address} está en ADMIN_EMAILS pero no tiene cuenta: regístrala ya, o quien lo haga primero será propietario`,
+      );
+    }
+  }
 
   const app = createApp({
     db,
@@ -117,8 +129,11 @@ async function main(): Promise<void> {
     console.log(`[server] escuchando en http://0.0.0.0:${port}`);
   });
 
+  const stopJobs = startJobs({ db, email, owners: adminEmails, appUrl: process.env.APP_URL ?? '' });
+
   const shutdown = (signal: string) => {
     console.log(`[server] ${signal} recibido, cerrando`);
+    stopJobs();
     server.close(() => {
       void db.close().finally(() => process.exit(0));
     });

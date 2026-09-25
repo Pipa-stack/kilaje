@@ -35,6 +35,7 @@ const TABLES = [
   'class_bookings',
   'class_cancellations',
   'announcements',
+  'job_runs',
 ];
 
 export interface TestDatabase extends Database {

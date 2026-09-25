@@ -50,6 +50,26 @@ clases** y desde entonces la app se abre ahí.
   día concreto — un festivo —, lo que avisa por correo a los apuntados. Una
   clase anulada se puede recuperar y cada uno sigue donde estaba.
 
+### Lo que el servidor hace solo
+
+Sin pantallas nuevas y sin coste: un temporizador dentro del mismo proceso, que apunta
+en la base lo que ya hizo para que un despliegue o un reinicio no repita nada.
+
+- **Copia de seguridad semanal** al correo de los propietarios (`ADMIN_EMAILS`): un
+  Excel con socios y cuotas, horario, reservas (últimos 90 días y futuras, con
+  asistencia) y avisos. El Excel de entrenamiento no lleva nada de esto, así que es lo
+  único que protege esos datos. Sale a partir de las 7:00, cada siete días.
+- **Aviso de cuota**: un correo a quien le vence en 3 días o menos, una vez por cada
+  renovación, a partir de las 9:00.
+- **Avisos por cambios de horario**: si quien administra baja las plazas, avisa a
+  quien pasa a la espera; si las sube, a quien entra; si cambia la hora, a todos los
+  apuntados; si cambia el día o borra la clase, a quien tenía reserva. Y si alguien
+  con plaza borra su cuenta, al primero de la espera.
+- **Norma de faltas**: con 3 faltas marcadas en 30 días no se puede reservar hasta
+  una semana después de la última. Quien administra sí puede apuntarle.
+
+Todo necesita el correo configurado (Brevo). Sin él, el servidor lo avisa al arrancar.
+
 ### Lo del socio
 
 - **Mi historial**, al final de *Clases*: las clases de los últimos tres meses en las

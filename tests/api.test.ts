@@ -81,6 +81,7 @@ describe('migrations', () => {
       'exercise_setups',
       'exercises',
       'gym_classes',
+      'job_runs',
       'password_resets',
       'programs',
       'reference_sets',

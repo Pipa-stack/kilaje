@@ -25,6 +25,15 @@ export const BOOKING_DAYS = 7;
  */
 export const ADMIN_DAYS_AHEAD = 90;
 
+/**
+ * Norma de faltas: con tantas faltas sin avisar en los últimos treinta días,
+ * no se puede reservar durante una semana desde la última. Solo cuentan las
+ * que alguien marcó al pasar lista.
+ */
+export const NO_SHOW_LIMIT = 3;
+export const NO_SHOW_WINDOW_DAYS = 30;
+export const NO_SHOW_BLOCK_DAYS = 7;
+
 /** Una plaza con sitio se puede soltar hasta una hora antes de empezar. */
 export const CANCEL_DEADLINE_MINUTES = 60;
 
@@ -161,24 +170,93 @@ export async function createClass(db: Database, input: GymClassInput): Promise<G
 }
 
 /**
- * Cambia una clase del horario.
+ * Algo que le ha pasado a la reserva de alguien sin que lo pidiera, y que
+ * hay que contarle: se ha quedado sin plaza, ha entrado, ha cambiado la hora
+ * o la clase ya no existe.
+ */
+export interface ClassNotice {
+  email: string;
+  name: string;
+  kind: 'promoted' | 'demoted' | 'retimed' | 'moved' | 'removed';
+  /** La clase como era para esa persona: nombre, fecha y hora de antes. */
+  label: OccurrenceLabel;
+  /** Solo en `demoted`: su puesto en la espera. */
+  waitPosition?: number;
+  /** Solo en `retimed`: la hora nueva. */
+  newStartsAt?: string;
+}
+
+interface QueuedPerson {
+  email: string;
+  name: string;
+}
+
+/**
+ * Las colas de las fechas que aún no han empezado de una clase, por fecha y
+ * por orden de llegada. Se leen antes de cambiar nada, para saber después a
+ * quién le ha cambiado qué. Las fechas anuladas no cuentan: ya se avisó.
+ */
+async function futureQueues(
+  tx: Database,
+  classId: number,
+  now: Date,
+): Promise<Map<string, QueuedPerson[]>> {
+  const { rows } = await tx.query<{ day: string; email: string; name: string }>(
+    `SELECT to_char(b.class_date, 'YYYY-MM-DD') AS day, u.email,
+            COALESCE(NULLIF(trim(u.display_name), ''), split_part(u.email, '@', 1)) AS name
+       FROM class_bookings b
+       JOIN users u       ON u.id = b.user_id
+       JOIN gym_classes c ON c.id = b.class_id
+      WHERE b.class_id = $1
+        AND (b.class_date + c.starts_at) AT TIME ZONE $3 > $2::timestamptz
+        AND NOT EXISTS (SELECT 1 FROM class_cancellations x
+                         WHERE x.class_id = b.class_id AND x.class_date = b.class_date)
+      ORDER BY b.class_date, b.id`,
+    [classId, now.toISOString(), GYM_TIME_ZONE],
+  );
+  const queues = new Map<string, QueuedPerson[]>();
+  for (const row of rows) {
+    const queue = queues.get(row.day) ?? [];
+    queue.push({ email: row.email, name: row.name });
+    queues.set(row.day, queue);
+  }
+  return queues;
+}
+
+export interface ClassUpdate {
+  gymClass: GymClass;
+  /** A quién hay que contarle qué por este cambio. */
+  notices: ClassNotice[];
+}
+
+/**
+ * Cambia una clase del horario, y dice a quién le afecta.
  *
- * Si cambia el día de la semana, las reservas futuras quedan en fechas que ya
- * no tienen esa clase y se borran: dejarlas sería tener gente apuntada a algo
- * que no aparece en ningún sitio. Las pasadas se quedan como historial.
+ * - Si cambia el **día**, las reservas futuras quedan en fechas que ya no
+ *   tienen esa clase y se borran: dejarlas sería tener gente apuntada a algo
+ *   que no aparece en ningún sitio. Las pasadas se quedan como historial.
+ * - Si **bajan las plazas**, los últimos con plaza pasan a la espera; si
+ *   **suben**, los primeros de la espera entran. Nada de eso se guarda —
+ *   sale del orden de llegada —, así que solo hay que avisar.
+ * - Si cambia la **hora**, las reservas siguen, pero cada uno tiene que saberlo.
  */
 export async function updateClass(
   db: Database,
   classId: number,
   input: GymClassInput,
   now: Date,
-): Promise<GymClass> {
+): Promise<ClassUpdate> {
   return db.transaction(async (tx) => {
-    const { rows: before } = await tx.query<{ weekday: number }>(
-      'SELECT weekday::int AS weekday FROM gym_classes WHERE id = $1 FOR UPDATE',
+    const { rows: before } = await tx.query<ClassRow>(
+      `SELECT c.id, c.name, c.coach, c.weekday::int AS weekday,
+              to_char(c.starts_at, 'HH24:MI') AS starts_at,
+              c.duration_minutes::int AS duration_minutes, c.capacity::int AS capacity
+         FROM gym_classes c WHERE c.id = $1 FOR UPDATE`,
       [classId],
     );
     if (!before[0]) throw new ClassRuleError('Esa clase ya no existe.', 404);
+    const old = toClass(before[0]);
+    const queues = await futureQueues(tx, classId, now);
 
     const { rows } = await tx.query<ClassRow>(
       `UPDATE gym_classes AS c
@@ -199,7 +277,10 @@ export async function updateClass(
       ],
     );
 
-    if (Number(before[0].weekday) !== input.weekday) {
+    const notices: ClassNotice[] = [];
+    const labelFor = (date: string): OccurrenceLabel => ({ name: old.name, date, startsAt: old.startsAt });
+
+    if (old.weekday !== input.weekday) {
       await tx.query(
         `DELETE FROM class_bookings
           WHERE class_id = $1 AND class_date >= ($2::timestamptz AT TIME ZONE $3)::date`,
@@ -210,15 +291,103 @@ export async function updateClass(
           WHERE class_id = $1 AND class_date >= ($2::timestamptz AT TIME ZONE $3)::date`,
         [classId, now.toISOString(), GYM_TIME_ZONE],
       );
+      for (const [date, queue] of queues) {
+        for (const person of queue) notices.push({ ...person, kind: 'moved', label: labelFor(date) });
+      }
+      return { gymClass: toClass(rows[0]!), notices };
     }
 
-    return toClass(rows[0]!);
+    for (const [date, queue] of queues) {
+      queue.forEach((person, index) => {
+        const hadPlace = index < old.capacity;
+        const hasPlace = index < input.capacity;
+        if (hadPlace && !hasPlace) {
+          notices.push({
+            ...person,
+            kind: 'demoted',
+            label: labelFor(date),
+            waitPosition: index - input.capacity + 1,
+          });
+        } else if (!hadPlace && hasPlace) {
+          notices.push({ ...person, kind: 'promoted', label: labelFor(date) });
+        } else if (old.startsAt !== input.startsAt) {
+          notices.push({ ...person, kind: 'retimed', label: labelFor(date), newStartsAt: input.startsAt });
+        }
+      });
+    }
+
+    return { gymClass: toClass(rows[0]!), notices };
   });
 }
 
-export async function deleteClass(db: Database, classId: number): Promise<void> {
-  const { rowCount } = await db.query('DELETE FROM gym_classes WHERE id = $1', [classId]);
-  if (rowCount === 0) throw new ClassRuleError('Esa clase ya no existe.', 404);
+/** Quita una clase del horario y dice a quién tenía reserva en ella. */
+export async function deleteClass(db: Database, classId: number, now: Date): Promise<ClassNotice[]> {
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.query<{ name: string; starts_at: string }>(
+      `SELECT name, to_char(starts_at, 'HH24:MI') AS starts_at FROM gym_classes WHERE id = $1 FOR UPDATE`,
+      [classId],
+    );
+    const found = rows[0];
+    if (!found) throw new ClassRuleError('Esa clase ya no existe.', 404);
+    const queues = await futureQueues(tx, classId, now);
+    await tx.query('DELETE FROM gym_classes WHERE id = $1', [classId]);
+
+    const notices: ClassNotice[] = [];
+    for (const [date, queue] of queues) {
+      for (const person of queue) {
+        notices.push({ ...person, kind: 'removed', label: { name: found.name, date, startsAt: found.starts_at } });
+      }
+    }
+    return notices;
+  });
+}
+
+/**
+ * Quién entra desde la espera si `userId` desaparece: al borrar su cuenta, sus
+ * reservas se van con ella y el primero de cada cola pasa a tener plaza.
+ */
+export async function promotionsIfLeaving(
+  db: Database,
+  userId: number,
+  now: Date,
+): Promise<ClassNotice[]> {
+  const { rows } = await db.query<{
+    day: string;
+    class_name: string;
+    starts_at: string;
+    email: string;
+    name: string;
+  }>(
+    `WITH ranked AS (
+        SELECT b.class_id, b.class_date, b.user_id,
+               ROW_NUMBER() OVER (PARTITION BY b.class_id, b.class_date ORDER BY b.id) AS position
+          FROM class_bookings b
+          JOIN gym_classes c ON c.id = b.class_id
+         WHERE (b.class_date + c.starts_at) AT TIME ZONE $3 > $2::timestamptz
+     ),
+     mine AS (
+        SELECT r.class_id, r.class_date
+          FROM ranked r JOIN gym_classes c ON c.id = r.class_id
+         WHERE r.user_id = $1 AND r.position <= c.capacity
+     )
+     SELECT to_char(r.class_date, 'YYYY-MM-DD') AS day, c.name AS class_name,
+            to_char(c.starts_at, 'HH24:MI') AS starts_at, u.email,
+            COALESCE(NULLIF(trim(u.display_name), ''), split_part(u.email, '@', 1)) AS name
+       FROM ranked r
+       JOIN mine m        ON m.class_id = r.class_id AND m.class_date = r.class_date
+       JOIN gym_classes c ON c.id = r.class_id
+       JOIN users u       ON u.id = r.user_id
+      WHERE r.position = c.capacity + 1
+        AND NOT EXISTS (SELECT 1 FROM class_cancellations x
+                         WHERE x.class_id = r.class_id AND x.class_date = r.class_date)`,
+    [userId, now.toISOString(), GYM_TIME_ZONE],
+  );
+  return rows.map((row) => ({
+    email: row.email,
+    name: row.name,
+    kind: 'promoted' as const,
+    label: { name: row.class_name, date: row.day, startsAt: row.starts_at },
+  }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -467,6 +636,23 @@ export async function bookClass(
       if (paidUntil !== null && date > paidUntil) {
         throw new ClassRuleError(
           `Tu cuota está pagada hasta el ${spanishDate(paidUntil)}. Renuévala en recepción para reservar después de esa fecha.`,
+        );
+      }
+
+      const { rows: misses } = await tx.query<{ misses: number | string; blocked_until: string | null }>(
+        `SELECT COUNT(*) AS misses,
+                to_char(MAX(class_date) + $4::int, 'YYYY-MM-DD') AS blocked_until
+           FROM class_bookings
+          WHERE user_id = $1 AND attended = false
+            AND class_date >= ($2::timestamptz AT TIME ZONE $3)::date - $5::int`,
+        [userId, now.toISOString(), GYM_TIME_ZONE, NO_SHOW_BLOCK_DAYS, NO_SHOW_WINDOW_DAYS],
+      );
+      const count = Number(misses[0]?.misses ?? 0);
+      const blockedUntil = misses[0]?.blocked_until ?? null;
+      const today = now.toLocaleDateString('sv-SE', { timeZone: GYM_TIME_ZONE });
+      if (count >= NO_SHOW_LIMIT && blockedUntil !== null && today < blockedUntil) {
+        throw new ClassRuleError(
+          `Has faltado ${count} veces sin avisar en el último mes. Podrás volver a reservar desde el ${spanishDate(blockedUntil)}; si crees que es un error, habla con recepción.`,
         );
       }
     }

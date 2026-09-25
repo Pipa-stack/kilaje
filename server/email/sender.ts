@@ -34,6 +34,14 @@ export interface Email {
   /** Plain text. Always sent: some clients show nothing else. */
   text: string;
   html: string;
+  /** Files to attach, such as the weekly backup. */
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  /** File name the recipient sees, e.g. `kilaje-copia-2026-09-28.xlsx`. */
+  name: string;
+  content: Buffer;
 }
 
 export interface EmailSender {
@@ -111,6 +119,14 @@ export function createBrevoSender(apiKey: string | undefined, from: string): Ema
             subject: email.subject,
             textContent: email.text,
             htmlContent: email.html,
+            ...(email.attachments?.length
+              ? {
+                  attachment: email.attachments.map((file) => ({
+                    name: file.name,
+                    content: file.content.toString('base64'),
+                  })),
+                }
+              : {}),
           }),
           signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         });
@@ -155,6 +171,14 @@ export function createEmailSender(apiKey: string | undefined, from: string): Ema
             subject: email.subject,
             text: email.text,
             html: email.html,
+            ...(email.attachments?.length
+              ? {
+                  attachments: email.attachments.map((file) => ({
+                    filename: file.name,
+                    content: file.content.toString('base64'),
+                  })),
+                }
+              : {}),
           }),
           signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         });
@@ -242,6 +266,7 @@ export function createSmtpSender(config: SmtpConfig, from: string): EmailSender 
           subject: email.subject,
           text: email.text,
           html: email.html,
+          attachments: email.attachments?.map((file) => ({ filename: file.name, content: file.content })),
         });
         return true;
       } catch (error) {

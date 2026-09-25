@@ -6,7 +6,7 @@
  */
 
 import type { Email } from './sender';
-import type { OccurrenceLabel } from '../repositories/classes';
+import type { ClassNotice, OccurrenceLabel } from '../repositories/classes';
 
 const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MONTHS = [
@@ -64,6 +64,45 @@ export function buildBookedForYouEmail(
   const note = 'Si no puedes ir, anúlalo en la app para que la plaza la aproveche otra persona.';
   return {
     to,
+    subject,
+    text: [lead, '', note, appUrl].join('\n'),
+    html: wrap(subject, escapeHtml(lead), note, appUrl),
+  };
+}
+
+/**
+ * El correo de un cambio que alguien no pidió: el gimnasio ha tocado el
+ * horario y su reserva ya no es lo que era.
+ */
+export function buildClassNoticeEmail(notice: ClassNotice, appUrl: string): Email {
+  const { label } = notice;
+  const when = describeWhen(label);
+  const note = 'Puedes verlo, y reservar otra hora, en la app.';
+  const texts: Record<ClassNotice['kind'], { subject: string; lead: string }> = {
+    promoted: {
+      subject: `Tienes plaza en ${label.name}`,
+      lead: `Se ha liberado una plaza y es tuya: ${label.name}, ${when}.`,
+    },
+    demoted: {
+      subject: `Ya no tienes plaza en ${label.name}`,
+      lead: `El gimnasio ha reducido las plazas de ${label.name}, ${when}, y has pasado a la lista de espera (vas el ${notice.waitPosition ?? 1}º). Si se libera una plaza entras solo.`,
+    },
+    retimed: {
+      subject: `${label.name} cambia de hora`,
+      lead: `La clase de ${label.name} que tenías ${when} pasa a ser a las ${notice.newStartsAt ?? ''}. Tu reserva sigue en pie.`,
+    },
+    moved: {
+      subject: `Tu reserva de ${label.name} se ha anulado`,
+      lead: `${label.name} ha cambiado de día en el horario, así que tu reserva de ${when} se ha anulado.`,
+    },
+    removed: {
+      subject: `Tu reserva de ${label.name} se ha anulado`,
+      lead: `${label.name} ya no está en el horario, así que tu reserva de ${when} se ha anulado.`,
+    },
+  };
+  const { subject, lead } = texts[notice.kind];
+  return {
+    to: notice.email,
     subject,
     text: [lead, '', note, appUrl].join('\n'),
     html: wrap(subject, escapeHtml(lead), note, appUrl),

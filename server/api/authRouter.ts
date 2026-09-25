@@ -38,6 +38,8 @@ import { buildResetEmail } from '../email/resetEmail';
 import type { EmailSender } from '../email/sender';
 import { createAuthIpLimiter, createAuthLimiter } from './rateLimit';
 import { resolveAccess } from '../auth/roles';
+import { promotionsIfLeaving } from '../repositories/classes';
+import { buildClassNoticeEmail } from '../email/classEmail';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -361,6 +363,9 @@ export function createAuthRouter(
         return;
       }
       const { password } = z.object({ password: z.string().min(1).max(MAX_PASSWORD_LENGTH) }).strict().parse(req.body);
+      // Quien estaba primero en la espera de sus clases entra al irse: se
+      // calcula antes de borrar, que después ya no queda rastro de la cola.
+      const promoted = await promotionsIfLeaving(db, req.userId, new Date());
       try {
         await deleteAccount(db, req.userId, password);
       } catch (error) {
@@ -372,6 +377,14 @@ export function createAuthRouter(
       }
       clearSessionCookie(req, res);
       res.status(204).end();
+
+      if (email?.configured) {
+        for (const notice of promoted) {
+          email.send(buildClassNoticeEmail(notice, appUrl)).catch((cause: unknown) => {
+            console.error('[auth] no se ha podido avisar a quien entra desde la espera:', cause);
+          });
+        }
+      }
     }),
   );
 
