@@ -123,7 +123,9 @@ function SignedIn({
   setShowSettings,
 }: SignedInProps) {
   const state = useProgram();
-  const classesView = <ClassesScreen offline={state.offline} />;
+  // El día con el que se abre Clases cuando se llega desde Inicio.
+  const [classesDate, setClassesDate] = useState<string | null>(null);
+  const classesView = <ClassesScreen key={classesDate ?? 'hoy'} offline={state.offline} initialDate={classesDate} />;
   // Sin plan, quien eligió «Solo reservar clases» vuelve directo a ellas.
   const [classesOnly, setClassesOnly] = useState(loadClassesFirst);
 
@@ -330,7 +332,15 @@ function SignedIn({
 
       <main>
         {tab === 'home' ? (
-          <HomeScreen week={week} weekCount={program.weeks.length} onOpenDay={openDay} />
+          <HomeScreen
+            week={week}
+            weekCount={program.weeks.length}
+            onOpenDay={openDay}
+            onOpenClasses={(date) => {
+              setClassesDate(date ?? null);
+              setTab('classes');
+            }}
+          />
         ) : null}
 
         {tab === 'day' ? (

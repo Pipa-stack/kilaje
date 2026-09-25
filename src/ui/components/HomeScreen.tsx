@@ -11,11 +11,15 @@ import {
 import type { Day, Week } from '../../domain/types';
 import { kilos } from '../format';
 import { Icon } from './Icon';
+import { HomeClasses } from './HomeClasses';
+import { gymToday, longDateTitle } from '../classDates';
 
 interface HomeScreenProps {
   week: Week;
   weekCount: number;
   onOpenDay: (dayNumber: number) => void;
+  /** Abre la pestaña de clases, en ese día si se da. */
+  onOpenClasses: (date?: string) => void;
 }
 
 /**
@@ -25,13 +29,53 @@ interface HomeScreenProps {
  * Everything shown is derived from the program already in memory, so opening
  * the app costs one request and no extra round trips.
  */
-export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
+export function HomeScreen({ week, weekCount, onOpenDay, onOpenClasses }: HomeScreenProps) {
   const summary = weekSummary(week);
   const nextDay = findNextDay(week);
   const best = bestLiftOfWeek(week);
 
   return (
     <div className="space-y-4">
+      <p className="px-1 text-sm font-semibold text-iron-400">{longDateTitle(gymToday())}</p>
+
+      <HomeClasses onOpenClasses={onOpenClasses} />
+
+      <h2 className="eyebrow block px-1 pt-2">Tu entrenamiento</h2>
+
+      {nextDay ? (
+        <section aria-labelledby="next-session-title">
+          <h2 id="next-session-title" className="sr-only">
+            Siguiente sesión
+          </h2>
+          <button
+            type="button"
+            onClick={() => onOpenDay(nextDay.number)}
+            className="flex w-full items-center gap-4 rounded-2xl bg-signal-500 px-4 py-4 text-left text-ink transition-colors hover:bg-signal-400"
+          >
+            <span className="flex-1">
+              <span className="eyebrow block text-ink/70">
+                {daySessionStatus(nextDay) === 'in-progress' ? 'Continuar' : 'Empezar'}
+              </span>
+              <span className="block font-condensed text-2xl font-bold uppercase leading-none tracking-tight">
+                Día {nextDay.number}
+                {nextDay.type ? ` · ${nextDay.type}` : ''}
+              </span>
+              <span className="block text-sm font-medium text-ink/70">
+                {nextDay.exercises.length} ejercicios
+              </span>
+            </span>
+            <Icon name="chevronRight" size={24} className="shrink-0" />
+          </button>
+        </section>
+      ) : (
+        <p
+          role="status"
+          className="rounded-2xl border border-done-500/40 bg-done-500/10 px-4 py-4 text-center text-sm font-semibold text-done-300"
+        >
+          Semana completada. Buen trabajo.
+        </p>
+      )}
+
       <section
         aria-labelledby="week-summary-title"
         className="rounded-2xl border border-iron-800 bg-iron-900 p-4"
@@ -102,40 +146,6 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
           />
         </dl>
       </section>
-
-      {nextDay ? (
-        <section aria-labelledby="next-session-title">
-          <h2 id="next-session-title" className="sr-only">
-            Siguiente sesión
-          </h2>
-          <button
-            type="button"
-            onClick={() => onOpenDay(nextDay.number)}
-            className="flex w-full items-center gap-4 rounded-2xl bg-signal-500 px-4 py-4 text-left text-ink transition-colors hover:bg-signal-400"
-          >
-            <span className="flex-1">
-              <span className="eyebrow block text-ink/70">
-                {daySessionStatus(nextDay) === 'in-progress' ? 'Continuar' : 'Empezar'}
-              </span>
-              <span className="block font-condensed text-2xl font-bold uppercase leading-none tracking-tight">
-                Día {nextDay.number}
-                {nextDay.type ? ` · ${nextDay.type}` : ''}
-              </span>
-              <span className="block text-sm font-medium text-ink/70">
-                {nextDay.exercises.length} ejercicios
-              </span>
-            </span>
-            <Icon name="chevronRight" size={24} className="shrink-0" />
-          </button>
-        </section>
-      ) : (
-        <p
-          role="status"
-          className="rounded-2xl border border-done-500/40 bg-done-500/10 px-4 py-4 text-center text-sm font-semibold text-done-300"
-        >
-          Semana completada. Buen trabajo.
-        </p>
-      )}
 
       <section aria-labelledby="days-title">
         <h2 id="days-title" className="eyebrow mb-2 block px-1">

@@ -19,6 +19,8 @@ import { Icon } from './Icon';
 
 interface ClassesScreenProps {
   offline: boolean;
+  /** Día que abrir al entrar, p. ej. al llegar desde Inicio. */
+  initialDate?: string | null;
 }
 
 const WEEKDAY_HEADERS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -42,14 +44,14 @@ function freePlaces(classes: ClassOccurrence[]): number {
  * No funciona sin conexión, y lo dice: una reserva que se queda en la cola
  * del móvil no es una plaza, y enseñarla como hecha sería mentir.
  */
-export function ClassesScreen({ offline }: ClassesScreenProps) {
+export function ClassesScreen({ offline, initialDate = null }: ClassesScreenProps) {
   const today = gymToday();
   const [week, setWeek] = useState<ClassesWeek | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [month, setMonth] = useState(monthOf(today));
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [month, setMonth] = useState(monthOf(initialDate ?? today));
+  const [selectedDay, setSelectedDay] = useState<string | null>(initialDate);
   const [selectedClass, setSelectedClass] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const panel = useRef<HTMLElement>(null);
