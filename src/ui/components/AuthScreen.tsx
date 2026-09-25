@@ -90,7 +90,7 @@ export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
         <button
           type="submit"
           disabled={busy}
-          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-iron-950 transition-colors hover:bg-signal-400 disabled:opacity-60"
+          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-ink transition-colors hover:bg-signal-400 disabled:opacity-60"
         >
           {busy ? 'Un momento…' : registering ? 'Crear cuenta' : 'Entrar'}
         </button>
@@ -134,6 +134,13 @@ export function AuthScreen({ onSubmit, busy, error }: AuthScreenProps) {
         >
           {registering ? 'Entrar' : 'Crear una cuenta'}
         </button>
+      </p>
+
+      <p className="text-center text-xs text-iron-400">
+        {registering ? 'Al crear la cuenta aceptas la ' : ''}
+        <a href="/privacidad" className="underline underline-offset-4 hover:text-iron-100">
+          {registering ? 'política de privacidad' : 'Política de privacidad'}
+        </a>
       </p>
     </main>
   );

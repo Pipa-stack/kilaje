@@ -105,6 +105,11 @@ async function main(): Promise<void> {
   if (adminEmails.length === 0) {
     console.warn('[server] sin ADMIN_EMAILS: nadie puede gestionar el horario de clases');
   }
+  if (!process.env.PRIVACY_OWNER || !process.env.PRIVACY_CONTACT) {
+    console.warn(
+      '[server] sin PRIVACY_OWNER / PRIVACY_CONTACT: la política de privacidad no dice quién es el responsable ni cómo contactarle',
+    );
+  }
   // Un correo de ADMIN_EMAILS sin cuenta es un puesto de propietario libre:
   // quien se registre primero con esa dirección lo ocupa. Se avisa en cada
   // arranque hasta que alguien lo reclame.
@@ -122,6 +127,12 @@ async function main(): Promise<void> {
     email,
     alerter,
     adminEmails,
+    publicPages: {
+      privacyOwner: process.env.PRIVACY_OWNER,
+      privacyContact: process.env.PRIVACY_CONTACT,
+      twaPackage: process.env.TWA_PACKAGE,
+      twaFingerprints: process.env.TWA_SHA256_FINGERPRINTS,
+    },
     appUrl: process.env.APP_URL ?? '',
   });
 

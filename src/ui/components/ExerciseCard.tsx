@@ -79,7 +79,7 @@ export function ExerciseCard({
         <span
           aria-hidden="true"
           className={`figure mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${
-            started ? 'bg-signal-500 text-iron-950' : 'bg-iron-800 text-iron-400'
+            started ? 'bg-signal-500 text-ink' : 'bg-iron-800 text-iron-400'
           }`}
         >
           {exercise.number}

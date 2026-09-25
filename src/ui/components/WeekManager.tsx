@@ -86,7 +86,7 @@ export function WeekManager({
             type="button"
             onClick={() => onAddWeek({ copyWeights: false })}
             disabled={busy || offline}
-            className="min-h-11 w-full rounded-xl bg-signal-500 px-4 text-sm font-bold text-iron-950 hover:bg-signal-400 disabled:pointer-events-none disabled:opacity-40"
+            className="min-h-11 w-full rounded-xl bg-signal-500 px-4 text-sm font-bold text-ink hover:bg-signal-400 disabled:pointer-events-none disabled:opacity-40"
           >
             {busy ? 'Creando…' : `Empezar la semana ${nextNumber} en blanco`}
           </button>

@@ -109,6 +109,11 @@ export function AdminApp({ email, currentUserId, theme, onSignOut }: AdminAppPro
               </button>
             </section>
             <ThemeSection theme={theme} />
+            <p className="px-1 text-sm">
+              <a href="/privacidad" className="font-semibold text-signal-300 underline underline-offset-4">
+                Política de privacidad
+              </a>
+            </p>
           </div>
         ) : null}
       </main>
@@ -319,7 +324,7 @@ function Agenda({ offline, onEditClass }: { offline: boolean; onEditClass: (clas
                   aria-current={active ? 'date' : undefined}
                   aria-label={`${dayName(candidate.date, today)}${cancelledDay ? ', anulado' : ''}`}
                   className={`flex min-h-16 w-full flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
-                    active ? 'bg-signal-500 text-iron-950' : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
+                    active ? 'bg-signal-500 text-ink' : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
                   }`}
                 >
                   <span className="text-[11px] font-semibold uppercase">
@@ -642,7 +647,7 @@ function Roster({ occurrence: c, today, members, disabled, feedback, onBack, onE
                       }, reload)
                     }
                     aria-label={`Apuntar a ${member.displayName}`}
-                    className="flex min-h-10 items-center gap-1 rounded-xl bg-signal-500 px-3 text-sm font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+                    className="flex min-h-10 items-center gap-1 rounded-xl bg-signal-500 px-3 text-sm font-semibold text-ink hover:bg-signal-400 disabled:opacity-40"
                   >
                     <Icon name="plus" size={14} />
                     Apuntar
@@ -901,7 +906,7 @@ function Notices({ offline }: { offline: boolean }) {
           <button
             type="submit"
             disabled={disabled || message.trim() === ''}
-            className="min-h-11 rounded-xl bg-signal-500 px-4 font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+            className="min-h-11 rounded-xl bg-signal-500 px-4 font-semibold text-ink hover:bg-signal-400 disabled:opacity-40"
           >
             Publicar
           </button>

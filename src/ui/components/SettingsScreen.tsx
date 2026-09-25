@@ -172,6 +172,11 @@ export function SettingsScreen({
             );
           })}
         </ul>
+        <p className="mt-3 text-sm">
+          <a href="/privacidad" className="font-semibold text-signal-300 underline underline-offset-4">
+            Política de privacidad
+          </a>
+        </p>
       </section>
 
       <section aria-labelledby="about-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
@@ -309,7 +314,7 @@ export function PasswordForm() {
         <button
           type="submit"
           disabled={busy}
-          className="min-h-11 flex-1 rounded-xl bg-signal-500 text-sm font-bold text-iron-950 hover:bg-signal-400 disabled:opacity-60"
+          className="min-h-11 flex-1 rounded-xl bg-signal-500 text-sm font-bold text-ink hover:bg-signal-400 disabled:opacity-60"
         >
           {busy ? 'Guardando…' : 'Guardar'}
         </button>

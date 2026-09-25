@@ -405,7 +405,7 @@ function CalendarDay({ date, today, classes, selected, onSelect }: CalendarDayPr
       aria-label={`${dayName(date, today)}: ${state}${mine ? ', tienes reserva' : ''}`}
       className={`relative flex h-12 w-full flex-col items-center justify-center rounded-xl transition-colors ${
         selected
-          ? 'bg-signal-500 text-iron-950'
+          ? 'bg-signal-500 text-ink'
           : isToday
             ? 'border border-signal-500/60 bg-iron-850 text-chalk hover:bg-iron-800'
             : 'bg-iron-850 text-chalk hover:bg-iron-800'
@@ -416,7 +416,7 @@ function CalendarDay({ date, today, classes, selected, onSelect }: CalendarDayPr
         {open.length > 0 ? (
           <span
             className={`size-1.5 rounded-full ${
-              free > 0 ? (selected ? 'bg-iron-950' : 'bg-done-500') : selected ? 'bg-iron-950/50' : 'bg-iron-600'
+              free > 0 ? (selected ? 'bg-ink' : 'bg-done-500') : selected ? 'bg-ink/50' : 'bg-iron-600'
             }`}
           />
         ) : null}
@@ -425,7 +425,7 @@ function CalendarDay({ date, today, classes, selected, onSelect }: CalendarDayPr
         <span
           aria-hidden="true"
           className={`absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full ${
-            selected ? 'bg-iron-950 text-signal-400' : 'bg-done-500 text-white'
+            selected ? 'bg-ink text-signal-400' : 'bg-done-500 text-white'
           }`}
         >
           <Icon name="check" size={10} />
@@ -456,7 +456,7 @@ function SlotButton({
   const closed = c.cancelled || (c.started && c.mine === null);
   const full = c.booked >= c.capacity;
   const tone = selected
-    ? 'border-signal-500 bg-signal-500 text-iron-950'
+    ? 'border-signal-500 bg-signal-500 text-ink'
     : c.mine === 'booked'
       ? 'border-done-500/60 bg-done-500/15 text-chalk'
       : c.mine === 'waiting'
@@ -541,7 +541,7 @@ function SlotDetail({ occurrence: c, disabled, busy, cancelDeadlineMinutes, onBo
               className={`flex min-h-12 w-full items-center justify-center rounded-xl px-4 font-semibold transition-colors disabled:opacity-40 ${
                 full
                   ? 'border border-iron-700 text-iron-100 hover:bg-iron-800'
-                  : 'bg-signal-500 text-iron-950 hover:bg-signal-400'
+                  : 'bg-signal-500 text-ink hover:bg-signal-400'
               }`}
             >
               {busy ? 'Un momento…' : full ? 'Apuntarme a la lista de espera' : 'Reservar'}

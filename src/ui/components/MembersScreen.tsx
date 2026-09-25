@@ -464,7 +464,7 @@ function FeeSection({
             setDate(next);
             onSave(next);
           }}
-          className="min-h-11 rounded-xl bg-signal-500 px-4 text-sm font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+          className="min-h-11 rounded-xl bg-signal-500 px-4 text-sm font-semibold text-ink hover:bg-signal-400 disabled:opacity-40"
         >
           +1 mes
         </button>

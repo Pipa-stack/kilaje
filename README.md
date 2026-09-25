@@ -50,6 +50,16 @@ clases** y desde entonces la app se abre ahí.
   día concreto — un festivo —, lo que avisa por correo a los apuntados. Una
   clase anulada se puede recuperar y cada uno sigue donde estaba.
 
+### Páginas públicas
+
+Sin iniciar sesión y sin la app, como pide Google Play:
+
+- `/privacidad`: política de privacidad (RGPD). Enlazada desde la entrada, Ajustes y la cuenta del gestor.
+- `/borrar-cuenta`: cómo borrar la cuenta desde la app y un formulario para hacerlo sin ella (correo, contraseña y confirmación).
+- `/.well-known/assetlinks.json`: verificación de la app de Android.
+
+Para publicar en Google Play, ver [`store/README.md`](store/README.md).
+
 ### Lo que el servidor hace solo
 
 Sin pantallas nuevas y sin coste: un temporizador dentro del mismo proceso, que apunta
@@ -540,6 +550,8 @@ npm run build && npm start    # sirve API + dist en $PORT (8080 por defecto)
 | `EMAIL_FROM` | No | Remitente. Con SMTP, por defecto `SMTP_USER` |
 | `APP_URL` | No | Origen para construir el enlace del correo, p. ej. `https://kilaje.up.railway.app` |
 | `ADMIN_EMAILS` | No | Correos, separados por comas, de quienes gestionan las clases. Sin ella nadie puede editar el horario |
+| `PRIVACY_OWNER` `PRIVACY_CONTACT` | No | Responsable y contacto que salen en `/privacidad`. Necesarias para Google Play |
+| `TWA_PACKAGE` `TWA_SHA256_FINGERPRINTS` | No | App de Android: sirven `/.well-known/assetlinks.json`. Ver [`store/README.md`](store/README.md) |
 
 Ninguna credencial vive en el repositorio. Ver [`.env.example`](.env.example).
 

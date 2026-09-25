@@ -1,7 +1,8 @@
 {
+  "id": "/",
   "name": "Kilaje",
   "short_name": "Kilaje",
-  "description": "Tu entrenamiento en una app para usar en el gimnasio: importa tu plantilla de Excel o monta el plan a mano.",
+  "description": "La app del gimnasio: reserva tus clases en un calendario, con lista de espera automática, y lleva tu entrenamiento con tu plantilla de Excel o un plan hecho a mano.",
   "lang": "es",
   "dir": "ltr",
   "start_url": "/",

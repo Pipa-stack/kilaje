@@ -18,6 +18,7 @@ import { createProfileRouter } from './api/profileRouter';
 import { createClassesRouter } from './api/classesRouter';
 import { createAdminRouter } from './api/adminRouter';
 import { createAnnouncementsRouter } from './api/announcementsRouter';
+import { createPublicPagesRouter, type PublicPagesOptions } from './api/publicPages';
 import { ownerSet, requireAdmin } from './auth/roles';
 import type { EmailSender } from './email/sender';
 import { SILENT_ALERTER, type Alerter } from './email/alerts';
@@ -43,6 +44,8 @@ export interface AppOptions {
   adminEmails?: readonly string[];
   /** El reloj de las reservas. Solo lo cambian los tests. */
   clock?: () => Date;
+  /** Privacidad y verificación de la app de Android: ver `api/publicPages.ts`. */
+  publicPages?: Pick<PublicPagesOptions, 'privacyOwner' | 'privacyContact' | 'twaPackage' | 'twaFingerprints'>;
 }
 
 export function createApp({
@@ -54,6 +57,7 @@ export function createApp({
   alerter = SILENT_ALERTER,
   adminEmails,
   clock,
+  publicPages = {},
 }: AppOptions): Express {
   const app = express();
   const owners = ownerSet(adminEmails);
@@ -70,6 +74,11 @@ export function createApp({
       .then(() => res.json({ status: 'ok' }))
       .catch(() => res.status(503).json({ status: 'sin base de datos' }));
   });
+
+  // Privacidad, borrar la cuenta sin la app y la verificación de Android:
+  // públicas, sin sesión, y antes que la app de una sola página, que si no
+  // contestaría a todo con su index.html.
+  app.use(createPublicPagesRouter(db, { rateLimits, email, appUrl, ...publicPages }));
 
   // Identify the caller before anything reads a body, so an unauthenticated
   // request is answered without buffering what it sent.

@@ -119,7 +119,7 @@ export function ProfileScreen({ email, onOpenSettings }: ProfileScreenProps) {
         <div className="flex items-center gap-4">
           <span
             aria-hidden="true"
-            className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-signal-500 font-condensed text-2xl font-bold text-iron-950"
+            className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-signal-500 font-condensed text-2xl font-bold text-ink"
           >
             {initials(identity.displayName)}
           </span>

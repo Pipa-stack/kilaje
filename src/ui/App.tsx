@@ -188,7 +188,12 @@ function SignedIn({
           </div>
           <main>{classesView}</main>
           <footer className="mt-8 border-t border-iron-800 pt-4">
-            <p className="break-all text-xs text-iron-400">Has entrado como {email}</p>
+            <p className="break-all text-xs text-iron-400">
+              Has entrado como {email} ·{' '}
+              <a href="/privacidad" className="underline underline-offset-4">
+                Privacidad
+              </a>
+            </p>
             <DeleteAccount onDeleted={onSignOut} />
           </footer>
         </div>
@@ -292,7 +297,7 @@ function SignedIn({
                     aria-current={candidate.number === day.number ? 'true' : undefined}
                     className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-colors ${
                       candidate.number === day.number
-                        ? 'bg-signal-500 text-iron-950'
+                        ? 'bg-signal-500 text-ink'
                         : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
                     }`}
                   >

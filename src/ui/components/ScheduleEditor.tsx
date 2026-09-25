@@ -84,7 +84,7 @@ export function ScheduleEditor({
                   aria-current={active ? 'true' : undefined}
                   aria-label={`${label}: ${count} ${count === 1 ? 'clase' : 'clases'}`}
                   className={`flex min-h-14 w-full flex-col items-center justify-center rounded-xl transition-colors ${
-                    active ? 'bg-signal-500 text-iron-950' : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
+                    active ? 'bg-signal-500 text-ink' : 'bg-iron-900 text-iron-400 hover:bg-iron-850'
                   }`}
                 >
                   <span className="font-condensed text-lg font-bold">{WEEKDAY_INITIAL[index]}</span>
@@ -121,7 +121,7 @@ export function ScheduleEditor({
           type="button"
           onClick={() => setEditing('new')}
           disabled={disabled}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-signal-500 px-4 font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-signal-500 px-4 font-semibold text-ink hover:bg-signal-400 disabled:opacity-40"
         >
           <Icon name="plus" size={18} />
           Añadir clase
@@ -308,7 +308,7 @@ function ClassForm({
                   aria-pressed={on}
                   aria-label={label}
                   className={`size-11 rounded-xl font-condensed text-lg font-bold ${
-                    on ? 'bg-signal-500 text-iron-950' : 'border border-iron-700 text-iron-400'
+                    on ? 'bg-signal-500 text-ink' : 'border border-iron-700 text-iron-400'
                   }`}
                 >
                   {WEEKDAY_INITIAL[index]}
@@ -405,7 +405,7 @@ function ClassForm({
         <button
           type="submit"
           disabled={disabled || (isNew && days.length === 0)}
-          className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-signal-500 px-4 font-semibold text-iron-950 hover:bg-signal-400 disabled:opacity-40"
+          className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-signal-500 px-4 font-semibold text-ink hover:bg-signal-400 disabled:opacity-40"
         >
           {saving
             ? 'Guardando…'

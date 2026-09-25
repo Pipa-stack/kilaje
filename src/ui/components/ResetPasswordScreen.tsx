@@ -31,7 +31,7 @@ export function ResetPasswordScreen({ token, onDone }: ResetPasswordScreenProps)
         <button
           type="button"
           onClick={onDone}
-          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-iron-950 hover:bg-signal-400"
+          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-ink hover:bg-signal-400"
         >
           Ir a entrar
         </button>
@@ -98,7 +98,7 @@ export function ResetPasswordScreen({ token, onDone }: ResetPasswordScreenProps)
         <button
           type="submit"
           disabled={busy}
-          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-iron-950 hover:bg-signal-400 disabled:opacity-60"
+          className="min-h-12 w-full rounded-xl bg-signal-500 font-condensed text-lg font-bold uppercase tracking-wide text-ink hover:bg-signal-400 disabled:opacity-60"
         >
           {busy ? 'Guardando…' : 'Guardar contraseña'}
         </button>

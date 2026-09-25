@@ -72,6 +72,10 @@
   --color-signal-400: #ffd42e;
   --color-signal-300: #ffe27a;
 
+  /* Tinta sobre amarillo. No cambia con el tema: el amarillo tampoco, y en
+     claro el iron-950 pasa a ser casi blanco, que sobre amarillo no se lee. */
+  --color-ink: #0e100f;
+
   /* Reserved for effort and failure, never for decoration. */
   --color-effort-500: #d8402f;
   --color-effort-300: #f08575;

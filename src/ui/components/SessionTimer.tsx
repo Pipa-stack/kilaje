@@ -64,7 +64,7 @@ export function SessionTimer({ day, onSetRunning, onDiscard }: SessionTimerProps
           <button
             type="button"
             onClick={onDiscard}
-            className="min-h-11 flex-1 rounded-xl bg-signal-500 px-3 text-sm font-bold text-iron-950 hover:bg-signal-400"
+            className="min-h-11 flex-1 rounded-xl bg-signal-500 px-3 text-sm font-bold text-ink hover:bg-signal-400"
           >
             Descartarlo
           </button>
@@ -97,7 +97,7 @@ export function SessionTimer({ day, onSetRunning, onDiscard }: SessionTimerProps
         className={`flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-bold transition-colors ${
           running
             ? 'border border-iron-700 text-iron-100 hover:bg-iron-850'
-            : 'bg-signal-500 text-iron-950 hover:bg-signal-400'
+            : 'bg-signal-500 text-ink hover:bg-signal-400'
         }`}
       >
         <Icon name={running ? 'pause' : 'play'} size={16} />

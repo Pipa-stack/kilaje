@@ -111,17 +111,17 @@ export function HomeScreen({ week, weekCount, onOpenDay }: HomeScreenProps) {
           <button
             type="button"
             onClick={() => onOpenDay(nextDay.number)}
-            className="flex w-full items-center gap-4 rounded-2xl bg-signal-500 px-4 py-4 text-left text-iron-950 transition-colors hover:bg-signal-400"
+            className="flex w-full items-center gap-4 rounded-2xl bg-signal-500 px-4 py-4 text-left text-ink transition-colors hover:bg-signal-400"
           >
             <span className="flex-1">
-              <span className="eyebrow block text-iron-950/70">
+              <span className="eyebrow block text-ink/70">
                 {daySessionStatus(nextDay) === 'in-progress' ? 'Continuar' : 'Empezar'}
               </span>
               <span className="block font-condensed text-2xl font-bold uppercase leading-none tracking-tight">
                 Día {nextDay.number}
                 {nextDay.type ? ` · ${nextDay.type}` : ''}
               </span>
-              <span className="block text-sm font-medium text-iron-950/70">
+              <span className="block text-sm font-medium text-ink/70">
                 {nextDay.exercises.length} ejercicios
               </span>
             </span>
