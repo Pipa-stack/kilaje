@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import * as api from '../../api/client';
 import type { ClassOccurrence, ClassesWeek } from '../../api/client';
-import { addDays, dayName, endTime, gymToday, longDate, longDateTitle } from '../classDates';
+import { addDays, dayName, endTime, gymToday, longDate } from '../classDates';
 import { Icon } from './Icon';
 
 interface HomeClassesProps {
@@ -25,8 +25,7 @@ function isOpen(c: ClassOccurrence): boolean {
 }
 
 /**
- * Lo del gimnasio, arriba del todo en Inicio: tu próxima clase y lo que
- * queda libre hoy.
+ * Lo del gimnasio, arriba del todo en Inicio: tu próxima clase.
  *
  * Como en las apps de socios (Glofox, Mindbody, Virtuagym), lo primero al
  * abrir es lo siguiente que tienes que hacer, no las cifras de la semana. Sin
@@ -56,23 +55,12 @@ export function HomeClasses({ onOpenClasses }: HomeClassesProps) {
   const today = gymToday();
   const mine = week.days.flatMap((day) => day.classes.filter((c) => c.mine !== null && isOpen(c)));
   const next = mine[0];
-  const later = mine.length - 1;
-
-  // Lo que queda con sitio hoy; si hoy ya no queda nada, lo de mañana.
-  const withRoom = (date: string) =>
-    (week.days.find((day) => day.date === date)?.classes ?? []).filter(
-      (c) => isOpen(c) && c.mine === null && c.booked < c.capacity,
-    );
-  const todayRoom = withRoom(today);
-  const roomDate = todayRoom.length > 0 ? today : addDays(today, 1);
-  const room = todayRoom.length > 0 ? todayRoom : withRoom(roomDate);
-
   const feeExpired = week.paidUntil !== null && week.paidUntil < today;
   const feeSoon = !feeExpired && week.paidUntil !== null && week.paidUntil <= addDays(today, 7);
 
   return (
     <section aria-labelledby="home-classes-title" className="space-y-3">
-      <h2 id="home-classes-title" className="eyebrow block px-1">
+      <h2 id="home-classes-title" className="sr-only">
         Tus clases
       </h2>
 
@@ -117,19 +105,13 @@ export function HomeClasses({ onOpenClasses }: HomeClassesProps) {
                 )}
               </span>
             </span>
-            {later > 0 ? (
-              <span className="mt-1 block text-xs text-iron-400">
-                y {later} {later === 1 ? 'reserva más' : 'reservas más'} esta semana
-              </span>
-            ) : null}
           </span>
           <Icon name="chevronRight" size={22} className="shrink-0 text-iron-400" />
         </button>
       ) : (
         <div className="flex items-center gap-4 rounded-2xl border border-iron-800 bg-iron-900 px-4 py-4">
           <span className="min-w-0 flex-1">
-            <span className="block font-semibold text-chalk">No tienes ninguna clase reservada</span>
-            <span className="block text-sm text-iron-400">Se reserva con {week.bookingDays} días de antelación.</span>
+            <span className="block font-semibold text-chalk">No tienes clases reservadas</span>
           </span>
           <button
             type="button"
@@ -140,34 +122,6 @@ export function HomeClasses({ onOpenClasses }: HomeClassesProps) {
           </button>
         </div>
       )}
-
-      {room.length > 0 ? (
-        <div>
-          <p className="mb-2 px-1 text-sm text-iron-400">
-            {roomDate === today ? 'Hoy' : longDateTitle(roomDate)} quedan plazas a las:
-          </p>
-          <ul className="flex gap-2 overflow-x-auto pb-1">
-            {room.slice(0, 6).map((c) => {
-              const free = c.capacity - c.booked;
-              return (
-                <li key={c.id} className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onOpenClasses(c.date)}
-                    aria-label={`${c.startsAt} ${c.name}: ${free} ${free === 1 ? 'plaza libre' : 'plazas libres'}`}
-                    className="flex min-h-14 flex-col items-center justify-center rounded-xl border border-iron-700 bg-iron-900 px-4 hover:border-signal-400"
-                  >
-                    <span className="figure text-lg font-bold leading-none text-chalk">{c.startsAt}</span>
-                    <span className="mt-1 text-xs font-semibold text-iron-300">
-                      {free} {free === 1 ? 'libre' : 'libres'}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
     </section>
   );
 }
