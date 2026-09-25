@@ -25,15 +25,6 @@ export const BOOKING_DAYS = 7;
  */
 export const ADMIN_DAYS_AHEAD = 90;
 
-/**
- * Norma de faltas: con tantas faltas sin avisar en los últimos treinta días,
- * no se puede reservar durante una semana desde la última. Solo cuentan las
- * que alguien marcó al pasar lista.
- */
-export const NO_SHOW_LIMIT = 3;
-export const NO_SHOW_WINDOW_DAYS = 30;
-export const NO_SHOW_BLOCK_DAYS = 7;
-
 /** Una plaza con sitio se puede soltar hasta una hora antes de empezar. */
 export const CANCEL_DEADLINE_MINUTES = 60;
 
@@ -636,23 +627,6 @@ export async function bookClass(
       if (paidUntil !== null && date > paidUntil) {
         throw new ClassRuleError(
           `Tu cuota está pagada hasta el ${spanishDate(paidUntil)}. Renuévala en recepción para reservar después de esa fecha.`,
-        );
-      }
-
-      const { rows: misses } = await tx.query<{ misses: number | string; blocked_until: string | null }>(
-        `SELECT COUNT(*) AS misses,
-                to_char(MAX(class_date) + $4::int, 'YYYY-MM-DD') AS blocked_until
-           FROM class_bookings
-          WHERE user_id = $1 AND attended = false
-            AND class_date >= ($2::timestamptz AT TIME ZONE $3)::date - $5::int`,
-        [userId, now.toISOString(), GYM_TIME_ZONE, NO_SHOW_BLOCK_DAYS, NO_SHOW_WINDOW_DAYS],
-      );
-      const count = Number(misses[0]?.misses ?? 0);
-      const blockedUntil = misses[0]?.blocked_until ?? null;
-      const today = now.toLocaleDateString('sv-SE', { timeZone: GYM_TIME_ZONE });
-      if (count >= NO_SHOW_LIMIT && blockedUntil !== null && today < blockedUntil) {
-        throw new ClassRuleError(
-          `Has faltado ${count} veces sin avisar en el último mes. Podrás volver a reservar desde el ${spanishDate(blockedUntil)}; si crees que es un error, habla con recepción.`,
         );
       }
     }

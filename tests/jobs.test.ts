@@ -158,46 +158,6 @@ describe('cambios de horario que tocan reservas', () => {
   });
 });
 
-describe('norma de faltas', () => {
-  it('con 3 faltas en 30 días no se reserva hasta una semana después de la última', async () => {
-    const owner = await signUp(OWNER);
-    const classId = await createClass(owner.agent);
-    const ana = await signUp('ana@ejemplo.com');
-    for (const day of ['2026-09-10', '2026-09-17', '2026-09-24']) {
-      await db.query(
-        `INSERT INTO class_bookings (class_id, class_date, user_id, attended) VALUES ($1, $2::date, $3, false)`,
-        [classId, day, ana.id],
-      );
-    }
-
-    const refused = await ana.agent.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(409);
-    expect(refused.body.error).toBe(
-      'Has faltado 3 veces sin avisar en el último mes. Podrás volver a reservar desde el 1 de octubre; si crees que es un error, habla con recepción.',
-    );
-
-    // Quien administra sí puede apuntarle.
-    await owner.agent.post(`/api/classes/${classId}/attendees`).send({ date: THURSDAY, userId: ana.id }).expect(201);
-
-    // Pasada la semana, vuelve a poder.
-    now = new Date('2026-10-01T08:00:00Z');
-    await ana.agent.delete(`/api/classes/${classId}/bookings/${THURSDAY}`).expect(204);
-    await ana.agent.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(201);
-  });
-
-  it('dos faltas, o faltas sin marcar, no bloquean', async () => {
-    const owner = await signUp(OWNER);
-    const classId = await createClass(owner.agent);
-    const ana = await signUp('ana@ejemplo.com');
-    for (const [day, attended] of [['2026-09-17', false], ['2026-09-24', false], ['2026-09-10', null]] as const) {
-      await db.query(
-        `INSERT INTO class_bookings (class_id, class_date, user_id, attended) VALUES ($1, $2::date, $3, $4)`,
-        [classId, day, ana.id, attended],
-      );
-    }
-    await ana.agent.post(`/api/classes/${classId}/bookings`).send({ date: THURSDAY }).expect(201);
-  });
-});
-
 describe('copia de seguridad', () => {
   it('manda a los propietarios un Excel con socios, horario, reservas y avisos', async () => {
     const owner = await signUp(OWNER);

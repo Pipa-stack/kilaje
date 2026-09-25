@@ -65,9 +65,6 @@ en la base lo que ya hizo para que un despliegue o un reinicio no repita nada.
   quien pasa a la espera; si las sube, a quien entra; si cambia la hora, a todos los
   apuntados; si cambia el día o borra la clase, a quien tenía reserva. Y si alguien
   con plaza borra su cuenta, al primero de la espera.
-- **Norma de faltas**: con 3 faltas marcadas en 30 días no se puede reservar hasta
-  una semana después de la última. Quien administra sí puede apuntarle.
-
 Todo necesita el correo configurado (Brevo). Sin él, el servidor lo avisa al arrancar.
 
 ### Lo del socio
