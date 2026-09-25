@@ -25,7 +25,8 @@ export type IconName =
   | 'pause'
   | 'star'
   | 'close'
-  | 'calendar';
+  | 'calendar'
+  | 'bell';
 
 interface IconProps {
   name: IconName;
@@ -97,6 +98,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
   pause: <path d="M9.5 5.5v13M14.5 5.5v13" />,
   star: <path d="m12 4 2.35 5.1 5.4.65-4 3.85 1.05 5.4L12 16.4 7.2 19l1.05-5.4-4-3.85 5.4-.65z" />,
   close: <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />,
+  bell: (
+    <>
+      <path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z" />
+      <path d="M10 20.5a2 2 0 0 0 4 0" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="4" y="5.5" width="16" height="15" rx="2" />

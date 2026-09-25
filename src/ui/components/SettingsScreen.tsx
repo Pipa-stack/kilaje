@@ -46,31 +46,7 @@ export function SettingsScreen({
 }: SettingsScreenProps) {
   return (
     <div className="space-y-4">
-      <section aria-labelledby="theme-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
-        <h2 id="theme-title" className="mb-1 font-semibold text-chalk">
-          Aspecto
-        </h2>
-        <p className="mb-3 text-sm text-iron-400">
-          «Sistema» sigue la preferencia del móvil y cambia sola al anochecer.
-        </p>
-        <div role="group" aria-label="Tema" className="flex gap-2">
-          {THEME_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => theme.select(option.id)}
-              aria-pressed={theme.choice === option.id}
-              className={`min-h-11 flex-1 rounded-xl border text-sm font-semibold transition-colors ${
-                theme.choice === option.id
-                  ? 'border-signal-500 bg-signal-500/10 text-signal-300'
-                  : 'border-iron-700 text-iron-400 hover:bg-iron-850'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <ThemeSection theme={theme} />
 
       <section aria-labelledby="import-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
         <h2 id="import-title" className="mb-1 font-semibold text-chalk">
@@ -245,7 +221,7 @@ export function SettingsScreen({
  * cannot be used to lock the owner out. On success the server also revokes
  * every other session, which is the point of changing it.
  */
-function PasswordForm() {
+export function PasswordForm() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -365,4 +341,39 @@ function formatDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 'fecha desconocida';
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Claro, oscuro o lo que diga el móvil. También lo usa la app de gestión. */
+export function ThemeSection({
+  theme,
+}: {
+  theme: { choice: ThemeChoice; select: (choice: ThemeChoice) => void };
+}) {
+  return (
+    <section aria-labelledby="theme-title" className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+      <h2 id="theme-title" className="mb-1 font-semibold text-chalk">
+        Aspecto
+      </h2>
+      <p className="mb-3 text-sm text-iron-400">
+        «Sistema» sigue la preferencia del móvil y cambia sola al anochecer.
+      </p>
+      <div role="group" aria-label="Tema" className="flex gap-2">
+        {THEME_OPTIONS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => theme.select(option.id)}
+            aria-pressed={theme.choice === option.id}
+            className={`min-h-11 flex-1 rounded-xl border text-sm font-semibold transition-colors ${
+              theme.choice === option.id
+                ? 'border-signal-500 bg-signal-500/10 text-signal-300'
+                : 'border-iron-700 text-iron-400 hover:bg-iron-850'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
 }

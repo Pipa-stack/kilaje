@@ -7,8 +7,6 @@ interface BottomNavProps {
   onChange: (tab: Tab) => void;
   /** Shown on the training tab so the day is identifiable at a glance. */
   dayLabel: string;
-  /** "Gestión" para quien administra. */
-  classesLabel?: string;
 }
 
 const ICONS: Record<Tab, IconName> = {
@@ -25,11 +23,11 @@ const ICONS: Record<Tab, IconName> = {
  * It sits above the safe-area inset so the labels are not swallowed by the
  * home indicator on iOS.
  */
-export function BottomNav({ current, onChange, dayLabel, classesLabel = 'Clases' }: BottomNavProps) {
+export function BottomNav({ current, onChange, dayLabel }: BottomNavProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
     { id: 'day', label: dayLabel },
-    { id: 'classes', label: classesLabel },
+    { id: 'classes', label: 'Clases' },
     { id: 'progress', label: 'Progreso' },
     { id: 'settings', label: 'Perfil' },
   ];

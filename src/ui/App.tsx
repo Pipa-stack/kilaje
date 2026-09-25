@@ -5,7 +5,7 @@ import { bestSetByLineage } from '../domain/calculations';
 import { AuthScreen } from './components/AuthScreen';
 import { BottomNav, type Tab } from './components/BottomNav';
 import { ClassesScreen } from './components/ClassesScreen';
-import { AdminScreen } from './components/AdminScreen';
+import { AdminApp } from './components/AdminScreen';
 import { AnnouncementsBanner } from './components/AnnouncementsBanner';
 import { DeleteAccount } from './components/DeleteAccount';
 import { DayView } from './components/DayView';
@@ -76,13 +76,24 @@ export default function App() {
     return <AuthScreen onSubmit={auth.submit} busy={auth.busy} error={auth.error} />;
   }
 
+  // Quien administra no entrena aquí: tiene su propia app de gestión. Sin
+  // conexión no se sabe quién es, y se sigue con la vista de siempre.
+  if (auth.account?.role === 'admin') {
+    return (
+      <AdminApp
+        email={auth.account.email}
+        currentUserId={auth.account.id}
+        theme={theme}
+        onSignOut={auth.signOut}
+      />
+    );
+  }
+
   return (
     <SignedIn
       theme={theme}
       onSignOut={auth.signOut}
       email={auth.account?.email ?? 'sin conexión'}
-      accountId={auth.account?.id ?? null}
-      isAdmin={auth.account?.role === 'admin'}
       tab={tab}
       setTab={setTab}
       showSettings={showSettings}
@@ -95,8 +106,6 @@ interface SignedInProps {
   theme: ReturnType<typeof useTheme>;
   onSignOut: () => Promise<void>;
   email: string;
-  accountId: number | null;
-  isAdmin: boolean;
   tab: Tab;
   setTab: (tab: Tab) => void;
   showSettings: boolean;
@@ -108,21 +117,13 @@ function SignedIn({
   theme,
   onSignOut,
   email,
-  accountId,
-  isAdmin,
   tab,
   setTab,
   showSettings,
   setShowSettings,
 }: SignedInProps) {
   const state = useProgram();
-  // Quien administra ve en esa pestaña la gestión del gimnasio en vez de la
-  // vista de socio: agenda, socios y horario.
-  const classesView = isAdmin ? (
-    <AdminScreen currentUserId={accountId} offline={state.offline} />
-  ) : (
-    <ClassesScreen offline={state.offline} />
-  );
+  const classesView = <ClassesScreen offline={state.offline} />;
   // Sin plan, quien eligió «Solo reservar clases» vuelve directo a ellas.
   const [classesOnly, setClassesOnly] = useState(loadClassesFirst);
 
@@ -417,7 +418,6 @@ function SignedIn({
           setTab(next);
         }}
         dayLabel={day.type ? `Día ${day.number}` : `Día ${day.number}`}
-        classesLabel={isAdmin ? 'Gestión' : 'Clases'}
       />
     </div>
   );

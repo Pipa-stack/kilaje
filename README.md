@@ -72,8 +72,12 @@ entrena y quien lleva el gimnasio.
 | Horario de clases, apuntados, anular un día | — | Sí |
 | Hacer o dejar de hacer administrador a alguien | — | Sí |
 
-Para quien administra, la pestaña *Clases* se llama **Gestión** y tiene tres partes,
-como las apps de gestión de gimnasios (Glofox, Mindbody Business, TeamUp):
+**Quien administra no entrena en Kilaje: tiene su propia app de gestión.** Al entrar
+va directo a ella, sin Inicio, Entrenar, Progreso ni planes, con su barra abajo:
+**Agenda · Socios · Horario · Avisos · Cuenta**. Es como las apps de gestión de
+gimnasios (Glofox, Mindbody Business, TeamUp). La vista del socio no cambia. Si quien
+administra también quiere entrenar, necesita una segunda cuenta de socio; lo que
+tuviera anotado se conserva, solo no se enseña.
 
 - **Agenda:** cada día con la ocupación de cada clase (`5/7`, `+2 espera`), de la
   semana actual a tres meses vista. Al tocar una clase: quién va y quién espera,

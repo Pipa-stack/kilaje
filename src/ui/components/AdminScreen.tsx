@@ -13,79 +13,135 @@ import {
   longDateTitle,
   weekdayOf,
 } from '../classDates';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
+import { PasswordForm, ThemeSection } from './SettingsScreen';
+import type { ThemeChoice } from '../hooks/useTheme';
 import { MembersScreen } from './MembersScreen';
 import { ScheduleEditor } from './ScheduleEditor';
 
-interface AdminScreenProps {
+interface AdminAppProps {
+  email: string;
   currentUserId: number | null;
-  offline: boolean;
+  theme: { choice: ThemeChoice; select: (choice: ThemeChoice) => void };
+  onSignOut: () => Promise<void>;
 }
 
-type Section = 'agenda' | 'members' | 'schedule' | 'notices';
+type Section = 'agenda' | 'members' | 'schedule' | 'notices' | 'account';
 
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: 'agenda', label: 'Agenda' },
-  { id: 'members', label: 'Socios' },
-  { id: 'schedule', label: 'Horario' },
-  { id: 'notices', label: 'Avisos' },
+const SECTIONS: { id: Section; label: string; icon: IconName }[] = [
+  { id: 'agenda', label: 'Agenda', icon: 'calendar' },
+  { id: 'members', label: 'Socios', icon: 'user' },
+  { id: 'schedule', label: 'Horario', icon: 'clock' },
+  { id: 'notices', label: 'Avisos', icon: 'bell' },
+  { id: 'account', label: 'Cuenta', icon: 'sliders' },
 ];
 
+/** Si hay red, según el navegador. La API dirá el resto cuando falle. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => globalThis.navigator?.onLine ?? true);
+  useEffect(() => {
+    const update = () => setOnline(globalThis.navigator?.onLine ?? true);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
+}
+
 /**
- * Gestión del gimnasio: lo que ve quien lo lleva.
+ * La app de quien lleva el gimnasio.
  *
- * Como las apps de gestión (Glofox, Mindbody Business, TeamUp), separada de la
- * vista del socio y ordenada por lo que se hace a diario: la **agenda** del
- * día con la ocupación de cada clase y su lista de apuntados; los **socios**;
- * y el **horario** semanal, que se toca de vez en cuando.
+ * Solo gestión, sin nada de entrenar: como las apps de gestión (Glofox,
+ * Mindbody Business, TeamUp), con su propia barra abajo ordenada por lo que
+ * se hace a diario — la **agenda** del día, los **socios**, el **horario**,
+ * los **avisos** — y la cuenta al final. La vista del socio no cambia.
  */
-export function AdminScreen({ currentUserId, offline }: AdminScreenProps) {
+export function AdminApp({ email, currentUserId, theme, onSignOut }: AdminAppProps) {
   const [section, setSection] = useState<Section>('agenda');
   // Desde la agenda se puede saltar a cambiar un turno en el horario.
   const [editClassId, setEditClassId] = useState<number | null>(null);
+  const offline = !useOnline();
+  const current = SECTIONS.find((candidate) => candidate.id === section)!;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-chalk">Gestión</h2>
-      </div>
+    <div className="mx-auto min-h-dvh w-full max-w-2xl px-4 pb-24 pt-4">
+      <header className="mb-4 flex items-baseline justify-between gap-3">
+        <h1 className="font-condensed text-2xl font-bold uppercase tracking-tight text-chalk">
+          {current.label}
+        </h1>
+        <span className="eyebrow">Kilaje · Gestión</span>
+      </header>
 
-      <nav aria-label="Gestión">
-        <ul className="grid grid-cols-4 gap-1 rounded-xl bg-iron-900 p-1">
-          {SECTIONS.map((candidate) => (
-            <li key={candidate.id}>
+      {offline ? (
+        <p role="alert" className="mb-4 rounded-xl border border-signal-500/40 bg-signal-500/10 px-3 py-2 text-sm text-signal-300">
+          Sin conexión. La gestión necesita internet: los cambios no se guardarán hasta que vuelva.
+        </p>
+      ) : null}
+
+      <main>
+        {section === 'agenda' ? (
+          <Agenda
+            offline={offline}
+            onEditClass={(classId) => {
+              setEditClassId(classId);
+              setSection('schedule');
+            }}
+          />
+        ) : null}
+        {section === 'members' ? <MembersScreen currentUserId={currentUserId} offline={offline} /> : null}
+        {section === 'schedule' ? <Schedule offline={offline} editClassId={editClassId} /> : null}
+        {section === 'notices' ? <Notices offline={offline} /> : null}
+        {section === 'account' ? (
+          <div className="space-y-4">
+            <section className="rounded-2xl border border-iron-800 bg-iron-900 p-4">
+              <h2 className="mb-1 font-semibold text-chalk">Tu cuenta</h2>
+              <p className="mb-3 break-all text-sm text-iron-400">{email}</p>
+              <PasswordForm />
               <button
                 type="button"
-                onClick={() => {
-                  setSection(candidate.id);
-                  setEditClassId(null);
-                }}
-                aria-current={section === candidate.id ? 'page' : undefined}
-                className={`min-h-10 w-full rounded-lg text-sm font-semibold transition-colors ${
-                  section === candidate.id
-                    ? 'bg-signal-500 text-iron-950'
-                    : 'text-iron-400 hover:text-iron-100'
-                }`}
+                onClick={() => void onSignOut()}
+                className="mt-3 min-h-11 w-full rounded-xl border border-iron-700 text-sm font-semibold text-iron-100 hover:bg-iron-850"
               >
-                {candidate.label}
+                Cerrar sesión
               </button>
-            </li>
-          ))}
+            </section>
+            <ThemeSection theme={theme} />
+          </div>
+        ) : null}
+      </main>
+
+      <nav
+        aria-label="Gestión"
+        className="fixed inset-x-0 bottom-0 z-10 border-t border-iron-800 bg-iron-950/95 backdrop-blur"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <ul className="mx-auto flex w-full max-w-2xl">
+          {SECTIONS.map((candidate) => {
+            const active = candidate.id === section;
+            return (
+              <li key={candidate.id} className="flex-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSection(candidate.id);
+                    setEditClassId(null);
+                  }}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 px-1 transition-colors ${
+                    active ? 'text-signal-300' : 'text-iron-400 hover:text-iron-100'
+                  }`}
+                >
+                  <Icon name={candidate.icon} size={22} />
+                  <span className="text-[11px] font-semibold">{candidate.label}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </nav>
-
-      {section === 'agenda' ? (
-        <Agenda
-          offline={offline}
-          onEditClass={(classId) => {
-            setEditClassId(classId);
-            setSection('schedule');
-          }}
-        />
-      ) : null}
-      {section === 'members' ? <MembersScreen currentUserId={currentUserId} offline={offline} /> : null}
-      {section === 'schedule' ? <Schedule offline={offline} editClassId={editClassId} /> : null}
-      {section === 'notices' ? <Notices offline={offline} /> : null}
     </div>
   );
 }

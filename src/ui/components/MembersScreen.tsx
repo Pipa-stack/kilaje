@@ -93,7 +93,8 @@ export function MembersScreen({ currentUserId, onBack, offline }: MembersScreenP
     <div className="space-y-4">
       {back}
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-xl font-bold text-chalk">Socios</h2>
+        {/* Dentro de la gestión el título ya está arriba: aquí sobraría. */}
+        <h2 className={onBack ? 'text-xl font-bold text-chalk' : 'sr-only'}>Socios</h2>
         {members ? <span className="text-sm text-iron-400">{members.length} en total</span> : null}
       </div>
 

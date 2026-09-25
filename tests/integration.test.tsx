@@ -59,11 +59,11 @@ beforeEach(async () => {
  * jsdom does not manage cookies across fetch, so the session cookie is
  * captured here and replayed on every later request by `installFetch`.
  */
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
+async function signIn(user: ReturnType<typeof userEvent.setup>, email = 'test@ejemplo.com') {
   await screen.findByRole('heading', { name: 'Kilaje' }, WAIT);
   // The screen opens on "Entrar"; switch it to registration.
   await user.click(screen.getByRole('button', { name: 'Crear una cuenta' }));
-  await user.type(screen.getByLabelText('Correo'), 'test@ejemplo.com');
+  await user.type(screen.getByLabelText('Correo'), email);
   await user.type(screen.getByLabelText('Contraseña'), 'contrasena-de-prueba');
   await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
   await waitFor(() => expect(sessionCookie).not.toBe(''), WAIT);
@@ -805,7 +805,7 @@ const WEEKDAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'S�
 describe('clases', () => {
   it('un socio sin plan reserva y anula, y la app vuelve a abrirse en las clases', async () => {
     // El horario lo monta quien administra (la cuenta de los tests) por la API.
-    const admin = await registerByApi('test@ejemplo.com');
+    const admin = await registerByApi('jefe@ejemplo.com');
     const created = await realFetch(`${API_ORIGIN}/api/classes/schedule`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
@@ -857,10 +857,12 @@ describe('gestión', () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await signIn(user);
-    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    await signIn(user, 'jefe@ejemplo.com');
 
+    // Quien administra entra directo a la gestión: nada de entrenar.
     const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
+    expect(screen.queryByRole('navigation', { name: 'Secciones' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Tengo una plantilla en Excel/ })).not.toBeInTheDocument();
     await user.click(sections.getByRole('button', { name: 'Horario' }));
 
     const form = await screen.findByRole('form', { name: 'Nueva clase' }, WAIT);
@@ -898,8 +900,7 @@ describe('gestión', () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await signIn(user);
-    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    await signIn(user, 'jefe@ejemplo.com');
     const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
     await user.click(sections.getByRole('button', { name: 'Socios' }));
 
@@ -910,7 +911,7 @@ describe('gestión', () => {
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
     fireEvent.change(input!, { target: { files: [referenceFile('Plan Ana.xlsx')] } });
     await screen.findByText('Plan «Plan Ana» subido a ana.', {}, WAIT);
-    expect(screen.getByText(/subido por test/)).toBeInTheDocument();
+    expect(screen.getByText(/subido por jefe/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Hacer administrador' }));
     await screen.findByText('ana ya es administrador.', {}, WAIT);
@@ -921,8 +922,7 @@ describe('avisos y cuenta', () => {
   it('quien administra publica un aviso y sale arriba; se puede cerrar', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await signIn(user);
-    await user.click(await screen.findByRole('button', { name: /Solo quiero reservar clases/ }, WAIT));
+    await signIn(user, 'jefe@ejemplo.com');
     const sections = within(await screen.findByRole('navigation', { name: 'Gestión' }, WAIT));
     await user.click(sections.getByRole('button', { name: 'Avisos' }));
 
